@@ -51,16 +51,25 @@ def expand(url):
         if re.search(pat, h): found.append(urllib.parse.urljoin(page, h))
     return sorted(dict.fromkeys(found), reverse=True)
 
-PATCHES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patches")
-def patch_dates(fname, data):
-    """For a railroad whose own file has run out of dates, swap in calendar files kept in scripts/patches/<name>/ (see the README there)."""
-    d = os.path.join(PATCHES, fname[:-4])
-    if not os.path.isdir(d): return data
-    zin = zipfile.ZipFile(io.BytesIO(data)); out = io.BytesIO(); zo = zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED)
-    swap = {n for n in os.listdir(d) if n.endswith(".txt")}
-    for n in zin.namelist():
-        if os.path.basename(n) not in swap: zo.writestr(n, zin.read(n))
-    for n in swap: zo.writestr(n, open(os.path.join(d, n), "rb").read())
+def fill_missing_times(data):
+    """Some small feeds (the Alaska Railroad's) list next season's trips but forget their stop times.
+    A trip with no times borrows them from the trip with the same name apart from the year (tripAuroraNB2027 <- tripAuroraNB2026)."""
+    if len(data) > 2_000_000: return data
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    st_name = next((n for n in zin.namelist() if re.search(r"(^|/)stop_times\.txt$", n)), None)
+    tr_name = next((n for n in zin.namelist() if re.search(r"(^|/)trips\.txt$", n)), None)
+    if not st_name or not tr_name: return data
+    trips = [r["trip_id"].strip() for r in csv.DictReader(io.StringIO(zin.read(tr_name).decode("utf-8-sig")))]
+    st_text = zin.read(st_name).decode("utf-8-sig"); rd = csv.DictReader(io.StringIO(st_text)); st = list(rd)
+    have = {r["trip_id"] for r in st}; added = []
+    for t in trips:
+        if t in have: continue
+        twin = next((h for h in have if re.sub(r"\d+", "", h) == re.sub(r"\d+", "", t)), None)
+        if twin: added += [{**r, "trip_id": t} for r in st if r["trip_id"] == twin]
+    if not added: return data
+    b = io.StringIO(); w = csv.DictWriter(b, fieldnames=rd.fieldnames, lineterminator="\n"); w.writeheader(); w.writerows(st + added)
+    out = io.BytesIO(); zo = zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED)
+    for n in zin.namelist(): zo.writestr(n, b.getvalue() if n == st_name else zin.read(n))
     zo.close(); return out.getvalue()
 
 def rows(z, name):
@@ -177,9 +186,7 @@ for name, fname, urls, allow in todo:
         stale = None
         for url in expanded:
             try:
-                raw = get(url); res = rail_only(raw, allow); tried.append(f"{url[:90]} -> {rail_only.weekday} a Monday")
-                if res is not None and rail_only.upcoming == 0 and os.path.isdir(os.path.join(PATCHES, fname[:-4])):
-                    res = rail_only(patch_dates(fname, raw), allow); tried.append(f"with this season's dates from scripts/patches -> {rail_only.upcoming} trains in the next six weeks")
+                res = rail_only(fill_missing_times(get(url)), allow); tried.append(f"{url[:90]} -> {rail_only.upcoming} trains in the next six weeks")
                 # a feed whose dates have run out: keep looking for a newer one, but remember it in case there is none
                 if res is not None and rail_only.upcoming == 0 and url != expanded[-1]: stale = (res, rail_only.weekday, rail_only.routes); res = None; err = "expired"; continue
                 if res is not None: break
