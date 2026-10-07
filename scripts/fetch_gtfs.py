@@ -142,7 +142,7 @@ mpath = os.path.join(OUT, "manifest.json")
 old = json.load(open(mpath)) if os.path.exists(mpath) else {}
 oldf = {f["file"]: f for f in old.get("feeds", [])}
 feeds, report = [], []
-todo = [(n, f, us, a) for n, f, us, a in DIRECT] + [(n, f, [u], None) for n, f, u, _ in catalog_feeds(["amtrak", "metro-north", "long island", "metra", "port authority trans-hudson", "trinity metro", "shore line east", "rio metro", "alaska railroad"])]
+todo = [(n, f, us, a) for n, f, us, a in DIRECT] + [(n, f, [u], None) for n, f, u, _ in catalog_feeds(["amtrak", "metro-north", "long island", "metra", "port authority trans-hudson", "trinity metro", "shore line east", "rio metro", "alaska railroad", "city of seattle"])]
 for name, fname, urls, allow in todo:
     path = os.path.join(OUT, fname)
     try:
