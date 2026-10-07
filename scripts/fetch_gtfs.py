@@ -36,7 +36,7 @@ RAIL_NAMES = [
     "rtd", "metrorail", "wego", "nashville", "nmdot", "new mexico department", "northstar", "sun metro", "septa regional rail", "new jersey transit", "mass transit administration", "south coast", "ace ",
     "hudson", "oc transportation", "orange county transportation", "san diego metropolitan", "mts", "valley metro", "rail",
 ]
-def is_rail(t, allow): return t in allow if allow else (t == "2" or (t.isdigit() and 100 <= int(t) <= 117))
+def is_rail(t, allow): return t == "2" or (t.isdigit() and 100 <= int(t) <= 117) or (allow is not None and t in allow)
 FIXED = (2020, 1, 1, 0, 0, 0)   # fixed timestamps so an unchanged feed gives an identical zip
 
 def get(url, timeout=180):
