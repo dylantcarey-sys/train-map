@@ -10,10 +10,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "gtfs")
 CATALOG = "https://files.mobilitydatabase.org/feeds_v2.csv"
 
-DIRECT = [  # name, file, url
-    ("Amtrak", "amtrak.zip", "https://content.amtrak.com/content/gtfs/GTFS.zip"),
-    ("Metro-North Railroad", "metro-north.zip", "https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip"),
-    ("Long Island Rail Road", "lirr.zip", "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip"),
+ANY = {"0", "1", "2"}   # for feeds that code their commuter trains as tram/metro
+DIRECT = [  # name, file, [urls tried in order], route types to keep (None = heavy/regional rail only)
+    ("Amtrak", "amtrak.zip", ["https://content.amtrak.com/content/gtfs/GTFS.zip"], None),
+    ("Metro-North Railroad", "metro-north.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip"], None),
+    ("Long Island Rail Road", "lirr.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip"], None),
+    ("Metra", "metra.zip", ["https://schedules.metrarail.com/gtfs/schedule.zip", "https://files.mobilitydatabase.org/mdb-2854/latest.zip"], ANY),
+    ("PATH", "path.zip", ["http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip", "https://files.mobilitydatabase.org/mdb-517/latest.zip"], ANY),
+    ("Alaska Railroad", "alaska-railroad.zip", ["https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20240419.zip", "https://files.mobilitydatabase.org/ntd-41/latest.zip"], None),
+    ("TEXRail (Trinity Metro)", "texrail.zip", ["https://gtfsdata.ridetm.org/gtfs/fwtatransitdata.zip", "https://files.mobilitydatabase.org/mdb-2890/latest.zip"], {"0", "2"}),
+    ("Shore Line East", "shore-line-east.zip", ["http://www.shorelineeast.com/google_transit.zip", "https://files.mobilitydatabase.org/mdb-550/latest.zip"], None),
+    ("Rail Runner Express", "rail-runner.zip", ["https://www.riometro.org/DocumentCenter/View/2195/nmrailrunner_google_transit", "https://files.mobilitydatabase.org/mdb-165/latest.zip"], None),
 ]
 # provider-name fragments (lower case) that mean "a passenger railroad worth having"
 RAIL_NAMES = [
@@ -29,7 +36,7 @@ RAIL_NAMES = [
     "rtd", "metrorail", "wego", "nashville", "nmdot", "new mexico department", "northstar", "sun metro", "septa regional rail", "new jersey transit", "mass transit administration", "south coast", "ace ",
     "hudson", "oc transportation", "orange county transportation", "san diego metropolitan", "mts", "valley metro", "rail",
 ]
-RAIL_TYPES = lambda t: t == "2" or (t.isdigit() and 100 <= int(t) <= 117)
+def is_rail(t, allow): return t in allow if allow else (t == "2" or (t.isdigit() and 100 <= int(t) <= 117))
 FIXED = (2020, 1, 1, 0, 0, 0)   # fixed timestamps so an unchanged feed gives an identical zip
 
 def get(url, timeout=180):
@@ -42,11 +49,11 @@ def rows(z, name):
     r = csv.DictReader(txt)
     return r.fieldnames, r
 
-def rail_only(data):
+def rail_only(data, allow=None):
     """Keep only the rail routes of a feed; returns (zip bytes, trips, agency names) or None if it has no rail."""
     zin = zipfile.ZipFile(io.BytesIO(data))
     _, routes = rows(zin, "routes")
-    rail = {r["route_id"] for r in routes if RAIL_TYPES((r.get("route_type") or "").strip())}
+    rail = {r["route_id"] for r in routes if is_rail((r.get("route_type") or "").strip(), allow)}
     if not rail: return None
     tf, trips = rows(zin, "trips")
     keep_trips, services, shapes, tr_rows = set(), set(), set(), []
@@ -110,11 +117,19 @@ mpath = os.path.join(OUT, "manifest.json")
 old = json.load(open(mpath)) if os.path.exists(mpath) else {}
 oldf = {f["file"]: f for f in old.get("feeds", [])}
 feeds, report = [], []
-todo = [(n, f, u, "") for n, f, u in DIRECT] + catalog_feeds(["amtrak", "metro-north", "long island"])
-for name, fname, url, cc in todo:
+todo = [(n, f, us, a) for n, f, us, a in DIRECT] + [(n, f, [u], None) for n, f, u, _ in catalog_feeds(["amtrak", "metro-north", "long island", "metra", "port authority trans-hudson", "trinity metro", "shore line east", "rio metro", "alaska railroad"])]
+for name, fname, urls, allow in todo:
     path = os.path.join(OUT, fname)
     try:
-        res = rail_only(get(url))
+        res, err = None, None
+        for url in urls:
+            try:
+                res = rail_only(get(url), allow)
+                if res is not None: break
+                err = "no rail routes"
+            except Exception as e:
+                err = str(e)
+        if res is None and err != "no rail routes": raise Exception(err)
         if res is None: report.append(f"{name}: no rail routes, skipped"); continue
         data, ntrips, agencies = res
         was = open(path, "rb").read() if os.path.exists(path) else None
