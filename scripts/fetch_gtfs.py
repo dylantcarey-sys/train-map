@@ -26,7 +26,7 @@ RAIL_NAMES = [
     "brightline", "go transit", "metrolinx", "exo", "agence m", "shore line east", "hartford line", "ctrail", "cttransit", "ctdot",
     "path", "port authority trans-hudson", "capital metro", "westside express", "trimet", "alaska railroad", "ontario northland",
     "downeaster", "northern new england passenger", "cape cod", "wmata", "amtrak", "maine", "lextran", "pace",
-    "rtd", "metrorail", "septa regional rail", "new jersey transit", "mass transit administration", "south coast", "ace ",
+    "rtd", "metrorail", "wego", "nashville", "nmdot", "new mexico department", "northstar", "sun metro", "septa regional rail", "new jersey transit", "mass transit administration", "south coast", "ace ",
     "hudson", "oc transportation", "orange county transportation", "san diego metropolitan", "mts", "valley metro", "rail",
 ]
 RAIL_TYPES = lambda t: t == "2" or (t.isdigit() and 100 <= int(t) <= 117)
@@ -96,6 +96,7 @@ def catalog_feeds(skip_words):
     for r in csv.DictReader(io.StringIO(text)):
         if (r.get("data_type") or "").lower() != "gtfs": continue
         if (r.get("status") or "active").lower() in ("deprecated", "inactive"): continue
+        if (r.get("location.country_code") or "").upper() not in ("US", "CA"): continue
         prov = (r.get("provider") or ""); hay = (prov + " " + (r.get("name") or "")).lower()
         if any(w in hay for w in skip_words): continue
         if not any(w in hay for w in RAIL_NAMES): continue
@@ -123,6 +124,17 @@ for name, fname, url, cc in todo:
     except Exception as e:
         report.append(f"{name}: FAILED ({e})")
         if fname in oldf: feeds.append(oldf[fname])
+# the catalog can list one railroad twice; keep the copy with more trips
+best = {}
+for f in feeds:
+    k = re.sub(r"\W+", " ", f["name"].lower()).strip()
+    if k not in best or f.get("trips", 0) > best[k].get("trips", 0): best[k] = f
+for f in feeds:
+    if best[re.sub(r"\W+", " ", f["name"].lower()).strip()] is not f and os.path.exists(os.path.join(OUT, f["file"])):
+        os.remove(os.path.join(OUT, f["file"]))
+feeds = list(best.values())
+for f in feeds:
+    if len(f["name"]) > 60: f["name"] = f["name"][:57].rsplit(",", 1)[0].rstrip(" ,") + " …"
 for line in report: print(line)
 feeds.sort(key=lambda f: f["name"].lower())
 man = {"updated": datetime.date.today().isoformat(), "feeds": feeds, "report": report}
