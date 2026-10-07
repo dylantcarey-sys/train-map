@@ -1,0 +1,769 @@
+{
+ "updated": "2026-10-07",
+ "feeds": [
+  {
+   "name": "Alaska Railroad",
+   "file": "alaska-railroad.zip",
+   "trips": 13,
+   "weekday": 0,
+   "routes": [
+    "Aurora Winter Northbound [2]",
+    "Aurora Winter Southbound [2]",
+    "Coastal Classic [2]",
+    "Denali Star Northbound [2]",
+    "Denali Star Southbound [2]",
+    "Glacier Discovery [2]",
+    "Hurricane Turn [2]"
+   ],
+   "agencies": [
+    "Alaska Railroad"
+   ],
+   "kb": 3
+  },
+  {
+   "name": "Altamont Corridor Express",
+   "file": "altamont-corridor-express-mdb-2684.zip",
+   "trips": 44,
+   "weekday": 10,
+   "routes": [
+    "Altamont Commuter Express [2]"
+   ],
+   "agencies": [
+    "Altamont Corridor Express"
+   ],
+   "kb": 18
+  },
+  {
+   "name": "Amtrak",
+   "file": "amtrak.zip",
+   "trips": 2350,
+   "weekday": 415,
+   "routes": [
+    "Acela [2]",
+    "Adirondack [2]",
+    "Amtrak Cascades [2]",
+    "Amtrak Hartford Line [2]",
+    "Amtrak Mardi Gras Service [2]",
+    "Auto Train [2]",
+    "Blue Water [2]",
+    "Borealis [2]",
+    "California Zephyr [2]",
+    "Capitol Corridor [2]",
+    "Cardinal [2]",
+    "Carl Sandburg [2]",
+    "Carolinian [2]",
+    "City of New Orleans [2]",
+    "Coast Starlight [2]",
+    "Commuter Rail [2]",
+    "Crescent [2]",
+    "Downeaster [2]",
+    "Empire Builder [2]",
+    "Empire Service [2]",
+    "Ethan Allen Express [2]",
+    "Floridian [2]",
+    "Heartland Flyer [2]",
+    "Hiawatha Service [2]",
+    "Illini [2]",
+    "Illinois Zephyr [2]",
+    "Keystone Service [2]",
+    "Lake Shore Limited [2]",
+    "Lincoln Service Missouri River Runner [2]",
+    "Lincoln Service [2]",
+    "Maple Leaf [2]",
+    "Missouri River Runner [2]",
+    "Northeast Regional [2]",
+    "Pacific Surfliner [2]",
+    "Palmetto [2]",
+    "Pennsylvanian [2]",
+    "Pere Marquette [2]",
+    "Piedmont [2]",
+    "Saluki [2]",
+    "Silver Meteor [2]",
+    "Southwest Chief [2]",
+    "Sunset Limited [2]",
+    "Texas Eagle [2]",
+    "Valley Flyer [2]",
+    "Vermonter [2]",
+    "Wolverine [2]"
+   ],
+   "agencies": [
+    "AVLN",
+    "Alvand Transportation",
+    "Amtrak",
+    "Amtrak Chartered Motorcoach",
+    "Amtrak Chartered Vehicle",
+    "Arrow Trailways",
+    "Beeline Express",
+    "CLAS",
+    "Coach Usa",
+    "Executive Transportation",
+    "FLIX",
+    "MARC",
+    "Roadrunner Shuttle",
+    "Route 66 Express",
+    "Shore Line East",
+    "Stagecoach Express",
+    "Sunway Charters",
+    "Temporary Amtrak Chartered Vehicle",
+    "The Lift",
+    "Vegas Airporter",
+    "Via Rail Canada"
+   ],
+   "kb": 4806
+  },
+  {
+   "name": "Brightline Trains LLC",
+   "file": "brightline-trains-llc-mdb-1126.zip",
+   "trips": 521,
+   "weekday": 36,
+   "routes": [
+    "Mainline [2]"
+   ],
+   "agencies": [
+    "Brightline",
+    "Event Train"
+   ],
+   "kb": 29
+  },
+  {
+   "name": "Caltrain",
+   "file": "caltrain-mdb-54.zip",
+   "trips": 260,
+   "weekday": 112,
+   "routes": [
+    "Express [2]",
+    "Limited [2]",
+    "Local Weekday [2]",
+    "Local Weekend [2]",
+    "South Santa Clara County Connector [2]"
+   ],
+   "agencies": [
+    "Caltrain"
+   ],
+   "kb": 163
+  },
+  {
+   "name": "Capitol Corridor Joint Powers Authority (Capitol Corridor)",
+   "file": "capitol-corridor-joint-powers-authority-mdb-74.zip",
+   "trips": 56,
+   "weekday": 29,
+   "routes": [
+    "Capitol Corridor [2]"
+   ],
+   "agencies": [
+    "Capitol Corridor Joint Powers Authority"
+   ],
+   "kb": 193
+  },
+  {
+   "name": "Connecticut Transit",
+   "file": "connecticut-transit-mdb-2840.zip",
+   "trips": 39,
+   "weekday": 27,
+   "routes": [
+    "Hartford Line [2]"
+   ],
+   "agencies": [
+    "CONN DOT"
+   ],
+   "kb": 2534
+  },
+  {
+   "name": "Dallas Area Rapid Transit (DART)",
+   "file": "dallas-area-rapid-transit-dart-mdb-152.zip",
+   "trips": 622,
+   "weekday": 138,
+   "routes": [
+    "SILVER LINE [2]",
+    "TRINITY RAILWAY [2]"
+   ],
+   "agencies": [
+    "DALLAS AREA RAPID TRANSIT"
+   ],
+   "kb": 57
+  },
+  {
+   "name": "Exo",
+   "file": "exo-mdb-748.zip",
+   "trips": 159,
+   "weekday": 103,
+   "routes": [
+    "11 - Vaudreuil/Hudson [2]",
+    "12 - Saint-Jérôme [2]",
+    "13 - Mont-Saint-Hilaire [2]",
+    "14 - Candiac [2]",
+    "15 - Mascouche [2]"
+   ],
+   "agencies": [
+    "exo-Réseau de transport métropolitain"
+   ],
+   "kb": 108
+  },
+  {
+   "name": "Florida Department of Transportation (SunRail)",
+   "file": "florida-department-of-transportation-sun-mdb-626.zip",
+   "trips": 43,
+   "weekday": 42,
+   "routes": [
+    "SunRail [2]"
+   ],
+   "agencies": [
+    "Florida Department of Transportation"
+   ],
+   "kb": 18
+  },
+  {
+   "name": "Go Transit",
+   "file": "go-transit-mdb-1993.zip",
+   "trips": 16596,
+   "weekday": 354,
+   "routes": [
+    "Barrie [2]",
+    "Kitchener [2]",
+    "Lakeshore East [2]",
+    "Lakeshore West [2]",
+    "Milton [2]",
+    "Richmond Hill [2]",
+    "Stouffville [2]"
+   ],
+   "agencies": [
+    "GO Transit"
+   ],
+   "kb": 2027
+  },
+  {
+   "name": "Long Island Rail Road",
+   "file": "lirr.zip",
+   "trips": 2180,
+   "weekday": 953,
+   "routes": [
+    "Babylon Branch [2]",
+    "Belmont Park [2]",
+    "City Terminal Zone [2]",
+    "Far Rockaway Branch [2]",
+    "Greenport Service [2]",
+    "Hempstead Branch [2]",
+    "Long Beach Branch [2]",
+    "Montauk Branch [2]",
+    "Oyster Bay Branch [2]",
+    "Port Jefferson Branch [2]",
+    "Port Washington Branch [2]",
+    "Ronkonkoma Branch [2]",
+    "West Hempstead Branch [2]"
+   ],
+   "agencies": [
+    "Long Island Rail Road"
+   ],
+   "kb": 1663
+  },
+  {
+   "name": "Maryland Transit Administration",
+   "file": "maryland-transit-administration-mdb-468.zip",
+   "trips": 176,
+   "weekday": 96,
+   "routes": [
+    "BRUNSWICK - WASHINGTON [2]",
+    "CAMDEN - WASHINGTON [2]",
+    "PENN - WASHINGTON [2]"
+   ],
+   "agencies": [
+    "Maryland Transit Administration"
+   ],
+   "kb": 247
+  },
+  {
+   "name": "Massachusetts Bay Transportation Authority (MBTA)",
+   "file": "massachusetts-bay-transportation-authori-mdb-437.zip",
+   "trips": 1116,
+   "weekday": 547,
+   "routes": [
+    "CapeFLYER [2]",
+    "Fairmount Line [2]",
+    "Fall River/New Bedford Line [2]",
+    "Fitchburg Line [2]",
+    "Foxboro Event Service [2]",
+    "Framingham/Worcester Line [2]",
+    "Franklin/Foxboro Line [2]",
+    "Greenbush Line [2]",
+    "Haverhill Line [2]",
+    "Kingston Line [2]",
+    "Lowell Line [2]",
+    "Needham Line [2]",
+    "Newburyport/Rockport Line [2]",
+    "Providence/Stoughton Line [2]"
+   ],
+   "agencies": [
+    "Cape Cod Regional Transit Authority",
+    "MBTA"
+   ],
+   "kb": 784
+  },
+  {
+   "name": "Metra",
+   "file": "metra.zip",
+   "trips": 8504,
+   "weekday": 678,
+   "routes": [
+    "Burlington Northern [2]",
+    "Heritage Corridor [2]",
+    "Metra Electric [2]",
+    "Milwaukee North [2]",
+    "Milwaukee West [2]",
+    "North Central Service [2]",
+    "Rock Island [2]",
+    "Southwest Service [2]",
+    "Union Pacific North [2]",
+    "Union Pacific Northwest [2]",
+    "Union Pacific West [2]"
+   ],
+   "agencies": [
+    "Metra"
+   ],
+   "kb": 608
+  },
+  {
+   "name": "Metro-North Railroad",
+   "file": "metro-north.zip",
+   "trips": 35990,
+   "weekday": 729,
+   "routes": [
+    "Danbury [2]",
+    "Harlem [2]",
+    "Hudson [2]",
+    "New Canaan [2]",
+    "New Haven [2]",
+    "Waterbury [2]"
+   ],
+   "agencies": [
+    "Metro-North Railroad"
+   ],
+   "kb": 4001
+  },
+  {
+   "name": "Metrolink",
+   "file": "metrolink-mdb-96.zip",
+   "trips": 317,
+   "weekday": 178,
+   "routes": [
+    "Metrolink 91-Perris Valley Line [2]",
+    "Metrolink Antelope Valley Line [2]",
+    "Metrolink Inland Empire-Orange County Line [2]",
+    "Metrolink Orange County Line [2]",
+    "Metrolink Riverside Line [2]",
+    "Metrolink San Bernardino Line [2]",
+    "Metrolink Ventura County Line [2]"
+   ],
+   "agencies": [
+    "Metrolink Trains"
+   ],
+   "kb": 38
+  },
+  {
+   "name": "Nashville MTA WeGo Public Transit",
+   "file": "nashville-mta-wego-public-transit-mdb-360.zip",
+   "trips": 24,
+   "weekday": 12,
+   "routes": [
+    "WEGO STAR [2]"
+   ],
+   "agencies": [
+    "WeGo Public Transit"
+   ],
+   "kb": 27
+  },
+  {
+   "name": "New Jersey Transit (NJ Transit)",
+   "file": "new-jersey-transit-nj-transit-mdb-509.zip",
+   "trips": 3796,
+   "weekday": 772,
+   "routes": [
+    "Atlantic City Rail Line [2]",
+    "Gladstone Branch [2]",
+    "Main/Bergen County Line [2]",
+    "Meadowlands Rail Line [2]",
+    "Montclair-Boonton Line [2]",
+    "Morris & Essex Line [2]",
+    "North Jersey Coast Line [2]",
+    "Northeast Corridor [2]",
+    "Pascack Valley Line [2]",
+    "Port Jervis Line [2]",
+    "Princeton Shuttle [2]",
+    "Raritan Valley Line [2]"
+   ],
+   "agencies": [
+    "NJ TRANSIT BUS",
+    "NJ TRANSIT RAIL"
+   ],
+   "kb": 5657
+  },
+  {
+   "name": "North County Transit District (NCTD)",
+   "file": "north-county-transit-district-nctd-mdb-3093.zip",
+   "trips": 168,
+   "weekday": 30,
+   "routes": [
+    "COASTER [2]"
+   ],
+   "agencies": [
+    "North County Transit District"
+   ],
+   "kb": 19
+  },
+  {
+   "name": "Rail Runner Express",
+   "file": "rail-runner.zip",
+   "trips": 52,
+   "weekday": 27,
+   "routes": [
+    "Santa Fe / Albuquerque / Belen [2]"
+   ],
+   "agencies": [
+    "Rio Metro Regional Transit District - Bus",
+    "Rio Metro Regional Transit District - Rail Runner"
+   ],
+   "kb": 15
+  },
+  {
+   "name": "Regional Transportation District (RTD)",
+   "file": "regional-transportation-district-rtd-mdb-178.zip",
+   "trips": 1319,
+   "weekday": 340,
+   "routes": [
+    "Union Station to Denver Airport Station [2]",
+    "Union Station to Eastlake & 124th Station [2]",
+    "Union Station to Westminster Station [2]",
+    "Union Station to Wheat Ridge Ward Station [2]"
+   ],
+   "agencies": [
+    "Regional Transportation District"
+   ],
+   "kb": 124
+  },
+  {
+   "name": "Shore Line East",
+   "file": "shore-line-east.zip",
+   "trips": 76,
+   "weekday": 24,
+   "routes": [
+    "Shore Line East [2]"
+   ],
+   "agencies": [
+    "CTrail Shore Line East"
+   ],
+   "kb": 6
+  },
+  {
+   "name": "Sonoma Marin Area Rail Transit (SMART)",
+   "file": "sonoma-marin-area-rail-transit-smart-mdb-3222.zip",
+   "trips": 72,
+   "weekday": 48,
+   "routes": [
+    "Main Line [2]"
+   ],
+   "agencies": [
+    "Sonoma-Marin Area Rail Transit"
+   ],
+   "kb": 48
+  },
+  {
+   "name": "Sound Transit",
+   "file": "sound-transit-mdb-268.zip",
+   "trips": 185,
+   "weekday": 34,
+   "routes": [
+    "Everett - Seattle [2]",
+    "Seattle - Tacoma/Lakewood [2]"
+   ],
+   "agencies": [
+    "Sound Transit"
+   ],
+   "kb": 25
+  },
+  {
+   "name": "South Florida Regional Transportation Authority",
+   "file": "south-florida-regional-transportation-au-tld-492.zip",
+   "trips": 129,
+   "weekday": 76,
+   "routes": [
+    "Downtown Miami Link [2]",
+    "Mainline [2]"
+   ],
+   "agencies": [
+    "Tri-Rail"
+   ],
+   "kb": 25
+  },
+  {
+   "name": "South Shore Line",
+   "file": "south-shore-line-mdb-585.zip",
+   "trips": 139,
+   "weekday": 92,
+   "routes": [
+    "Lakeshore Corridor [2]",
+    "Monon Corridor [2]"
+   ],
+   "agencies": [
+    "Northern Indiana Commuter Transportation District"
+   ],
+   "kb": 32
+  },
+  {
+   "name": "Southeastern Pennsylvania Transportation Authority (SEPTA)",
+   "file": "southeastern-pennsylvania-transportation-mdb-503.zip",
+   "trips": 2340,
+   "weekday": 634,
+   "routes": [
+    "Airport Line [2]",
+    "Chestnut Hill East Line [2]",
+    "Chestnut Hill West Line [2]",
+    "Cynwyd Line [2]",
+    "Fox Chase Line [2]",
+    "Lansdale/Doylestown Line [2]",
+    "Manayunk/Norristown Line [2]",
+    "Media/Wawa Line [2]",
+    "Paoli/Thorndale Line [2]",
+    "Trenton Line [2]",
+    "Warminster Line [2]",
+    "West Trenton Line [2]",
+    "Wilmington/Newark Line [2]"
+   ],
+   "agencies": [
+    "SEPTA"
+   ],
+   "kb": 740
+  },
+  {
+   "name": "TEXRail (Trinity Metro)",
+   "file": "texrail.zip",
+   "trips": 296,
+   "weekday": 74,
+   "routes": [
+    "TEXRail [0]"
+   ],
+   "agencies": [
+    "Grapevine Visitors Shuttle",
+    "Trinity Metro"
+   ],
+   "kb": 35
+  },
+  {
+   "name": "TriMet, Portland Streetcar",
+   "file": "trimet-portland-streetcar-mdb-247.zip",
+   "trips": 60,
+   "weekday": 20,
+   "routes": [
+    "WES Commuter Rail [2]"
+   ],
+   "agencies": [
+    "Portland Aerial Tram",
+    "Portland Streetcar",
+    "TriMet"
+   ],
+   "kb": 48
+  },
+  {
+   "name": "Utah Transit Authority (UTA)",
+   "file": "utah-transit-authority-uta-mdb-170.zip",
+   "trips": 120,
+   "weekday": 61,
+   "routes": [
+    "FrontRunner [2]"
+   ],
+   "agencies": [
+    "Utah Transit Authority"
+   ],
+   "kb": 70
+  },
+  {
+   "name": "VIA Rail Canada",
+   "file": "via-rail-canada-mdb-735.zip",
+   "trips": 84,
+   "weekday": 57,
+   "routes": [
+    "Jasper - Prince Rupert [2]",
+    "Montréal - Halifax [2]",
+    "Montréal - Jonquière [2]",
+    "Montréal - Senneterre [2]",
+    "Montréal - Toronto [2]",
+    "Ottawa - Montréal [2]",
+    "Ottawa - Québec [2]",
+    "Ottawa - Toronto [2]",
+    "Québec - Fallowfield [2]",
+    "Québec - Montréal [2]",
+    "Sudbury - White River [2]",
+    "The Pas - Churchill [2]",
+    "Toronto - London [2]",
+    "Toronto - New York [2]",
+    "Toronto - Sarnia [2]",
+    "Toronto - Windsor [2]",
+    "Vancouver - Toronto [2]",
+    "Winnipeg - Churchill [2]"
+   ],
+   "agencies": [
+    "VIA Rail"
+   ],
+   "kb": 980
+  },
+  {
+   "name": "Virginia Railway Express",
+   "file": "virginia-railway-express-tld-61.zip",
+   "trips": 50,
+   "weekday": 32,
+   "routes": [
+    "Fredericksburg Line [2]",
+    "Manassas Line [2]"
+   ],
+   "agencies": [
+    "Virginia Railway Express"
+   ],
+   "kb": 25
+  }
+ ],
+ "report": [
+  "Amtrak: 415 trains a Monday (2350 trips in feed), 4806 KB (unchanged)",
+  "Metro-North Railroad: 729 trains a Monday (35990 trips in feed), 4001 KB (unchanged)",
+  "Long Island Rail Road: 953 trains a Monday (2180 trips in feed), 1663 KB (unchanged)",
+  "Metra: 678 trains a Monday (8504 trips in feed), 608 KB (unchanged) [tried: https://schedules.metrarail.com/gtfs/schedule.zip -> 23384 trains in the next six weeks; ]",
+  "Alaska Railroad: 0 trains a Monday (13 trips in feed), 3 KB [tried: https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20260410.zip -> 13 trains in the next six weeks; 3 trips given times from last season's twin]",
+  "TEXRail (Trinity Metro): 74 trains a Monday (296 trips in feed), 35 KB (unchanged) [tried: https://gtfsdata.ridetm.org/gtfs/fwtatransitdata.zip -> 3108 trains in the next six weeks; ]",
+  "Shore Line East: 24 trains a Monday (76 trips in feed), 6 KB (unchanged) [tried: file:///tmp/sle/build/sle-gtfs.zip -> 560 trains in the next six weeks; no gaps found (76 trips, 76 with times)]",
+  "Rail Runner Express: 27 trains a Monday (52 trips in feed), 15 KB (unchanged) [tried: https://mjcaction.com/MJC_GTFS_Public/nmrailrunner_google_transit.zip -> 966 trains in the next six weeks; no gaps found (151 trips, 151 with times)]",
+  "San Diego International Airport, Metropolitan Transit System (MTS): no rail routes, skipped (1 url(s); last feed had 104 routes, types ['0', '3', '4'], via https://files.mobilitydatabase.org/mdb-13/latest.zip)",
+  "Orange County Transportation Authority (OCTA): no rail routes, skipped (1 url(s); last feed had 62 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-15/latest.zip)",
+  "Los Angeles County Metropolitan Transportation Authority (LA Metro): no rail routes, skipped (1 url(s); last feed had 6 routes, types ['0', '1'], via https://files.mobilitydatabase.org/mdb-30/latest.zip)",
+  "Caltrain: 112 trains a Monday (260 trips in feed), 163 KB (unchanged)",
+  "Capitol Corridor Joint Powers Authority (Capitol Corridor): 29 trains a Monday (56 trips in feed), 193 KB (unchanged)",
+  "Metrolink: 178 trains a Monday (317 trips in feed), 38 KB (unchanged)",
+  "Valley Metro (VM): no rail routes, skipped (1 url(s); last feed had 112 routes, types ['0', '3'], via https://files.mobilitydatabase.org/mdb-147/latest.zip)",
+  "Capital Metro: no rail routes, skipped (1 url(s); last feed had 71 routes, types ['0', '3'], via https://files.mobilitydatabase.org/mdb-150/latest.zip)",
+  "Dallas Area Rapid Transit (DART): 138 trains a Monday (622 trips in feed), 57 KB (unchanged)",
+  "Utah Transit Authority (UTA): 61 trains a Monday (120 trips in feed), 70 KB (unchanged)",
+  "Regional Transportation District (RTD): 340 trains a Monday (1319 trips in feed), 124 KB (unchanged)",
+  "Metro Transit: no rail routes, skipped (1 url(s); last feed had 126 routes, types ['0', '3'], via https://files.mobilitydatabase.org/mdb-205/latest.zip)",
+  "TriMet, Portland Streetcar: 20 trains a Monday (60 trips in feed), 48 KB (unchanged)",
+  "Sound Transit: 34 trains a Monday (185 trips in feed), 25 KB (unchanged)",
+  "South Florida Regional Transportation Authority (Tri-Rail): 80 trains a Monday (110 trips in feed), 26 KB",
+  "Nashville MTA WeGo Public Transit: 12 trains a Monday (24 trips in feed), 27 KB (unchanged)",
+  "Chicago Transit Authority (CTA): no rail routes, skipped (1 url(s); last feed had 132 routes, types ['1', '3'], via https://files.mobilitydatabase.org/mdb-389/latest.zip)",
+  "Metro Transit - City of Madison: no rail routes, skipped (1 url(s); last feed had 29 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-394/latest.zip)",
+  "GO Transit: no rail routes, skipped (1 url(s); last feed had 9 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-397/latest.zip)",
+  "Suburban Mobility Authority for Regional Transit (SMART): no rail routes, skipped (1 url(s); last feed had 45 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-414/latest.zip)",
+  "Marble Valley Regional Transit District (MVRTD): no rail routes, skipped (1 url(s); last feed had 17 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-430/latest.zip)",
+  "Massachusetts Bay Transportation Authority (MBTA): 547 trains a Monday (1116 trips in feed), 784 KB (unchanged)",
+  "Durango Transit: no rail routes, skipped (1 url(s); last feed had 5 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-456/latest.zip)",
+  "Maryland Transit Administration: no rail routes, skipped (1 url(s); last feed had 66 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-466/latest.zip)",
+  "Maryland Transit Administration: no rail routes, skipped (1 url(s); last feed had 37 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-467/latest.zip)",
+  "Maryland Transit Administration: 96 trains a Monday (176 trips in feed), 247 KB (unchanged)",
+  "Maryland Transit Administration: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['0'], via https://files.mobilitydatabase.org/mdb-469/latest.zip)",
+  "Maryland Transit Administration Metro Subway: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['1'], via https://files.mobilitydatabase.org/mdb-470/latest.zip)",
+  "Southeastern Pennsylvania Transportation Authority (SEPTA): no rail routes, skipped (1 url(s); last feed had 168 routes, types ['0', '1', '11', '3'], via https://files.mobilitydatabase.org/mdb-502/latest.zip)",
+  "Southeastern Pennsylvania Transportation Authority (SEPTA): 634 trains a Monday (2340 trips in feed), 740 KB (unchanged)",
+  "New Jersey Transit (NJ Transit): no rail routes, skipped (1 url(s); last feed had 263 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-508/latest.zip)",
+  "New Jersey Transit (NJ Transit): 772 trains a Monday (3796 trips in feed), 5657 KB (unchanged)",
+  "Plymouth & Brockton Street Railway Co: no rail routes, skipped (1 url(s); last feed had 2 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-556/latest.zip)",
+  "South Shore Line: 92 trains a Monday (139 trips in feed), 32 KB (unchanged)",
+  "Florida Department of Transportation (SunRail): 42 trains a Monday (43 trips in feed), 18 KB (unchanged)",
+  "Cape Cod Regional Transportation Authority (Cape Cod RTA): no rail routes, skipped (1 url(s); last feed had 15 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-645/latest.zip)",
+  "VIA Rail Canada: 57 trains a Monday (84 trips in feed), 980 KB (unchanged)",
+  "Exo Sorel-Varennes: no rail routes, skipped (1 url(s); last feed had 12 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-741/latest.zip)",
+  "Exo Sud-ouest: no rail routes, skipped (1 url(s); last feed had 26 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-742/latest.zip)",
+  "Exo La Presqu'île: no rail routes, skipped (1 url(s); last feed had 19 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-743/latest.zip)",
+  "Exo Laurentides: no rail routes, skipped (1 url(s); last feed had 49 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-744/latest.zip)",
+  "Exo: 103 trains a Monday (159 trips in feed), 108 KB (unchanged)",
+  "Exo Chambly-Richelieu-Carignan: no rail routes, skipped (1 url(s); last feed had 24 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-750/latest.zip)",
+  "Exo Vallée du Richelieu: no rail routes, skipped (1 url(s); last feed had 14 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-752/latest.zip)",
+  "Exo Ville de Sainte-Julie: no rail routes, skipped (1 url(s); last feed had 14 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-753/latest.zip)",
+  "Exo L'Assomption: no rail routes, skipped (1 url(s); last feed had 13 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-755/latest.zip)",
+  "Rensselaer County (Yankee Trails): no rail routes, skipped (1 url(s); last feed had 1 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-804/latest.zip)",
+  "Adirondack Trailways ADP: no rail routes, skipped (1 url(s); last feed had 13 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-823/latest.zip)",
+  "Adirondack Trailways NYP: no rail routes, skipped (1 url(s); last feed had 9 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-824/latest.zip)",
+  "San Joaquin Regional Transit District (RTD): no rail routes, skipped (1 url(s); last feed had 42 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-886/latest.zip)",
+  "Lower Hudson Valley Transit: no rail routes, skipped (1 url(s); last feed had 7 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-915/latest.zip)",
+  "Brightline Trains LLC: 36 trains a Monday (521 trips in feed), 29 KB (unchanged)",
+  "Quail Trail Public Transit: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-1327/latest.zip)",
+  "Washington Metropolitan Area Transit Authority (WMATA): no rail routes, skipped (1 url(s); last feed had 126 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-1846/latest.zip)",
+  "Washington Metropolitan Area Transit Authority (WMATA): no rail routes, skipped (1 url(s); last feed had 6 routes, types ['1'], via https://files.mobilitydatabase.org/mdb-1847/latest.zip)",
+  "Go Transit: 354 trains a Monday (16596 trips in feed), 2027 KB (unchanged)",
+  "Regional Transportation District: 340 trains a Monday (1319 trips in feed), 125 KB",
+  "Lextran: no rail routes, skipped (1 url(s); last feed had 28 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2067/latest.zip)",
+  "Exo Le Richelain / Roussillon: no rail routes, skipped (1 url(s); last feed had 38 routes, types ['1501', '3'], via https://files.mobilitydatabase.org/mdb-2142/latest.zip)",
+  "San Joaquin Regional Transit District: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2180/latest.zip)",
+  "Valley Metro: no rail routes, skipped (1 url(s); last feed had 33 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2274/latest.zip)",
+  "Regional Transportation District (RTD): no rail routes, skipped (1 url(s); last feed had 6 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2280/latest.zip)",
+  "Durango Transit: no rail routes, skipped (1 url(s); last feed had 2 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2290/latest.zip)",
+  "Mountain Metro Transit: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2292/latest.zip)",
+  "Hudson Link: no rail routes, skipped (1 url(s); last feed had 5 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2312/latest.zip)",
+  "Pace Bus: no rail routes, skipped (1 url(s); last feed had 134 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2347/latest.zip)",
+  "Valley Metro: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2437/latest.zip)",
+  "Hamilton Street Railway: no rail routes, skipped (1 url(s); last feed had 41 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2618/latest.zip)",
+  "Altamont Corridor Express: 10 trains a Monday (44 trips in feed), 18 KB (unchanged)",
+  "South Metro Area Regional Transit (SMART): no rail routes, skipped (1 url(s); last feed had 9 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2706/latest.zip)",
+  "Marble Valley Regional Transit District (MVRTD): no rail routes, skipped (1 url(s); last feed had 19 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-2831/latest.zip)",
+  "Connecticut Transit: 27 trains a Monday (39 trips in feed), 2534 KB (unchanged)",
+  "North County Transit District (NCTD): 30 trains a Monday (168 trips in feed), 19 KB (unchanged)",
+  "GRT ION Light Rail: FAILED (https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2: <urlopen error [Errno 110] Connection timed out>)",
+  "Sonoma Marin Area Rail Transit (SMART): 48 trains a Monday (72 trips in feed), 48 KB (unchanged)",
+  "Oswego County Public Transit (OPT): no rail routes, skipped (1 url(s); last feed had 4 routes, types ['3'], via https://files.mobilitydatabase.org/mdb-3520/latest.zip)",
+  "Adirondack Trailways, New York Trailways, Pine Hill Trailways, Burlington Trailways: no rail routes, skipped (1 url(s); last feed had 167 routes, types ['3'], via https://files.mobilitydatabase.org/ntd-20177/latest.zip)",
+  "Space Coast Area Transit: no rail routes, skipped (1 url(s); last feed had 24 routes, types ['3'], via https://files.mobilitydatabase.org/ntd-40063/latest.zip)",
+  "Virginia Railway Express: 32 trains a Monday (50 trips in feed), 25 KB (unchanged)",
+  "South Florida Regional Transportation Authority: 76 trains a Monday (129 trips in feed), 25 KB (unchanged)",
+  "Kalamazoo Metro Transit: no rail routes, skipped (1 url(s); last feed had 21 routes, types ['3'], via https://files.mobilitydatabase.org/tld-674/latest.zip)",
+  "Seattle Center Monorail: no rail routes, skipped (1 url(s); last feed had 1 routes, types ['12'], via https://files.mobilitydatabase.org/tld-2290/latest.zip)",
+  "Fullington Trailways: no rail routes, skipped (1 url(s); last feed had 17 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4379/latest.zip)",
+  "Monsey Trails: no rail routes, skipped (1 url(s); last feed had 12 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4380/latest.zip)",
+  "University of Connecticut (UCONN / WRTD): no rail routes, skipped (1 url(s); last feed had 36 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4473/latest.zip)",
+  "Altoona Metro Transit: no rail routes, skipped (1 url(s); last feed had 30 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4669/latest.zip)",
+  "Railway City Transit: no rail routes, skipped (1 url(s); last feed had 5 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4746/latest.zip)",
+  "Ontario Northland: no rail routes, skipped (1 url(s); last feed had 22 routes, types ['3'], via https://files.mobilitydatabase.org/tld-4817/latest.zip)",
+  "NMDOT Park and Ride: no rail routes, skipped (1 url(s); last feed had 15 routes, types ['3'], via https://files.mobilitydatabase.org/tld-5537/latest.zip)",
+  "Coach USA Erie, Orange Westchester Link, ShortLine Hudson, Suburban Transit, Community Coach, Rockland Coaches, Newark Airport Express, Wisconsin Coach Lines, Van Galder (Coach USA), Coach Suburban Transit Corporation, Coach Community Coach, Coach Hudson Transit Lines, Coach Newark Express, Waukesha County Transit: no rail routes, skipped (1 url(s); last feed had 43 routes, types ['3'], via https://files.mobilitydatabase.org/tld-5741/latest.zip)",
+  "SMART: no rail routes, skipped (1 url(s); last feed had 6 routes, types ['3'], via https://files.mobilitydatabase.org/tld-5753/latest.zip)",
+  "Adirondack Trailways: no rail routes, skipped (1 url(s); last feed had 91 routes, types ['3'], via https://files.mobilitydatabase.org/tld-5781/latest.zip)",
+  "Fullington Trailways: no rail routes, skipped (1 url(s); last feed had 16 routes, types ['3'], via https://files.mobilitydatabase.org/tld-5783/latest.zip)",
+  "El Metro Transit: no rail routes, skipped (1 url(s); last feed had 25 routes, types ['3'], via https://files.mobilitydatabase.org/tld-7038/latest.zip)"
+ ],
+ "today": {
+  "file": "today.json.gz",
+  "week": "2026-10-05",
+  "weekText": "October 5, 2026",
+  "trains": 15403,
+  "railroads": 34,
+  "kb": 1529,
+  "report": [
+   "Amtrak: 633 trains",
+   "Alaska Railroad: 2 trains",
+   "Altamont Corridor Express: 2 trains",
+   "Nashville MTA WeGo Public Transit: 12 trains",
+   "TriMet, Portland Streetcar: 20 trains",
+   "Shore Line East: 3 trains, 37 already in another feed",
+   "Connecticut Transit: 39 trains",
+   "Rail Runner Express: 45 trains",
+   "Capitol Corridor Joint Powers Authority (Capitol Corridor): 50 trains, 1 already in another feed",
+   "North County Transit District (NCTD): 54 trains",
+   "Virginia Railway Express: 32 trains",
+   "Sound Transit: 39 trains",
+   "Brightline Trains LLC: 59 trains",
+   "Florida Department of Transportation (SunRail): 43 trains",
+   "Sonoma Marin Area Rail Transit (SMART): 72 trains",
+   "VIA Rail Canada: 80 trains",
+   "Utah Transit Authority (UTA): 120 trains",
+   "TEXRail (Trinity Metro): 222 trains",
+   "South Florida Regional Transportation Authority: 129 trains",
+   "South Shore Line: 139 trains",
+   "Maryland Transit Administration: 57 trains, 67 already in another feed",
+   "Exo: 129 trains",
+   "Caltrain: 178 trains",
+   "Dallas Area Rapid Transit (DART): 370 trains",
+   "Metrolink: 270 trains",
+   "Regional Transportation District (RTD): 1318 trains",
+   "Go Transit: 2192 trains",
+   "Massachusetts Bay Transportation Authority (MBTA): 820 trains",
+   "Southeastern Pennsylvania Transportation Authority (SEPTA): 1050 trains",
+   "Metra: 2339 trains",
+   "Metro-North Railroad: 1323 trains",
+   "New Jersey Transit (NJ Transit): 1780 trains, 8 already in another feed",
+   "Long Island Rail Road: 1782 trains"
+  ]
+ }
+}
