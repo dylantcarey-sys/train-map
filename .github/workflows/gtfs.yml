@@ -17,6 +17,11 @@ jobs:
         with:
           ref: gtfs-data
           path: gtfs
+      - name: Build Shore Line East (an unofficial feed made from CTrail's PDF timetables)
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/ethanc8/sle-gtfs /tmp/sle
+          cd /tmp/sle && python3 -m gtfs_builder.build_gtfs --out-dir build/gtfs --zip build/sle-gtfs.zip
       - run: python3 scripts/fetch_gtfs.py
       - name: Combine all railroads into this week's "Modern trains" timetable
         run: |

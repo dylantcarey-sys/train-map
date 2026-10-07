@@ -4,7 +4,7 @@ Run weekly by .github/workflows/gtfs.yml. The map page reads the manifest to off
 Sources: a few direct railroad URLs below, plus every feed in the public Mobility Database catalog whose
 provider matches a name in RAIL_NAMES. A feed with no rail routes in it is skipped; one that fails to
 download keeps its previous copy."""
-import csv, io, json, os, re, sys, urllib.request, zipfile, datetime
+import csv, io, json, os, re, sys, urllib.request, urllib.parse, zipfile, datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "gtfs")
@@ -15,11 +15,10 @@ DIRECT = [  # name, file, [urls tried in order], route types to keep (None = hea
     ("Metro-North Railroad", "metro-north.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip"], None),
     ("Long Island Rail Road", "lirr.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip"], None),
     ("Metra", "metra.zip", ["https://schedules.metrarail.com/gtfs/schedule.zip", "https://files.mobilitydatabase.org/mdb-2854/latest.zip"], None),
-    ("PATH", "path.zip", ["http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip", "https://files.mobilitydatabase.org/mdb-517/latest.zip"], {"1"}),   # PATH is coded as subway; it was in the Official Guide
-    ("Alaska Railroad", "alaska-railroad.zip", ["https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20240419.zip", "https://files.mobilitydatabase.org/ntd-41/latest.zip"], None),
+    ("Alaska Railroad", "alaska-railroad.zip", ["page:https://www.alaskarailroad.com/GTFS|GTFS-\\d+\\.zip", "https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20260410.zip", "https://files.mobilitydatabase.org/ntd-41/latest.zip"], None),
     ("TEXRail (Trinity Metro)", "texrail.zip", ["https://gtfsdata.ridetm.org/gtfs/fwtatransitdata.zip", "https://files.mobilitydatabase.org/mdb-2890/latest.zip"], {"0", "2"}),
-    ("Shore Line East", "shore-line-east.zip", ["http://www.shorelineeast.com/google_transit.zip", "https://files.mobilitydatabase.org/mdb-550/latest.zip"], None),
-    ("Rail Runner Express", "rail-runner.zip", ["https://www.riometro.org/DocumentCenter/View/2195/nmrailrunner_google_transit", "https://files.mobilitydatabase.org/mdb-165/latest.zip"], None),
+    ("Shore Line East", "shore-line-east.zip", ["file:///tmp/sle/build/sle-gtfs.zip", "http://www.shorelineeast.com/google_transit.zip", "https://files.mobilitydatabase.org/mdb-550/latest.zip"], None),
+    ("Rail Runner Express", "rail-runner.zip", ["page:https://www.riometro.org/261/GTFS-Data|/DocumentCenter/View/\\d+[^\"'<>]*", "https://www.riometro.org/DocumentCenter/View/2195/nmrailrunner_google_transit", "https://files.mobilitydatabase.org/mdb-165/latest.zip"], None),
 ]
 # provider-name fragments (lower case) that mean "a passenger railroad worth having"
 RAIL_NAMES = [
@@ -40,6 +39,17 @@ FIXED = (2020, 1, 1, 0, 0, 0)   # fixed timestamps so an unchanged feed gives an
 
 def get(url, timeout=180):
     return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "train-map-weekly-gtfs"}), timeout=timeout).read()
+
+def expand(url):
+    """'page:<web page>|<regex>' -> the links on that page matching the regex, newest-looking first; else [url]."""
+    if not url.startswith("page:"): return [url]
+    page, pat = url[5:].split("|", 1)
+    html = get(page, 60).decode("utf-8", "replace")
+    found = []
+    for m in re.finditer(r'href=["\']([^"\']+)["\']', html):
+        h = m.group(1)
+        if re.search(pat, h): found.append(urllib.parse.urljoin(page, h))
+    return sorted(dict.fromkeys(found), reverse=True)
 
 def rows(z, name):
     m = [n for n in z.namelist() if re.search(r"(^|/)" + name + r"\.txt$", n)]
@@ -147,13 +157,21 @@ for name, fname, urls, allow in todo:
     path = os.path.join(OUT, fname)
     try:
         res, err, why = None, None, ""
-        for url in urls:
+        expanded = []
+        for u in urls:
+            try: expanded += expand(u)
+            except Exception as e: err = f"{u}: {e}"
+        stale = None
+        for url in expanded:
             try:
                 res = rail_only(get(url), allow)
+                # a feed whose dates have run out: keep looking for a newer one, but remember it in case there is none
+                if res is not None and rail_only.weekday == 0 and url != expanded[-1]: stale = (res, rail_only.weekday, rail_only.routes); res = None; err = "expired"; continue
                 if res is not None: break
                 err = "no rail routes"; why = f"{len(urls)} url(s); last feed had {rail_only.n} routes, types {rail_only.seen}, via {url}"
             except Exception as e:
                 err = f"{url}: {e}"
+        if res is None and stale: res, rail_only.weekday, rail_only.routes = stale
         if res is None and err != "no rail routes": raise Exception(err)
         if res is None: report.append(f"{name}: no rail routes, skipped ({why})"); continue
         data, ntrips, agencies = res
@@ -175,6 +193,9 @@ for f in feeds:
 feeds = list(best.values())
 for f in feeds:
     if len(f["name"]) > 60: f["name"] = f["name"][:57].rsplit(",", 1)[0].rstrip(" ,") + " …"
+# files from railroads no longer in the list (e.g. PATH)
+for fn in os.listdir(OUT):
+    if fn.endswith(".zip") and fn not in {f["file"] for f in feeds}: os.remove(os.path.join(OUT, fn))
 for line in report: print(line)
 feeds.sort(key=lambda f: f["name"].lower())
 man = {"updated": datetime.date.today().isoformat(), "feeds": feeds, "report": report}
