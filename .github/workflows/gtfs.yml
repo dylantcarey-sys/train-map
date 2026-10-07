@@ -20,8 +20,14 @@ jobs:
       - name: Build Shore Line East (an unofficial feed made from CTrail's PDF timetables)
         continue-on-error: true
         run: |
+          python3 -m pip install --quiet --break-system-packages pdfplumber pytesseract pillow
           git clone --depth 1 https://github.com/ethanc8/sle-gtfs /tmp/sle
           cd /tmp/sle && python3 -m gtfs_builder.build_gtfs --out-dir build/gtfs --zip build/sle-gtfs.zip
+      - name: Save the Rail Runner schedule pages (its GTFS file is out of date)
+        continue-on-error: true
+        run: |
+          mkdir -p gtfs/pages
+          for p in 226/Weekday 340/Ride-the-Train 261/GTFS-Data; do curl -sSL -A "Mozilla/5.0" "https://www.riometro.org/$p" -o "gtfs/pages/riometro-$(echo $p | tr / -).html" || true; done
       - run: python3 scripts/fetch_gtfs.py
       - name: Combine all railroads into this week's "Modern trains" timetable
         run: |
