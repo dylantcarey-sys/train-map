@@ -46,8 +46,9 @@ def rows(z, name):
     m = [n for n in z.namelist() if re.search(r"(^|/)" + name + r"\.txt$", n)]
     if not m: return None, []
     txt = io.TextIOWrapper(z.open(m[0]), encoding="utf-8-sig", newline="")
-    r = csv.DictReader(txt)
-    return r.fieldnames, r
+    r = csv.DictReader(txt, skipinitialspace=True)
+    if r.fieldnames: r.fieldnames = [f.strip().strip('"').lstrip("\ufeff") for f in r.fieldnames]   # some feeds (Metra) pad their headers
+    return r.fieldnames, ({k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()} for row in r)
 
 def rail_only(data, allow=None):
     """Keep only the rail routes of a feed; returns (zip bytes, trips, agency names) or None if it has no rail."""
