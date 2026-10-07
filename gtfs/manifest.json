@@ -1,0 +1,17 @@
+{
+ "updated": "2026-10-07",
+ "feeds": [
+  {
+   "name": "Amtrak",
+   "file": "amtrak.zip"
+  },
+  {
+   "name": "Metro-North Railroad",
+   "file": "metro-north.zip"
+  },
+  {
+   "name": "Long Island Rail Road",
+   "file": "lirr.zip"
+  }
+ ]
+}
