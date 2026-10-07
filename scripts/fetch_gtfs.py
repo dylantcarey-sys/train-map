@@ -157,20 +157,20 @@ for name, fname, urls, allow in todo:
     path = os.path.join(OUT, fname)
     try:
         res, err, why = None, None, ""
-        expanded = []
+        expanded, tried = [], []
         for u in urls:
             try: expanded += expand(u)
-            except Exception as e: err = f"{u}: {e}"
+            except Exception as e: err = f"{u}: {e}"; tried.append(f"{u[:70]} -> {e}")
         stale = None
         for url in expanded:
             try:
-                res = rail_only(get(url), allow)
+                res = rail_only(get(url), allow); tried.append(f"{url[:90]} -> {rail_only.weekday} a Monday")
                 # a feed whose dates have run out: keep looking for a newer one, but remember it in case there is none
                 if res is not None and rail_only.weekday == 0 and url != expanded[-1]: stale = (res, rail_only.weekday, rail_only.routes); res = None; err = "expired"; continue
                 if res is not None: break
                 err = "no rail routes"; why = f"{len(urls)} url(s); last feed had {rail_only.n} routes, types {rail_only.seen}, via {url}"
             except Exception as e:
-                err = f"{url}: {e}"
+                err = f"{url}: {e}"; tried.append(f"{url[:90]} -> {str(e)[:80]}")
         if res is None and stale: res, rail_only.weekday, rail_only.routes = stale
         if res is None and err != "no rail routes": raise Exception(err)
         if res is None: report.append(f"{name}: no rail routes, skipped ({why})"); continue
@@ -178,7 +178,7 @@ for name, fname, urls, allow in todo:
         was = open(path, "rb").read() if os.path.exists(path) else None
         if was != data: open(path, "wb").write(data)
         feeds.append({"name": name, "file": fname, "trips": ntrips, "weekday": rail_only.weekday, "routes": rail_only.routes[:60], "agencies": agencies, "kb": len(data) // 1024})
-        report.append(f"{name}: {rail_only.weekday} trains a Monday ({ntrips} trips in feed), {len(data)//1024} KB{' (unchanged)' if was == data else ''}")
+        report.append(f"{name}: {rail_only.weekday} trains a Monday ({ntrips} trips in feed), {len(data)//1024} KB{' (unchanged)' if was == data else ''}" + (f" [tried: {' | '.join(tried)}]" if len(urls) > 1 or urls[0].startswith(("page:", "file:")) else ""))
     except Exception as e:
         report.append(f"{name}: FAILED ({e})")
         if fname in oldf: feeds.append(oldf[fname])
