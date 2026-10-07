@@ -10,13 +10,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "gtfs")
 CATALOG = "https://files.mobilitydatabase.org/feeds_v2.csv"
 
-ANY = {"0", "1", "2"}   # for feeds that code their commuter trains as tram/metro
 DIRECT = [  # name, file, [urls tried in order], route types to keep (None = heavy/regional rail only)
     ("Amtrak", "amtrak.zip", ["https://content.amtrak.com/content/gtfs/GTFS.zip"], None),
     ("Metro-North Railroad", "metro-north.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip"], None),
     ("Long Island Rail Road", "lirr.zip", ["https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip"], None),
-    ("Metra", "metra.zip", ["https://schedules.metrarail.com/gtfs/schedule.zip", "https://files.mobilitydatabase.org/mdb-2854/latest.zip"], ANY),
-    ("PATH", "path.zip", ["http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip", "https://files.mobilitydatabase.org/mdb-517/latest.zip"], ANY),
+    ("Metra", "metra.zip", ["https://schedules.metrarail.com/gtfs/schedule.zip", "https://files.mobilitydatabase.org/mdb-2854/latest.zip"], None),
+    ("PATH", "path.zip", ["http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip", "https://files.mobilitydatabase.org/mdb-517/latest.zip"], {"1"}),   # PATH is coded as subway; it was in the Official Guide
     ("Alaska Railroad", "alaska-railroad.zip", ["https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20240419.zip", "https://files.mobilitydatabase.org/ntd-41/latest.zip"], None),
     ("TEXRail (Trinity Metro)", "texrail.zip", ["https://gtfsdata.ridetm.org/gtfs/fwtatransitdata.zip", "https://files.mobilitydatabase.org/mdb-2890/latest.zip"], {"0", "2"}),
     ("Shore Line East", "shore-line-east.zip", ["http://www.shorelineeast.com/google_transit.zip", "https://files.mobilitydatabase.org/mdb-550/latest.zip"], None),
@@ -83,16 +82,40 @@ def rail_only(data, allow=None):
     for nm in ("agency", "feed_info"):
         f, it = rows(zin, nm)
         if f: put(nm + ".txt", f, list(it))
+    cal, cal_dates = {}, []
     f, it = rows(zin, "calendar")
-    if f: put("calendar.txt", f, [r for r in it if r["service_id"] in services])
+    if f:
+        cr = [r for r in it if r["service_id"] in services]; put("calendar.txt", f, cr); cal = {r["service_id"]: r for r in cr}
     f, it = rows(zin, "calendar_dates")
-    if f: put("calendar_dates.txt", f, [r for r in it if r["service_id"] in services])
+    if f:
+        cd = [r for r in it if r["service_id"] in services]; put("calendar_dates.txt", f, cd); cal_dates = [(r["service_id"], r.get("date", ""), r.get("exception_type", "")) for r in cd]
+    by_svc = {}
+    for t in tr_rows: by_svc[t.get("service_id", "")] = by_svc.get(t.get("service_id", ""), 0) + 1
+    rail_only.weekday = weekday_trains(by_svc, cal, cal_dates)
+    f, rr2 = rows(zin, "routes")
+    rail_only.routes = sorted({(r.get("route_long_name") or r.get("route_short_name") or r["route_id"]) + " [" + r.get("route_type", "") + "]" for r in rr2 if r["route_id"] in rail})
     if shapes:
         f, it = rows(zin, "shapes")
         if f: put("shapes.txt", f, [r for r in it if r["shape_id"] in shapes])
     zo.close()
     _, ag = rows(zin, "agency")
     return out.getvalue(), len(keep_trips), sorted({a.get("agency_name", "") for a in ag if a.get("agency_name")})
+
+def weekday_trains(trips_by_service, cal, cal_dates):
+    """Trains on a typical Monday: the busiest of the next six Mondays, or the first Monday the feed covers."""
+    def on(d):
+        ymd, dow = d.strftime("%Y%m%d"), "monday"
+        act = {sid for sid, r in cal.items() if r.get(dow) == "1" and r.get("start_date", "0") <= ymd <= r.get("end_date", "99999999")}
+        for sid, date, ex in cal_dates:
+            if date == ymd: (act.add if ex == "1" else act.discard)(sid)
+        return sum(trips_by_service.get(sid, 0) for sid in act)
+    today = datetime.date.today(); mon = today + datetime.timedelta(days=(7 - today.weekday()) % 7)
+    best = max(on(mon + datetime.timedelta(weeks=k)) for k in range(6))
+    if best: return best
+    starts = [r.get("start_date") for r in cal.values() if r.get("start_date")] + [d for _, d, _ in cal_dates]
+    if not starts: return 0
+    d = datetime.datetime.strptime(min(starts), "%Y%m%d").date(); d += datetime.timedelta(days=(7 - d.weekday()) % 7)
+    return max(on(d + datetime.timedelta(weeks=k)) for k in range(4))
 
 def slug(s): return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:48]
 
@@ -136,18 +159,18 @@ for name, fname, urls, allow in todo:
         data, ntrips, agencies = res
         was = open(path, "rb").read() if os.path.exists(path) else None
         if was != data: open(path, "wb").write(data)
-        feeds.append({"name": name, "file": fname, "trips": ntrips, "agencies": agencies, "kb": len(data) // 1024})
-        report.append(f"{name}: {ntrips} rail trips, {len(data)//1024} KB{' (unchanged)' if was == data else ''}")
+        feeds.append({"name": name, "file": fname, "trips": ntrips, "weekday": rail_only.weekday, "routes": rail_only.routes[:60], "agencies": agencies, "kb": len(data) // 1024})
+        report.append(f"{name}: {rail_only.weekday} trains a Monday ({ntrips} trips in feed), {len(data)//1024} KB{' (unchanged)' if was == data else ''}")
     except Exception as e:
         report.append(f"{name}: FAILED ({e})")
         if fname in oldf: feeds.append(oldf[fname])
 # the catalog can list one railroad twice; keep the copy with more trips
 best = {}
 for f in feeds:
-    k = re.sub(r"\W+", " ", f["name"].lower()).strip()
+    k = "|".join(f.get("agencies") or []) or re.sub(r"\W+", " ", f["name"].lower()).strip()
     if k not in best or f.get("trips", 0) > best[k].get("trips", 0): best[k] = f
 for f in feeds:
-    if best[re.sub(r"\W+", " ", f["name"].lower()).strip()] is not f and os.path.exists(os.path.join(OUT, f["file"])):
+    if best["|".join(f.get("agencies") or []) or re.sub(r"\W+", " ", f["name"].lower()).strip()] is not f and os.path.exists(os.path.join(OUT, f["file"])):
         os.remove(os.path.join(OUT, f["file"]))
 feeds = list(best.values())
 for f in feeds:
