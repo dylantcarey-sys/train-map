@@ -52,7 +52,8 @@ def rows(z, name):
 def rail_only(data, allow=None):
     """Keep only the rail routes of a feed; returns (zip bytes, trips, agency names) or None if it has no rail."""
     zin = zipfile.ZipFile(io.BytesIO(data))
-    _, routes = rows(zin, "routes")
+    _, routes = rows(zin, "routes"); routes = list(routes)
+    rail_only.seen = sorted({(r.get("route_type") or "").strip() for r in routes})[:8]; rail_only.n = len(routes)
     rail = {r["route_id"] for r in routes if is_rail((r.get("route_type") or "").strip(), allow)}
     if not rail: return None
     tf, trips = rows(zin, "trips")
@@ -121,16 +122,16 @@ todo = [(n, f, us, a) for n, f, us, a in DIRECT] + [(n, f, [u], None) for n, f, 
 for name, fname, urls, allow in todo:
     path = os.path.join(OUT, fname)
     try:
-        res, err = None, None
+        res, err, why = None, None, ""
         for url in urls:
             try:
                 res = rail_only(get(url), allow)
                 if res is not None: break
-                err = "no rail routes"
+                err = "no rail routes"; why = f"{len(urls)} url(s); last feed had {rail_only.n} routes, types {rail_only.seen}, via {url}"
             except Exception as e:
-                err = str(e)
+                err = f"{url}: {e}"
         if res is None and err != "no rail routes": raise Exception(err)
-        if res is None: report.append(f"{name}: no rail routes, skipped"); continue
+        if res is None: report.append(f"{name}: no rail routes, skipped ({why})"); continue
         data, ntrips, agencies = res
         was = open(path, "rb").read() if os.path.exists(path) else None
         if was != data: open(path, "wb").write(data)
