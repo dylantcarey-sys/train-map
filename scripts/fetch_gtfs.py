@@ -55,11 +55,11 @@ def fill_missing_times(data):
     """Some small feeds (the Alaska Railroad's) list next season's trips but forget their stop times.
     A trip with no times borrows them from the trip with the same name apart from the year (tripAuroraNB2027 <- tripAuroraNB2026)."""
     fill_missing_times.note = ""
-    if len(data) > 5_000_000: return data
     zin = zipfile.ZipFile(io.BytesIO(data))
     st_name = next((n for n in zin.namelist() if re.search(r"(^|/)stop_times\.txt$", n)), None)
     tr_name = next((n for n in zin.namelist() if re.search(r"(^|/)trips\.txt$", n)), None)
-    if not st_name or not tr_name: return data
+    if not st_name or not tr_name: fill_missing_times.note = "no trips/stop_times files"; return data
+    if zin.getinfo(st_name).file_size > 5_000_000: return data   # only small feeds have this problem
     clean = lambda rd: [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in rd]
     trips = [r.get("trip_id", "") for r in clean(csv.DictReader(io.StringIO(zin.read(tr_name).decode("utf-8-sig"))))]
     rd = csv.DictReader(io.StringIO(zin.read(st_name).decode("utf-8-sig"))); st = clean(rd); fields = [f.strip() for f in rd.fieldnames]
