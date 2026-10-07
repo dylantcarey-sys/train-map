@@ -18,6 +18,10 @@ jobs:
           ref: gtfs-data
           path: gtfs
       - run: python3 scripts/fetch_gtfs.py
+      - name: Combine all railroads into this week's "Modern trains" timetable
+        run: |
+          npm install --no-save --silent jszip@3
+          node scripts/build_today.js
       - name: Publish to the gtfs-data branch (replaced each week so the repo stays small)
         run: |
           rm -rf gtfs/.git

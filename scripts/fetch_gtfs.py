@@ -134,7 +134,7 @@ def catalog_feeds(skip_words):
         if not any(w in hay for w in RAIL_NAMES): continue
         url = r.get("urls.latest") or r.get("urls.direct_download")
         if not url: continue
-        out.append((prov or r.get("name"), slug(prov + "-" + (r.get("id") or "")) + ".zip", url, r.get("location.country_code") or ""))
+        out.append((prov or r.get("name"), slug(prov)[:40].strip("-") + "-" + slug(r.get("id") or "x") + ".zip", url, r.get("location.country_code") or ""))
     return out
 
 os.makedirs(OUT, exist_ok=True)
