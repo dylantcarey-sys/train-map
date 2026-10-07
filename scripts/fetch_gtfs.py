@@ -18,7 +18,7 @@ DIRECT = [  # name, file, [urls tried in order], route types to keep (None = hea
     ("Alaska Railroad", "alaska-railroad.zip", ["page:https://www.alaskarailroad.com/GTFS|GTFS-\\d+\\.zip", "https://www.alaskarailroad.com/sites/default/files/GTFS/GTFS-20260410.zip", "https://files.mobilitydatabase.org/ntd-41/latest.zip"], None),
     ("TEXRail (Trinity Metro)", "texrail.zip", ["https://gtfsdata.ridetm.org/gtfs/fwtatransitdata.zip", "https://files.mobilitydatabase.org/mdb-2890/latest.zip"], {"0", "2"}),
     ("Shore Line East", "shore-line-east.zip", ["file:///tmp/sle/build/sle-gtfs.zip", "http://www.shorelineeast.com/google_transit.zip", "https://files.mobilitydatabase.org/mdb-550/latest.zip"], None),
-    ("Rail Runner Express", "rail-runner.zip", ["page:https://www.riometro.org/261/GTFS-Data|/DocumentCenter/View/\\d+[^\"'<>]*", "https://www.riometro.org/DocumentCenter/View/2195/nmrailrunner_google_transit", "https://files.mobilitydatabase.org/mdb-165/latest.zip"], None),
+    ("Rail Runner Express", "rail-runner.zip", ["https://mjcaction.com/MJC_GTFS_Public/nmrailrunner_google_transit.zip", "page:https://www.riometro.org/261/GTFS-Data|google_transit[^\"'<>]*\\.zip", "https://www.riometro.org/DocumentCenter/View/2195/nmrailrunner_google_transit"], None),
 ]
 # provider-name fragments (lower case) that mean "a passenger railroad worth having"
 RAIL_NAMES = [

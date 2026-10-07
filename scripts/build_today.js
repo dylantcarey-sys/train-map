@@ -35,7 +35,8 @@ const weekText = week.toLocaleDateString("en-US", { month: "long", day: "numeric
 (async () => {
   const man = JSON.parse(fs.readFileSync(path.join(DIR, "manifest.json"), "utf8"));
   // Amtrak first so a train that also appears in a partner's feed (Capitol Corridor, Hartford Line, Cascades) is kept once, as Amtrak
-  const feeds = [...man.feeds].sort((a, b) => (b.name === "Amtrak") - (a.name === "Amtrak"));
+  // then the smaller, more specific railroads, so a train listed by two feeds (e.g. Shore Line East trains in Metro-North's) keeps its own railroad
+  const feeds = [...man.feeds].sort((a, b) => (b.name === "Amtrak") - (a.name === "Amtrak") || (a.weekday || 0) - (b.weekday || 0));
   const stops = {}, trains = [], seen = new Set(), report = [], legs = {};
   for (const fd of feeds) {
     const file = path.join(DIR, fd.file); if (!fs.existsSync(file)) { report.push(`${fd.name}: file missing`); continue; }
