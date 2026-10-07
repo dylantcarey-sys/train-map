@@ -51,6 +51,18 @@ def expand(url):
         if re.search(pat, h): found.append(urllib.parse.urljoin(page, h))
     return sorted(dict.fromkeys(found), reverse=True)
 
+PATCHES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patches")
+def patch_dates(fname, data):
+    """For a railroad whose own file has run out of dates, swap in calendar files kept in scripts/patches/<name>/ (see the README there)."""
+    d = os.path.join(PATCHES, fname[:-4])
+    if not os.path.isdir(d): return data
+    zin = zipfile.ZipFile(io.BytesIO(data)); out = io.BytesIO(); zo = zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED)
+    swap = {n for n in os.listdir(d) if n.endswith(".txt")}
+    for n in zin.namelist():
+        if os.path.basename(n) not in swap: zo.writestr(n, zin.read(n))
+    for n in swap: zo.writestr(n, open(os.path.join(d, n), "rb").read())
+    zo.close(); return out.getvalue()
+
 def rows(z, name):
     m = [n for n in z.namelist() if re.search(r"(^|/)" + name + r"\.txt$", n)]
     if not m: return None, []
@@ -101,7 +113,7 @@ def rail_only(data, allow=None):
         cd = [r for r in it if r["service_id"] in services]; put("calendar_dates.txt", f, cd); cal_dates = [(r["service_id"], r.get("date", ""), r.get("exception_type", "")) for r in cd]
     by_svc = {}
     for t in tr_rows: by_svc[t.get("service_id", "")] = by_svc.get(t.get("service_id", ""), 0) + 1
-    rail_only.weekday = weekday_trains(by_svc, cal, cal_dates)
+    rail_only.weekday = weekday_trains(by_svc, cal, cal_dates); rail_only.upcoming = weekday_trains.upcoming
     f, rr2 = rows(zin, "routes")
     rail_only.routes = sorted({(r.get("route_long_name") or r.get("route_short_name") or r["route_id"]) + " [" + r.get("route_type", "") + "]" for r in rr2 if r["route_id"] in rail})
     if shapes:
@@ -114,12 +126,13 @@ def rail_only(data, allow=None):
 def weekday_trains(trips_by_service, cal, cal_dates):
     """Trains on a typical Monday: the busiest of the next six Mondays, or the first Monday the feed covers."""
     def on(d):
-        ymd, dow = d.strftime("%Y%m%d"), "monday"
+        ymd, dow = d.strftime("%Y%m%d"), d.strftime("%A").lower()
         act = {sid for sid, r in cal.items() if r.get(dow) == "1" and r.get("start_date", "0") <= ymd <= r.get("end_date", "99999999")}
         for sid, date, ex in cal_dates:
             if date == ymd: (act.add if ex == "1" else act.discard)(sid)
         return sum(trips_by_service.get(sid, 0) for sid in act)
     today = datetime.date.today(); mon = today + datetime.timedelta(days=(7 - today.weekday()) % 7)
+    weekday_trains.upcoming = sum(on(today + datetime.timedelta(days=k)) for k in range(42))   # trains on any day in the next six weeks
     best = max(on(mon + datetime.timedelta(weeks=k)) for k in range(6))
     if best: return best
     starts = [r.get("start_date") for r in cal.values() if r.get("start_date")] + [d for _, d, _ in cal_dates]
@@ -164,9 +177,11 @@ for name, fname, urls, allow in todo:
         stale = None
         for url in expanded:
             try:
-                res = rail_only(get(url), allow); tried.append(f"{url[:90]} -> {rail_only.weekday} a Monday")
+                raw = get(url); res = rail_only(raw, allow); tried.append(f"{url[:90]} -> {rail_only.weekday} a Monday")
+                if res is not None and rail_only.upcoming == 0 and os.path.isdir(os.path.join(PATCHES, fname[:-4])):
+                    res = rail_only(patch_dates(fname, raw), allow); tried.append(f"with this season's dates from scripts/patches -> {rail_only.upcoming} trains in the next six weeks")
                 # a feed whose dates have run out: keep looking for a newer one, but remember it in case there is none
-                if res is not None and rail_only.weekday == 0 and url != expanded[-1]: stale = (res, rail_only.weekday, rail_only.routes); res = None; err = "expired"; continue
+                if res is not None and rail_only.upcoming == 0 and url != expanded[-1]: stale = (res, rail_only.weekday, rail_only.routes); res = None; err = "expired"; continue
                 if res is not None: break
                 err = "no rail routes"; why = f"{len(urls)} url(s); last feed had {rail_only.n} routes, types {rail_only.seen}, via {url}"
             except Exception as e:

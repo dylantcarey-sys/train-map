@@ -1,0 +1,8 @@
+service_id,date,exception_type
+HurricaneWinter2025,20261001,1
+HurricaneWinter2025,20261105,1
+HurricaneWinter2025,20261203,1
+HurricaneWinter2025,20270107,1
+HurricaneWinter2025,20270204,1
+HurricaneWinter2025,20270401,1
+HurricaneWinter2025,20270506,1
