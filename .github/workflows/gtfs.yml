@@ -1,7 +1,7 @@
 name: Update modern timetables (GTFS)
 on:
   schedule:
-    - cron: "17 9 * * 1"   # every Monday, about 5:17 am Eastern
+    - cron: "17 9 1 * *"   # the 1st of each month, about 5:17 am Eastern
   workflow_dispatch:        # lets you run it by hand from the Actions tab
 permissions:
   contents: write
@@ -22,7 +22,7 @@ jobs:
         run: |
           npm install --no-save --silent jszip@3
           node scripts/build_today.js
-      - name: Publish to the gtfs-data branch (replaced each week so the repo stays small)
+      - name: Publish to the gtfs-data branch (replaced each time so the repo stays small)
         run: |
           rm -rf gtfs/.git
           cd gtfs
