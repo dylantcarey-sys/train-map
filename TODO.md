@@ -7,3 +7,5 @@ Some 1971 trains run on alternating days (e.g. City of Miami: "Leaves Chicago Ap
 - Explore: when the map's date passes the end of one guide's month, switch automatically to the next published guide in the Desk (April 1971 -> May 1971 and so on), using each source's date. Fall back to the latest guide on or before the date.
 
 - Desk now writes alternating-day service one standard way: "Alternate days (from Apr 1, 1971)" or "Every 3rd day (from Apr 1, 1971)" (frequency / stop days text). The map should parse that pattern (start date + every N days) when the date-based service work is picked up. Entries that just say "alternate days" without a date are flagged as problems in the Desk.
+
+- Date-based time shifts (advance/daylight time): PC Table 3 notes that the State of Michigan does not observe advance time, and that effective April 25 times at the Chicago-side stops (CT) are one hour later and times in Michigan one hour earlier than shown. The 1971 guide tables are dated March 3, so the printed times hold until April 25. The map needs date-aware time handling when the date-based service work is picked up.
