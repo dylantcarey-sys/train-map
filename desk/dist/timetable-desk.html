@@ -271,6 +271,8 @@ td.notes-cell { width: auto; min-width: 140px; }
 ::placeholder { color: var(--muted); opacity: .65; font-style: italic; }
 .picker .served { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
 .symbar-wrap { padding: 6px 14px 0; }
+.link-saved { align-items: baseline; gap: 6px; padding: 4px 0; }
+.link-saved .grow { flex: 1 1 auto; }
 .tagchip { display: inline-block; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 0 6px; border-radius: 8px; border: 1px solid var(--rule-strong); color: var(--muted); background: var(--sheet); vertical-align: middle; white-space: nowrap; }
 .tagchip.tag-mixed { border-style: dashed; }
 .tagbox { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; min-height: 32px; }
@@ -1743,14 +1745,14 @@ function renderTrain(el, t, tr) {
         <label class="f wide"><span>Train notes</span><textarea id="fNotes" rows="2" placeholder="Footnotes for the whole train">${esc(tr.notes || "")}</textarea></label>
         <fieldset class="wide"><legend>Through cars, splits and joins</legend>
           <p class="small muted" style="margin:0 0 4px">Where cars actually run from one train to another: a train that joins another (like No. 78 into No. 4 at Columbus), or continues as another railroad's train (like D&amp;H 34 as PC 72 at Albany). Enter both trains and link them here.</p>
-          ${linkBlock("from", "Cars run through from / joined by", lf, "cars")}
-          ${linkBlock("to", "Cars continue as / joins", lt, "cars")}
+          ${linkBlock("from", "Cars run through from / joined by", lf, "cars", tr.id)}
+          ${linkBlock("to", "Cars continue as / joins", lt, "cars", tr.id)}
           <label class="f" style="margin-top:8px"><span>Through service name (optional)</span><input id="fThrough" value="${esc(tr.throughName || "")}" placeholder="e.g. Cincinnati Limited, Cincinnati–New York" autocomplete="off"></label>
         </fieldset>
         <fieldset class="wide"><legend>Connections</legend>
           <p class="small muted" style="margin:0 0 4px">Trains the timetable lists only as connections: passengers change trains, no cars run through.</p>
-          ${linkBlock("from", "Connects from", lf, "conn")}
-          ${linkBlock("to", "Connects to", lt, "conn")}
+          ${linkBlock("from", "Connects from", lf, "conn", tr.id)}
+          ${linkBlock("to", "Connects to", lt, "conn", tr.id)}
         </fieldset>
         <div class="row wide"><button id="btnDelTrain" class="danger">${multi ? "Remove from this table" : "Delete this train"}</button></div>
       </div>
@@ -1793,15 +1795,30 @@ function renderTrain(el, t, tr) {
 
 // through-service link lists
 const linkKind = c => c?.kind === "conn" ? "conn" : "cars";
-function linkBlock(dir, title, list, kind) {
+// a link that has its railroad, train and station is shown as text (click the train to open it); ✎ edits it again
+const lkEditing = new Set(), lkKey = (id, dir, i) => `${id}|${dir}|${i}`;
+const lkDone = c => !!(c && c.rr && (c.trainNo || c.phId) && c.stationId);
+const lkTarget = c => (c.trainId && trainDoc(c.trainId)) || (c.phId && trainDoc(c.phId)) || (c.trainNo ? allTrainDocs().find(x => trRR(x) === c.rr && String(x.trainNo) === String(c.trainNo) && !x.setupOf) : null);
+function lkSaved(c, i, dir, id) {
+  const o = lkTarget(c), st = (o?.stops || []).find(x => x.stationId === c.stationId);
+  const tm = st ? (dir === "from" ? (st.arr || st.dep) : (st.dep || st.arr)) : "";
+  const name = o ? (o.trainNo ? `${trRR(o)} ${o.trainNo}` : trLabel(o)) : `${c.rr} ${c.trainNo || ""}`;
+  return `<div class="link-row link-saved">
+    ${o ? `<button class="linkish" data-lkopen="${esc(o.id)}" title="Open ${esc(name)}"><b>${esc(name)}</b></button>` : `<b>${esc(name)}</b> <span class="small muted" title="No train with this number has been entered yet">(not entered yet)</span>`}${o?.trainName ? ` <span class="small muted">${esc(o.trainName)}</span>` : ""}
+    <span class="small">at ${esc(stName(c.stationId))}${tm ? ` · ${dir === "from" ? "arrives" : "leaves"} ${esc(Core.fmt12(tm))}` : ""}${c.days ? ` · ${esc(c.days)}` : ""}</span>
+    <span class="grow"></span>
+    <button class="ghost small-btn" data-lkedit="${dir}" data-li="${i}" title="Change this link">✎ Edit</button>
+    <button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`;
+}
+function linkBlock(dir, title, list, kind, id) {
   return `<div class="links"><div class="links-h label-cap">${title}</div>
-    ${list.map((c, i) => [c, i]).filter(([c]) => linkKind(c) === kind).map(([c, i]) => `<div class="link-row">
+    ${list.map((c, i) => [c, i]).filter(([c]) => linkKind(c) === kind).map(([c, i]) => lkDone(c) && !lkEditing.has(lkKey(id, dir, i)) ? lkSaved(c, i, dir, id) : `<div class="link-row">
       <select data-lk="${dir}" data-li="${i}" data-k="rr" aria-label="Railroad">${rrOptions(c.rr)}</select>
       ${c.phId ? `<span class="phchip" title="Waiting for its number: it will be matched when you enter ${esc(c.rr || "its")} tables">placeholder${trainDoc(c.phId)?.description ? " · " + esc(trainDoc(c.phId).description) : ""}</span><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="phclear" title="Go back to typing a train number">Number</button>` : `<input data-lk="${dir}" data-li="${i}" data-k="no" value="${esc(c.trainNo || "")}" placeholder="Train no." autocomplete="off" aria-label="Train number" style="width:96px"><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="ph" title="The number isn't known yet: use an unnumbered placeholder train">Unnumbered…</button>`}
       <input data-lk="${dir}" data-li="${i}" data-k="st" class="${c.stationId ? "set" : ""}" value="${esc(stLabel(c.stationId))}" placeholder="At station" autocomplete="off" aria-label="At station" style="flex:1 1 200px">
       <select data-lk="${dir}" data-li="${i}" data-k="days" aria-label="Days this link applies" title="Which days this connection applies" style="flex:0 1 150px">${[["", "Same as train"], ["Sunday", "Sunday"], ["Saturday", "Saturday"], ["Except Sunday", "Except Sunday"], ["Except Saturday", "Except Saturday"]].map(([v, l]) => `<option value="${v}" ${(c.days || "") === v ? "selected" : ""}>${l}</option>`).join("")}${c.days && !["Sunday", "Saturday", "Except Sunday", "Except Saturday"].includes(c.days) ? `<option value="${esc(c.days)}" selected>${esc(c.days)}</option>` : ""}</select>
       <select data-lk="${dir}" data-li="${i}" data-k="kind" aria-label="Through cars or connection" title="Move between through cars and connections"><option value="cars" ${kind === "cars" ? "selected" : ""}>Through cars</option><option value="conn" ${kind === "conn" ? "selected" : ""}>Connection</option></select>
-      <button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`).join("") || `<div class="small muted">None</div>`}
+      ${lkDone(c) ? `<button class="small-btn" data-lkdone="${dir}" data-li="${i}" title="Save this link and show it as text">Done</button>` : ""}<button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`).join("") || `<div class="small muted">None</div>`}
     <button class="small-btn" data-addlink="${dir}" data-kind="${kind}">＋ Add a train</button></div>`;
 }
 function linkList(w, dir) {
@@ -1812,8 +1829,11 @@ function linkList(w, dir) {
 }
 function wireLinks(id) {
   const box = $("entry");
-  box.querySelectorAll("[data-addlink]").forEach(b => b.onclick = () => { linkList(edit(id), b.dataset.addlink).push({ rr: trRR(trainDoc(id)), trainNo: "", stationId: "", ...(b.dataset.kind === "conn" ? { kind: "conn" } : {}) }); renderEntry(); const n = links(trainDoc(id), b.dataset.addlink).length - 1; setTimeout(() => box.querySelector(`[data-lk="${b.dataset.addlink}"][data-li="${n}"][data-k="no"]`)?.focus(), 0); });
-  box.querySelectorAll("[data-dellink]").forEach(b => b.onclick = () => { linkList(edit(id), b.dataset.dellink).splice(+b.dataset.li, 1); renderEntry(); });
+  box.querySelectorAll("[data-addlink]").forEach(b => b.onclick = () => { lkEditing.add(lkKey(id, b.dataset.addlink, links(trainDoc(id), b.dataset.addlink).length)); linkList(edit(id), b.dataset.addlink).push({ rr: trRR(trainDoc(id)), trainNo: "", stationId: "", ...(b.dataset.kind === "conn" ? { kind: "conn" } : {}) }); renderEntry(); const n = links(trainDoc(id), b.dataset.addlink).length - 1; setTimeout(() => box.querySelector(`[data-lk="${b.dataset.addlink}"][data-li="${n}"][data-k="no"]`)?.focus(), 0); });
+  box.querySelectorAll("[data-dellink]").forEach(b => b.onclick = () => { linkList(edit(id), b.dataset.dellink).splice(+b.dataset.li, 1); for (const k of [...lkEditing]) if (k.startsWith(`${id}|${b.dataset.dellink}|`)) lkEditing.delete(k); renderEntry(); });
+  box.querySelectorAll("[data-lkedit]").forEach(b => b.onclick = () => { lkEditing.add(lkKey(id, b.dataset.lkedit, +b.dataset.li)); renderEntry(); });
+  box.querySelectorAll("[data-lkdone]").forEach(b => b.onclick = () => { lkEditing.delete(lkKey(id, b.dataset.lkdone, +b.dataset.li)); renderEntry(); });
+  box.querySelectorAll("[data-lkopen]").forEach(b => b.onclick = () => { mtSel = b.dataset.lkopen; LS.set("mtAll", false); if (S.page !== "trains") showPage("trains"); else renderTrainsPage(); scrollTo(0, 0); });
   box.querySelectorAll("[data-lk]").forEach(inp => {
     const dir = inp.dataset.lk, i = +inp.dataset.li, k = inp.dataset.k;
     if (k === "rr") inp.onchange = () => { linkList(edit(id), dir)[i].rr = inp.value; };
@@ -3234,7 +3254,7 @@ async function renderRailroads() {
 
 // ---------- trains page: one train's full record from all its tables, and everything that doesn't agree ----------
 // Built fresh from the tables every time (nothing is stored here): fix things in the table they came from.
-let mtSel = "", mtFilter = "all", mtAllPicked = false;
+let mtSel = "", mtFilter = "all", mtAllPicked = false, mtTable = "";
 function focusInTrain(o) {
   if (o.focus === "links") { const d = document.querySelector("details.more"); if (d) { d.open = true; const fs = [...d.querySelectorAll("legend")].find(l => /Through cars|Connections/.test(l.textContent)); (fs?.parentElement || d).scrollIntoView({ block: "center" }); } return; }
   if (S.mode === "grid") { const row = document.querySelector(`#gridTable tr[data-st="${o.stationId}"], #gridTable tr[data-sid="${o.stationId}"]`); if (row) { row.scrollIntoView({ block: "center" }); row.classList.add("flash"); } return; }
@@ -3363,8 +3383,11 @@ function renderTrainsPage() {
   };
   const relList = mtSel && !S.viewOnly ? relatedOf(mtSel) : null;
   const listHidden = !!mtSel && !S.viewOnly && LS.get("mtListHide", false) && !(mtFilter === "problems" && LS.get("mtAll", false));
-  let shown = eff === "related" ? relList : mtFilter === "problems" ? trs.filter(t => probs.get(t.id).length) : mtFilter === "links" ? trs.filter(t => todosOf(t).length || (t.placeholder && !t.unnumbered)) : trs;
-  if (mtSort === "guide") shown = shown.slice().sort(byGuide);
+  if (mtFilter === "table" && !(mtTable && tableById(mtTable))) mtTable = (mtSel && Object.keys(trainDoc(mtSel)?.tables || {}).find(k => tableById(k))) || (tableById(S.tableId) ? S.tableId : "") || S.tables[0]?.id || "";
+  const colOrd = t => t.tables?.[mtTable]?.order ?? 0;
+  const tblList = mtTable ? trs.filter(t => t.tables?.[mtTable]).sort((a, b) => colOrd(a) - colOrd(b)) : [];
+  let shown = mtFilter === "table" ? tblList : eff === "related" ? relList : mtFilter === "problems" ? trs.filter(t => probs.get(t.id).length) : mtFilter === "links" ? trs.filter(t => todosOf(t).length || (t.placeholder && !t.unnumbered)) : trs;
+  if (mtSort === "guide" && mtFilter !== "table") shown = shown.slice().sort(byGuide);
   if (mtStat !== "any") shown = shown.filter(t => progOf(t) === (mtStat === "none" ? "" : mtStat));
   const progTag = t => progOf(t) ? `<span class="prog prog-${progOf(t)}" title="${esc(PROG.find(p => p[0] === progOf(t))[1])}">${progOf(t) === "done" ? "✓" : progOf(t) === "working" ? "…" : "?"}</span>` : "";
   const probList = (ps, trId) => `<ul class="probs">${ps.map((p, i) => `<li class="${p.warn ? "warn" : ""}"><div>${esc(p.text)}</div><div class="fixes">${p.fixes.filter(f => f.ph || f.go.table).map(f => f.ph ? `<button class="small-btn" data-phmark="${esc(f.ph)}">${esc(f.label)}</button>` : `<button class="small-btn" data-mtgo='${esc(JSON.stringify(f.go))}'>${esc(f.label)}</button>`).join("")}<button class="small-btn" data-known='${esc(JSON.stringify({ id: trId, key: p.key }))}' title="The printed source itself disagrees: keep it as entered and stop listing it here">Known inconsistency in the source</button></div></li>`).join("")}</ul>`;
@@ -3430,7 +3453,8 @@ function renderTrainsPage() {
     };
     right = `<div class="card">
       <div class="row" style="justify-content:space-between;align-items:center"><button class="linkish small" data-mtsel="">← All trains</button>${S.viewOnly ? "" : `<button class="small-btn" id="mtListToggle" title="Hide or show the list of trains on the left">${listHidden ? "▸ Show train list" : "◂ Hide train list"}</button>`}</div>
-      <div class="mt-head"><h2>${esc(trLabel(tr))}${tr.trainName ? ` <span style="font-weight:400">${esc(tr.trainName)}</span>` : ""} ${tagChips(tr)}</h2>${S.viewOnly ? "" : (() => { const gl = trs.slice().sort(byGuide), i = gl.findIndex(x => x.id === tr.id), todo = x => !["done", "future"].includes(progOf(x)), nx = gl.slice(i + 1).find(todo) || gl.slice(0, i).find(todo); return `<label class="small">Status ${futureRR(tr) ? `<select id="trProg" disabled title="${esc(trRR(tr))} has no tables in this guide yet, so this train is a placeholder for later. Its status starts once you add a ${esc(trRR(tr))} table."><option selected>Future railroad</option></select>` : `<select id="trProg">${PROG.filter(([v]) => v !== "future").map(([v, l]) => `<option value="${v}" ${progOf(tr) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`}</label>${nx ? `<button class="ghost" id="trNext" data-next="${esc(nx.id)}" title="The next train in guide order that isn't marked Done">Next to review →</button>` : ""}`; })()}<span class="small muted">${esc(tr.frequency || "")}${tr.alsoCalled ? " · also " + esc(tr.alsoCalled) : ""}</span></div>
+      <div class="mt-head"><h2>${esc(trLabel(tr))}${tr.trainName ? ` <span style="font-weight:400">${esc(tr.trainName)}</span>` : ""} ${tagChips(tr)}</h2>${S.viewOnly ? "" : (() => { const gl = trs.slice().sort(byGuide), i = gl.findIndex(x => x.id === tr.id), todo = x => !["done", "future"].includes(progOf(x)), nx = gl.slice(i + 1).find(todo) || gl.slice(0, i).find(todo); const tl = mtFilter === "table" && mtTable ? trs.filter(t => t.tables?.[mtTable]).sort((a, b) => (a.tables[mtTable].order ?? 0) - (b.tables[mtTable].order ?? 0)) : [], ti = tl.findIndex(x => x.id === tr.id), nt = ti >= 0 ? tl[ti + 1] : null;
+        return `${nt ? `<button class="primary" id="trNextTbl" data-next="${esc(nt.id)}" title="The next column on ${esc(tableName(tableById(mtTable)))}">Next on this table: ${esc(trLabel(nt))} →</button>` : ""}<label class="small">Status ${futureRR(tr) ? `<select id="trProg" disabled title="${esc(trRR(tr))} has no tables in this guide yet, so this train is a placeholder for later. Its status starts once you add a ${esc(trRR(tr))} table."><option selected>Future railroad</option></select>` : `<select id="trProg">${PROG.filter(([v]) => v !== "future").map(([v, l]) => `<option value="${v}" ${progOf(tr) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`}</label>${nx ? `<button class="ghost" id="trNext" data-next="${esc(nx.id)}" title="The next train in guide order that isn't marked Done">Next to review →</button>` : ""}`; })()}<span class="small muted">${esc(tr.frequency || "")}${tr.alsoCalled ? " · also " + esc(tr.alsoCalled) : ""}</span></div>
       <div class="mt-tables">${S.viewOnly ? "" : keys.map(k => { const t = tableById(k); return `<span class="mttab"><button data-mttab="${esc(k)}" aria-current="${k === S.tableId}" title="Enter and edit this train's stops as printed on this table">${esc(t.rr)} Table ${esc(t.tableNo || "?")} <span class="pg">${t.page ? "p. " + esc(t.page) : ""}</span></button><button class="ghost mtopen" data-mtopen="${esc(k)}" title="Open ${esc(t.rr)} Table ${esc(t.tableNo || "?")} " aria-label="Open the table">↗</button></span>`; }).join("")}${S.viewOnly ? "" : `<button class="small-btn" id="mtAddTable">＋ Add to a table…</button>`}${!S.viewOnly ? "" : keys.map(k => { const t = tableById(k); return `<button data-mtgo='${esc(JSON.stringify({ source: S.sourceId, table: k, train: tr.id, mode: "train" }))}'>${esc(t.rr)} Table ${esc(t.tableNo || "?")} <span class="pg">${t.page ? "p. " + esc(t.page) : ""}</span></button>`; }).join("")}</div>
       ${phBox()}
       ${S.viewOnly ? "" : `<div id="mtEditHost"></div>`}
@@ -3452,7 +3476,8 @@ function renderTrainsPage() {
       <button class="small-btn ${nProb ? "probbtn" : ""}" id="mtAll" aria-pressed="${mtFilter === "problems" && LS.get("mtAll", false)}" ${nProb || nKnown ? "" : "disabled"}>${nProb ? `Show all ${nProb} problem${nProb === 1 ? "" : "s"}` : nKnown ? `No problems · ${nKnown} known in the source` : "No problems found"}</button></div></div>
     <div class="rrwrap ${listHidden ? "mtcollapsed" : ""}">
       <div class="card rrlist mtlist" ${listHidden ? "hidden" : ""}>${S.viewOnly ? "" : `<button class="primary" id="mtNewTrain" style="width:100%;margin-bottom:6px" title="Start trains by number: this is where each train is entered once">＋ New train…</button>`}<input type="search" id="mtFind" placeholder="Find by number or name" style="width:100%;margin-bottom:6px" value="${esc(LS.get("mtFind", ""))}">
-        <div class="row small" style="gap:10px;margin-bottom:6px">${relList ? `<label><input type="radio" name="mtf" value="related" ${eff === "related" ? "checked" : ""}> This railroad + connections (${relList.length})</label>` : ""}<label><input type="radio" name="mtf" value="all" ${eff === "all" ? "checked" : ""}> All ${trs.length}</label><label><input type="radio" name="mtf" value="problems" ${mtFilter === "problems" ? "checked" : ""}> With problems (${nTr})</label><label><input type="radio" name="mtf" value="links" ${mtFilter === "links" ? "checked" : ""}> Links to correct (${nTodoTr})</label></div>
+        <div class="row small" style="gap:10px;margin-bottom:6px">${relList ? `<label><input type="radio" name="mtf" value="related" ${eff === "related" ? "checked" : ""}> This railroad + connections (${relList.length})</label>` : ""}<label><input type="radio" name="mtf" value="all" ${eff === "all" ? "checked" : ""}> All ${trs.length}</label><label><input type="radio" name="mtf" value="problems" ${mtFilter === "problems" ? "checked" : ""}> With problems (${nTr})</label><label><input type="radio" name="mtf" value="links" ${mtFilter === "links" ? "checked" : ""}> Links to correct (${nTodoTr})</label><label><input type="radio" name="mtf" value="table" ${mtFilter === "table" ? "checked" : ""}> Same table</label></div>
+        ${mtFilter === "table" ? `<div class="row small" style="gap:6px;margin-bottom:6px"><select id="mtTableSel" aria-label="Table" style="flex:1 1 auto;min-width:0">${S.tables.slice().sort(guideOrder).map(t => `<option value="${esc(t.id)}" ${t.id === mtTable ? "selected" : ""}>${esc(tableName(t))}</option>`).join("")}</select><span class="muted">${tblList.length} train${tblList.length === 1 ? "" : "s"}, in column order</span></div>` : ""}
         <div class="row small" style="gap:6px;margin-bottom:6px;flex-wrap:wrap"><select id="mtSort" aria-label="Sort"><option value="number" ${mtSort === "number" ? "selected" : ""}>By number</option><option value="guide" ${mtSort === "guide" ? "selected" : ""}>Guide order (table / page)</option></select><select id="mtStat" aria-label="Status">${[["any", "Any status"], ["none", "Not started"], ["working", "In progress"], ["check", "Needs checking"], ["done", "Done"]].map(([v, l]) => `<option value="${v}" ${mtStat === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
         <ul id="mtList">${shown.map(t => `<li data-find="${esc((trLabel(t) + " " + (t.trainName || "") + " " + (t.alsoCalled || "") + " " + (t.tags || []).map(k => TRAIN_TAGS.find(x => x[0] === k)?.[1] || k).join(" ")).toLowerCase())}"><button data-mtsel="${esc(t.id)}" aria-current="${t.id === mtSel && !(mtFilter === "problems" && LS.get("mtAll", false))}"><b>${progTag(t)}${esc(trLabel(t))}${probs.get(t.id).length ? `<span class="pcount" title="Things to check">${probs.get(t.id).length}</span>` : ""}</b><span class="small muted">${esc(t.trainName || "")} ${tagChips(t)}</span></button></li>`).join("")}</ul></div>
       <div>${right}</div>
@@ -3461,6 +3486,8 @@ function renderTrainsPage() {
   const applyFind = () => { const q = $("mtFind").value.toLowerCase().trim(); el.querySelectorAll("#mtList li").forEach(li => li.hidden = q && !li.dataset.find.includes(q)); };
   $("mtFind").oninput = () => { LS.set("mtFind", $("mtFind").value); applyFind(); }; applyFind();
   el.querySelectorAll('input[name="mtf"]').forEach(r => r.onchange = () => { mtFilter = r.value === "related" ? "all" : r.value; mtAllPicked = r.value === "all"; if (r.value === "all" || r.value === "related") LS.set("mtAll", false); renderTrainsPage(); });
+  if ($("mtTableSel")) $("mtTableSel").onchange = e => { mtTable = e.target.value; renderTrainsPage(); };
+  if ($("trNextTbl")) $("trNextTbl").onclick = () => { mtSel = $("trNextTbl").dataset.next; renderTrainsPage(); scrollTo(0, 0); };
   $("mtSort").onchange = e => { mtSort = e.target.value; LS.set("mtSort", mtSort); renderTrainsPage(); };
   $("mtStat").onchange = e => { mtStat = e.target.value; renderTrainsPage(); };
   if ($("trProg")) $("trProg").onchange = e => {
