@@ -1380,7 +1380,7 @@ function renderTrain(el, t, tr) {
         </fieldset>
         <fieldset class="wide"><legend>Connections</legend>
           <p class="small muted" style="margin:0 0 4px">Trains the timetable lists only as connections: passengers change trains, no cars run through.</p>
-          ${linkBlock("from", "Connects from", lf, "conn", tr.id)}
+          ${lkTrainList(tr.id)}${linkBlock("from", "Connects from", lf, "conn", tr.id)}
           ${linkBlock("to", "Connects to", lt, "conn", tr.id)}
         </fieldset>
         <div class="row wide"><button id="btnDelTrain" class="danger">${multi ? "Remove from this table" : "Delete this train"}</button></div>
@@ -1428,6 +1428,24 @@ const linkKind = c => c?.kind === "conn" ? "conn" : "cars";
 const lkEditing = new Set(), lkKey = (id, dir, i) => `${id}|${dir}|${i}`;
 const lkDone = c => !!(c && c.rr && (c.trainNo || c.phId) && c.stationId);
 const lkTarget = c => (c.trainId && trainDoc(c.trainId)) || (c.phId && trainDoc(c.phId)) || (c.trainNo ? allTrainDocs().find(x => trRR(x) === c.rr && String(x.trainNo) === String(c.trainNo) && !x.setupOf) : null);
+// suggestions for the train box: every entered train with a number, as "RR No"
+const lkTrainList = id => `<datalist id="lkTrains">${allTrainDocs().filter(t => t.id !== id && t.trainNo && !t.setupOf).sort((a, b) => trRR(a).localeCompare(trRR(b)) || Core.trainNoSort(a.trainNo, b.trainNo)).map(t => { const m = (t.stops || []).filter(x => x.stationId && !x.pass), a = m[0], z = m[m.length - 1]; return `<option value="${esc(trRR(t) + " " + t.trainNo)}">${esc([t.trainName, a && z && a !== z ? stName(a.stationId) + " – " + stName(z.stationId) : ""].filter(Boolean).join(" · "))}</option>`; }).join("")}</datalist>`;
+// "PC 4205" (or just "4205" when only one railroad has it) -> that train
+const lkParseTrain = (v, rr, id) => { v = String(v || "").trim(); const all = allTrainDocs().filter(t => t.id !== id && t.trainNo && !t.setupOf);
+  const full = all.find(t => `${trRR(t)} ${t.trainNo}`.toLowerCase() === v.toLowerCase()); if (full) return full;
+  const same = all.filter(t => String(t.trainNo) === v); return same.find(t => trRR(t) === rr) || (same.length === 1 ? same[0] : null); };
+// put the matching link on the other train (connects to <-> connects from), if it isn't there yet
+function lkMirror(id, dir, c) {
+  const me = trainDoc(id), o = lkTarget(c); if (!me || !o || o.id === id || !c.stationId) return "";
+  c.trainId = o.id;
+  const back = dir === "to" ? "from" : "to", list = linkList(edit(o.id), back);
+  const isMe = x => x.trainId === id || x.phId === id || (me.trainNo && x.rr === trRR(me) && String(x.trainNo) === String(me.trainNo));
+  const hit = list.find(x => isMe(x) && (!x.stationId || x.stationId === c.stationId));
+  if (hit) { if (!hit.stationId) hit.stationId = c.stationId; if (!hit.trainId && me.trainNo) hit.trainId = id; return ""; }
+  list.push({ rr: trRR(me), ...(me.trainNo ? { trainNo: me.trainNo, trainId: id } : { phId: id }), stationId: c.stationId, ...(linkKind(c) === "conn" ? { kind: "conn" } : {}), ...(c.days ? { days: c.days } : {}) });
+  return o.trainNo ? `${trRR(o)} ${o.trainNo}` : trLabel(o);
+}
+const lkFinish = (id, dir, i) => { const c = linkList(edit(id), dir)[i]; if (!lkDone(c)) return false; lkEditing.delete(lkKey(id, dir, i)); const who = lkMirror(id, dir, c); if (who) notice(`Also added on ${esc(who)}, so the link shows on both trains.`); return true; };
 function lkSaved(c, i, dir, id) {
   const o = lkTarget(c), st = (o?.stops || []).find(x => x.stationId === c.stationId);
   const tm = st ? (dir === "from" ? (st.arr || st.dep) : (st.dep || st.arr)) : "";
@@ -1443,7 +1461,7 @@ function linkBlock(dir, title, list, kind, id) {
   return `<div class="links"><div class="links-h label-cap">${title}</div>
     ${list.map((c, i) => [c, i]).filter(([c]) => linkKind(c) === kind).map(([c, i]) => lkDone(c) && !lkEditing.has(lkKey(id, dir, i)) ? lkSaved(c, i, dir, id) : `<div class="link-row">
       <select data-lk="${dir}" data-li="${i}" data-k="rr" aria-label="Railroad">${rrOptions(c.rr)}</select>
-      ${c.phId ? `<span class="phchip" title="Waiting for its number: it will be matched when you enter ${esc(c.rr || "its")} tables">placeholder${trainDoc(c.phId)?.description ? " · " + esc(trainDoc(c.phId).description) : ""}</span><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="phclear" title="Go back to typing a train number">Number</button>` : `<input data-lk="${dir}" data-li="${i}" data-k="no" value="${esc(c.trainNo || "")}" placeholder="Train no." autocomplete="off" aria-label="Train number" style="width:96px"><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="ph" title="The number isn't known yet: use an unnumbered placeholder train">Unnumbered…</button>`}
+      ${c.phId ? `<span class="phchip" title="Waiting for its number: it will be matched when you enter ${esc(c.rr || "its")} tables">placeholder${trainDoc(c.phId)?.description ? " · " + esc(trainDoc(c.phId).description) : ""}</span><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="phclear" title="Go back to typing a train number">Number</button>` : `<input data-lk="${dir}" data-li="${i}" data-k="no" value="${esc(c.trainNo || "")}" placeholder="Train no." list="lkTrains" autocomplete="off" aria-label="Train number: type to pick an entered train" title="Type a number or name to pick from the trains entered; a number not entered yet works too" style="width:120px"><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="ph" title="The number isn't known yet: use an unnumbered placeholder train">Unnumbered…</button>`}
       <input data-lk="${dir}" data-li="${i}" data-k="st" class="${c.stationId ? "set" : ""}" value="${esc(stLabel(c.stationId))}" placeholder="At station" autocomplete="off" aria-label="At station" style="flex:1 1 200px">
       <select data-lk="${dir}" data-li="${i}" data-k="days" aria-label="Days this link applies" title="Which days this connection applies" style="flex:0 1 150px">${[["", "Same as train"], ["Sunday", "Sunday"], ["Saturday", "Saturday"], ["Except Sunday", "Except Sunday"], ["Except Saturday", "Except Saturday"]].map(([v, l]) => `<option value="${v}" ${(c.days || "") === v ? "selected" : ""}>${l}</option>`).join("")}${c.days && !["Sunday", "Saturday", "Except Sunday", "Except Saturday"].includes(c.days) ? `<option value="${esc(c.days)}" selected>${esc(c.days)}</option>` : ""}</select>
       <select data-lk="${dir}" data-li="${i}" data-k="kind" aria-label="Through cars or connection" title="Move between through cars and connections"><option value="cars" ${kind === "cars" ? "selected" : ""}>Through cars</option><option value="conn" ${kind === "conn" ? "selected" : ""}>Connection</option></select>
@@ -1464,7 +1482,7 @@ function wireLinks(id) {
   box.querySelectorAll("[data-lkdone]").forEach(b => b.onclick = () => {
     const c = links(trainDoc(id), b.dataset.lkdone)[+b.dataset.li];
     if (!lkDone(c)) { const miss = [!c?.rr && "railroad", !(c?.trainNo || c?.phId) && "train number", !c?.stationId && "station"].filter(Boolean); b.textContent = "Needs " + miss.join(" and "); b.classList.add("danger"); setTimeout(() => { b.textContent = "Done"; b.classList.remove("danger"); }, 2200); return; }
-    lkEditing.delete(lkKey(id, b.dataset.lkdone, +b.dataset.li)); renderEntry(); });
+    lkFinish(id, b.dataset.lkdone, +b.dataset.li); renderEntry(); });
   box.querySelectorAll("[data-lkopen]").forEach(b => b.onclick = () => { mtSel = b.dataset.lkopen; LS.set("mtAll", false); if (S.page !== "trains") showPage("trains"); else renderTrainsPage(); scrollTo(0, 0); });
   box.querySelectorAll("[data-lk]").forEach(inp => {
     const dir = inp.dataset.lk, i = +inp.dataset.li, k = inp.dataset.k;
@@ -1477,13 +1495,22 @@ function wireLinks(id) {
       if (other) { const back = linkList(edit(other.id), dir === "to" ? "from" : "to").find(x => (x.phId ? x.phId === id : x.rr === trRR(me) && String(x.trainNo) === String(me.trainNo)) && (!c.stationId || !x.stationId || x.stationId === c.stationId)); if (back) { if (v) back.days = v; else delete back.days; } }
       renderEntry();
     };
-    if (k === "no") inp.oninput = () => { linkList(edit(id), dir)[i].trainNo = inp.value.trim(); };
+    if (k === "no") {
+      inp.oninput = () => { linkList(edit(id), dir)[i].trainNo = inp.value.trim(); };
+      inp.onchange = () => {
+        const c = linkList(edit(id), dir)[i], o = lkParseTrain(inp.value, c.rr, id);
+        if (!o) { c.trainNo = inp.value.trim().replace(/^\S+\s+(?=\d)/, ""); delete c.trainId; return; }
+        c.rr = trRR(o); c.trainNo = o.trainNo; c.trainId = o.id;
+        if (!c.stationId) { const mine = new Set((trainDoc(id).stops || []).map(x => x.stationId)); const both = [...new Set((o.stops || []).map(x => x.stationId).filter(x => x && mine.has(x)))]; if (both.length === 1) c.stationId = both[0]; }
+        lkFinish(id, dir, i); renderEntry();
+      };
+    }
     if (k === "ph") inp.onclick = () => placeholderDialog(id, dir, i);
     if (k === "phclear") inp.onclick = () => { const c = linkList(edit(id), dir)[i]; delete c.phId; renderEntry(); };
     if (k === "st") {
       inp.addEventListener("input", () => openPicker(inp, s => {
         const cc = linkList(edit(id), dir)[i]; cc.stationId = s.id; inp.value = s.label; inp.classList.add("set");
-        if (lkDone(cc)) { lkEditing.delete(lkKey(id, dir, i)); setTimeout(renderEntry, 0); }
+        if (lkFinish(id, dir, i)) setTimeout(renderEntry, 0);
         if (cc.phId && trainDoc(cc.phId)) { const me = trainDoc(id), p = edit(cc.phId); linkList(p, dir === "to" ? "from" : "to").forEach(x => { if (x.rr === trRR(me) && String(x.trainNo) === String(me.trainNo)) x.stationId = s.id; }); }
       }));
       inp.addEventListener("keydown", pickerKeys);
