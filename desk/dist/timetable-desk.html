@@ -271,6 +271,9 @@ td.notes-cell { width: auto; min-width: 140px; }
 ::placeholder { color: var(--muted); opacity: .65; font-style: italic; }
 .picker .served { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
 .symbar-wrap { padding: 6px 14px 0; }
+#eqTable input, #eqTable select, #eqTable td { font-size: 13px; }
+#eqTable td.eq-n { color: var(--muted); text-align: right; padding-right: 6px; font-variant-numeric: tabular-nums; }
+#eqTable select { max-width: 150px; }
 table.tv .tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
 table.tv .tv-sep { color: var(--muted); padding: 0 2px; }
 table.tv .tv-edit { padding: 0 3px; font-size: 12px; opacity: .6; }
@@ -997,7 +1000,8 @@ function wireEquipment(id) {
     const r = e.target.closest("tr[data-e]"); const next = r.nextElementSibling;
     if (next) next.querySelector(`[data-q="${e.target.dataset.q}"]`)?.focus(); else add();
   });
-  tb.addEventListener("click", e => { const c = e.target.closest("[data-ptsclr]"); if (c) { list(edit(id))[+c.dataset.ptsclr].pts = ""; renderEntry(); return; } const b = e.target.closest("[data-eqdel]"); if (!b) return; list(edit(id)).splice(+b.dataset.eqdel, 1); renderEntry(); });
+  tb.querySelectorAll("[data-eqdays]").forEach(sel => sel.onchange = () => freqChange(sel, v => { const car = list(edit(id))[+sel.dataset.eqdays]; if (v) car.days = v; else delete car.days; renderEntry(); }));
+  tb.addEventListener("click", e => { const mv = e.target.closest("[data-eqmove]"); if (mv) { const L = list(edit(id)), i = +mv.dataset.eqmove, j = i + +mv.dataset.by; if (j >= 0 && j < L.length) { [L[i], L[j]] = [L[j], L[i]]; renderEntry(); } return; } const c = e.target.closest("[data-ptsclr]"); if (c) { list(edit(id))[+c.dataset.ptsclr].pts = ""; renderEntry(); return; } const b = e.target.closest("[data-eqdel]"); if (!b) return; list(edit(id)).splice(+b.dataset.eqdel, 1); renderEntry(); });
 }
 // the train's stops in running order across all its tables, with the tables each is printed on
 const trainRun = tr => Core.mergeStops(groupsFor(tr), tzOffFn()).stops.filter(s => s.stationId && !s.pass);
@@ -1032,7 +1036,7 @@ function eqOnTable(tr, T) {
   return eq.filter(e => { const a = idx.get(e.from), b = idx.get(e.to); if (a == null || b == null) return true; const lo = Math.min(a, b), hi = Math.max(a, b); return lo === hi ? (lo >= m0 && lo <= m1) : (m0 < hi && m1 > lo); });
 }
 const eqEnds = e => e.from && e.to ? `${S.stById.get(e.from)?.name || e.from} – ${S.stById.get(e.to)?.name || e.to}` : "";
-const consistText = tr => [...(tr.equipment || []).filter(e => e.type || e.desc || e.pts).map(e => [e.type, e.desc].filter(Boolean).join(", ") + (e.pts ? ` (${e.pts})` : "")), tr.consist || ""].filter(Boolean).join("; ");
+const consistText = tr => [...(tr.equipment || []).filter(e => e.type || e.desc || e.pts).map(e => [e.type, e.desc].filter(Boolean).join(", ") + (e.pts ? ` (${e.pts})` : "") + (e.days ? ` [${e.days}]` : "")), tr.consist || ""].filter(Boolean).join("; ");
 // ---------- placeholders: a train on a table whose number isn't known yet (it's on another railroad's table, not entered yet) ----------
 function makePlaceholder(rr, desc, T) {
   const id = makeRosterTrain(rr, ""), w = edit(id); w.placeholder = true; w.description = desc || "";
@@ -1730,13 +1734,15 @@ function renderTrain(el, t, tr) {
       <div class="fields" style="margin-top:10px">
         <fieldset class="wide"><legend>Consist and services</legend>
           <div class="scroll"><table class="sheet" id="eqTable">
-            <thead><tr><th>Car type</th><th>Description</th><th title="One end of where the car runs (either direction)">From</th><th title="The other end">To</th><th></th></tr></thead>
-            <tbody>${(tr.equipment || []).map((e, i) => `<tr data-e="${i}">
+            <thead><tr><th>#</th><th>Car type</th><th>Description</th><th title="One end of where the car runs (either direction)">From</th><th title="The other end">To</th><th title="Days this car runs, when not every day the train runs">Days</th><th></th></tr></thead>
+            <tbody>${(tr.equipment || []).map((e, i, all) => `<tr data-e="${i}">
+              <td class="eq-n">${i + 1}</td>
               <td><input data-q="type" list="carTypes" value="${esc(e.type || "")}" placeholder="e.g. Sleeping car" autocomplete="off" aria-label="Car type"></td>
               <td><input data-q="desc" value="${esc(e.desc || "")}" placeholder="e.g. 10 roomettes, 6 double bedrooms" autocomplete="off" aria-label="Description">${e.pts ? `<div class="small muted" title="Older 'points as printed' text; clear it once From / To are set">Printed: ${esc(e.pts)} <button type="button" class="ghost" data-ptsclr="${i}" style="padding:0 4px" title="Clear the printed points text">✕</button></div>` : ""}</td>
               <td><input data-st="from" class="${e.from ? "set" : ""}" value="${esc(e.from ? stLabel(e.from) : "")}" placeholder="End A (blank = whole train)" autocomplete="off" aria-label="Car runs from"></td>
               <td><input data-st="to" class="${e.to ? "set" : ""}" value="${esc(e.to ? stLabel(e.to) : "")}" placeholder="End B" autocomplete="off" aria-label="Car runs to"></td>
-              <td class="rowbtns"><button class="ghost danger" data-eqdel="${i}" title="Remove row" aria-label="Remove row">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="small muted">No cars listed yet.</td></tr>`}</tbody>
+              <td>${freqSelect(e.days || "", true, `data-eqdays="${i}" aria-label="Days this car runs" title="${esc(e.days || "Same days as the train")}"`)}</td>
+              <td class="rowbtns"><button class="ghost" data-eqmove="${i}" data-by="-1" title="Move up" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-eqmove="${i}" data-by="1" title="Move down" aria-label="Move down" ${i < all.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-eqdel="${i}" title="Remove row" aria-label="Remove row">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="small muted">No cars listed yet.</td></tr>`}</tbody>
           </table></div>
           <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
             <button class="small-btn" id="btnAddEq">＋ Add a car</button>
@@ -3704,9 +3710,49 @@ function columnDialog(id) {
     renderEntry();
   });
 }
+// take stops i..j (in running order) out of a train as a new train: e.g. SCL 91's Waycross - Montgomery section.
+// The rest stays on the first train. The two are joined by a through-cars link where the section leaves (or joins) it.
+function splitSectionAt(id, i, j, merged, o) {
+  const A = edit(id), rrA = o.rrA || trRR(A), rrB = o.rrB || rrA, na = o.noA ?? A.trainNo, nb = o.noB || "";
+  const side = new Map(); merged.forEach((m, k) => { if (m._k != null) side.set(m._k, k); (m._ks || []).forEach(x => side.set(x, k)); });
+  const stopsA = [], stopsB = [];
+  (A.stops || []).forEach((s0, k) => { const { _k, _ks, ...s } = s0; const m = side.get(k); (m != null && m >= i && m <= j ? stopsB : stopsA).push(s); });
+  if (!stopsB.length || !stopsA.length) return "";
+  stopsB.forEach(s => { delete s.origin; delete s.terminus; }); stopsB[0].origin = true; stopsB[stopsB.length - 1].terminus = true;
+  if (i === 0) { stopsA.forEach(s => delete s.origin); stopsA[0].origin = true; }
+  if (j >= merged.length - 1) { stopsA.forEach(s => delete s.terminus); stopsA[stopsA.length - 1].terminus = true; }
+  const setA = new Set(stopsA.map(s => s.stationId).filter(Boolean)), setB = new Set(stopsB.map(s => s.stationId).filter(Boolean));
+  // equipment: a car with an end only on the section goes with it (and stays on the main train too unless both its ends are on the section)
+  const sideOf = st => setA.has(st) && setB.has(st) ? "both" : setB.has(st) ? "B" : setA.has(st) ? "A" : "none";
+  const eqA = [], eqB = [];
+  for (const e of A.equipment || []) {
+    if (!e.from || !e.to) { eqA.push(e); eqB.push(structuredClone(e)); continue; }
+    const ends = [sideOf(e.from), sideOf(e.to)];
+    if (ends.includes("B")) eqB.push(structuredClone(e));
+    if (!ends.every(x => x === "B" || x === "both")) eqA.push(e);
+  }
+  const idB = uid(); remember(`${trainsPath()}/${idB}`, null);
+  const tablesOf = list => Object.fromEntries(Object.entries(A.tables || {}).filter(([k]) => list.some(s => s.tableId === k)).map(([k, v]) => [k, { ...v, order: (v.order ?? 0) + (list === stopsB ? 0.5 : 0) }]));
+  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB, equipment: eqB };
+  S.work.set(idB, B); edit(idB);
+  const first = stopsB[0].stationId, last = stopsB[stopsB.length - 1].stationId;
+  const link = (rr, trainNo, trainId, at) => ({ kind: "cars", rr, trainNo, trainId, stationId: at });
+  A.rr = rrA; A.trainNo = na; A.stops = stopsA; A.tables = tablesOf(stopsA); A.equipment = eqA;
+  if (setA.has(first)) { linkList(A, "to").push(link(rrB, nb, idB, first)); B.throughFrom = [link(rrA, na, A.id, first)]; }          // splits off the main train
+  else if (setA.has(last)) { linkList(A, "from").push(link(rrB, nb, idB, last)); B.throughTo = [link(rrA, na, A.id, last)]; }       // joins the main train
+  return idB;
+}
+// a likely section: between the first and last time a station is printed (SCL 91: Waycross ... Montgomery ... Waycross)
+function guessSection(merged) {
+  const at = new Map(); merged.forEach((m, k) => { if (m.stationId) (at.get(m.stationId) || at.set(m.stationId, []).get(m.stationId)).push(k); });
+  let best = null; for (const ks of at.values()) { const f = ks[0], l = ks[ks.length - 1]; if (l - f > 2 && (!best || f < best[0])) best = [f + 1, l - 1]; }
+  return best;
+}
 function splitPairDialog(id) {
   const tr = trainDoc(id); if (!tr) return;
   const { merged, pts } = splitPoints(tr); const [na, nb] = splitNos(tr.trainNo), rr = trRR(tr);
+  const sec = guessSection(merged);
+  const stopOpts = sel => merged.map((m, k) => m.stationId ? `<option value="${k}" ${k === sel ? "selected" : ""}>${k + 1}. ${esc(stName(m.stationId))}${m.arr || m.dep ? " (" + esc([m.arr, m.dep].filter(Boolean).map(Core.fmt12).join(" / ")) + ")" : ""}</option>` : "").join("");
   const def = Math.max(0, pts.findIndex(p => p.twice) >= 0 ? pts.findIndex(p => p.twice) : pts.findIndex(p => p.type === "at") >= 0 ? pts.findIndex(p => p.type === "at") : Math.floor(pts.length / 2));
   dialog(`<h2>Split ${esc(trLabel(tr))}</h2>
     <p class="small muted">Makes two trains joined by a through-cars link at the split. The first keeps the stops before the split; the second gets the stops after it. To split into three, split again on the second train.</p>
@@ -3716,13 +3762,22 @@ function splitPairDialog(id) {
       <label class="f"><span>Second part: railroad</span><select id="dRrB">${rrOptions(rr)}</select></label>
       <label class="f"><span>Second part: number</span><input id="dNoB" value="${esc(nb)}" placeholder="e.g. 1" autocomplete="off"></label>
     </div>
-    ${pts.length ? `<label class="f" style="margin-top:8px"><span>Where does it change from the first train to the second?</span><select id="dSplitAt">${pts.map((p, i) => `<option value="${i}" ${i === def ? "selected" : ""}>${esc(p.label)}${p.twice ? " (station printed twice)" : ""}</option>`).join("")}</select></label>` : `<p class="small muted">It has no stops yet, so this just makes the two trains.</p>`}`, "Split", () => {
+    ${pts.length ? `<div class="row small" style="gap:14px;margin-top:10px"><label><input type="radio" name="dSplitMode" value="point" ${sec ? "" : "checked"}> Split at one point</label><label><input type="radio" name="dSplitMode" value="section" ${sec ? "checked" : ""}> Take out a section</label></div>
+    <div id="dModePoint" ${sec ? "hidden" : ""}><label class="f" style="margin-top:8px"><span>Where does it change from the first train to the second?</span><select id="dSplitAt">${pts.map((p, i) => `<option value="${i}" ${i === def ? "selected" : ""}>${esc(p.label)}${p.twice ? " (station printed twice)" : ""}</option>`).join("")}</select></label></div>
+    <div id="dModeSection" ${sec ? "" : "hidden"}><p class="small muted" style="margin:8px 0 4px">For a branch printed in the middle of the train (like a Waycross–Montgomery section): those stops become the second train, and the first keeps the rest. They're linked by through cars where the section leaves or joins.</p>
+      <div class="fields"><label class="f"><span>Section's first stop</span><select id="dSecFrom">${stopOpts(sec ? sec[0] : 0)}</select></label><label class="f"><span>Section's last stop</span><select id="dSecTo">${stopOpts(sec ? sec[1] : merged.length - 1)}</select></label></div></div>` : `<p class="small muted">It has no stops yet, so this just makes the two trains.</p>`}`, "Split", () => {
     const o = { rrA: $("dRrA").value, rrB: $("dRrB").value, noA: $("dNoA").value.trim(), noB: $("dNoB").value.trim() };
     if (!o.rrA || !o.rrB) return "Pick a railroad for both parts.";
     if (!o.noA && !o.noB) return "Give at least one of the parts a number.";
+    if (document.querySelector('input[name="dSplitMode"]:checked')?.value === "section") {
+      const a = +$("dSecFrom").value, b = +$("dSecTo").value; if (b < a) return "The section's last stop comes before its first.";
+      const idS = splitSectionAt(id, a, b, merged, o); if (!idS) return "That would leave one of the trains with no stops.";
+      notice(`Took ${esc(merged[a] ? stName(merged[a].stationId) : "")} – ${esc(merged[b] ? stName(merged[b].stationId) : "")} out as ${esc(o.rrB)} ${esc(o.noB || "(no number)")}. Check it, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage(); return;
+    }
     const i = $("dSplitAt") ? +$("dSplitAt").value : -1; const idB = splitPairAt(id, i >= 0 ? pts[i] : null, merged, o);
     notice(`Split into ${esc(o.rrA)} ${esc(o.noA || "(no number)")} and ${esc(o.rrB)} ${esc(o.noB || "(no number)")}. Check the changeover, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage();
   });
+  document.querySelectorAll('input[name="dSplitMode"]').forEach(r => r.onchange = () => { const sct = r.value === "section" && r.checked; if (!r.checked) return; $("dModePoint").hidden = sct; $("dModeSection").hidden = !sct; });
 }
 // ---------- home page ----------
 S.page = "home";
