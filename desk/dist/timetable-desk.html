@@ -273,6 +273,8 @@ td.notes-cell { width: auto; min-width: 140px; }
 .symbar-wrap { padding: 6px 14px 0; }
 table.tv .tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
 table.tv .tv-sep { color: var(--muted); padding: 0 2px; }
+table.tv .tv-edit { padding: 0 3px; font-size: 12px; opacity: .6; }
+table.tv .tv-edit:hover { opacity: 1; }
 .link-saved { align-items: baseline; gap: 6px; padding: 4px 0; }
 .link-saved .grow { flex: 1 1 auto; }
 .tagchip { display: inline-block; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 0 6px; border-radius: 8px; border: 1px solid var(--rule-strong); color: var(--muted); background: var(--sheet); vertical-align: middle; white-space: nowrap; }
@@ -4055,7 +4057,11 @@ function tableColumns(T, trs) {
       const o = (l.trainId && ids.has(l.trainId) && trs.find(y => y.id === l.trainId)) || (l.phId && trs.find(y => y.id === l.phId)) || byNo.get(`${l.rr}|${l.trainNo}`);
       if (!o || o.id === x.id || colOf(o)) continue;
       const eo = ends(o); if (!eo) continue;
-      if (ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1])) { join(x.id, o.id); if (linkKind(l) !== "conn") joinC(x.id, o.id); }
+      if (linkKind(l) !== "conn") {
+        // through cars: a train that splits off or joins partway (SCL 21 -> 23 at Jacksonville) shares the column too
+        const at = l.stationId, stopsAt = y => (y.stops || []).some(s => s.tableId === T && s.stationId === at);
+        if (!at || (stopsAt(x) && stopsAt(o))) { join(x.id, o.id); joinC(x.id, o.id); }
+      } else if (ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1])) join(x.id, o.id);
     }
   }
   const groups = new Map(); for (const x of trs) { const r = find(x.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x); }
@@ -4086,10 +4092,14 @@ function renderTableView(el, t) {
   // the column heading: the train name(s) once, then each train's number (with its railroad when it isn't this table's)
   const noOf = tr => tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `${trRR(tr) !== t.rr ? trRR(tr) + " " : ""}No. ${tr.trainNo || "?"}`;
   const head = col => {
-    const names = col.heading ? [col.heading] : [...new Set((col.main || col).map(x => x.trainName).filter(Boolean))], fqs = new Set(col.map(x => x.frequency || "Daily"));
+    // the heading: a typed one, else the name most of the column's main trains share (Silver Meteor over The Senator)
+    const tally = new Map(); for (const x of col.main || col) if (x.trainName) tally.set(x.trainName, (tally.get(x.trainName) || 0) + 1);
+    const top = [...tally].sort((a, b) => b[1] - a[1])[0];
+    const names = col.heading ? [col.heading] : top ? [top[0]] : [], fqs = new Set(col.map(x => x.frequency || "Daily"));
     // one frequency for the whole column when they all match; otherwise name the train it belongs to
     const fq = fqs.size === 1 ? [...fqs].filter(f => f !== "Daily") : col.filter(x => (x.frequency || "Daily") !== "Daily").map(x => `${noOf(x)}: ${x.frequency}`);
-    return `<th>${names.length ? `<div class="tv-nm">${esc(names.join(" / "))}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
+    const key = (col.main || col)[0].id;
+    return `<th>${names.length || !S.viewOnly ? `<div class="tv-nm">${esc(names.join(" / "))}${S.viewOnly ? "" : ` <button class="ghost tv-edit" data-colname="${esc(key)}" title="Change this column's heading" aria-label="Change the heading">✎</button>`}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
   };
   el.innerHTML = `<div class="tv-wrap"><table class="tv">
     <thead><tr><th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
@@ -4099,6 +4109,22 @@ function renderTableView(el, t) {
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}
   <p class="small muted" style="margin:0">Times are as printed (${esc(t.tz || "ET")}, ${esc(t.basis || "time basis not stated")}). <b>Bold</b> times are p.m.</p>`;
   el.querySelectorAll("[data-trview]").forEach(b => b.onclick = () => openTrainRecord(b.dataset.trview, t.id));
+  el.querySelectorAll("[data-colname]").forEach(b => b.onclick = () => colHeadingDialog(t.id, b.dataset.colname));
+}
+// type a heading for one table-view column (kept on the column's main train for this table)
+function colHeadingDialog(T, id) {
+  const col = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)) || []; if (!col.length) return;
+  const tally = new Map(); for (const x of col.main || col) if (x.trainName) tally.set(x.trainName, (tally.get(x.trainName) || 0) + 1);
+  const cur = col.heading || "", auto = ([...tally].sort((a, b) => b[1] - a[1])[0] || [""])[0];
+  dialog(`<h2>Column heading</h2>
+    <p class="small muted">For the column with ${col.map(x => esc(trLabel(x))).join(", ")} on ${esc(tableName(tableById(T)))}.</p>
+    <label class="f"><span>Heading</span><input id="dColHead" value="${esc(cur)}" placeholder="${esc(auto || "e.g. Silver Meteor")}" autocomplete="off"></label>
+    <p class="small muted" style="margin:2px 0 0">Leave blank to use the main train's name${auto ? ` (${esc(auto)})` : ""}.</p>`, "Save", () => {
+    const v = $("dColHead").value.trim();
+    for (const x of col) if (x.tables?.[T]?.colName) delete edit(x.id).tables[T].colName;
+    if (v) edit(id).tables[T].colName = v;
+    renderEntry();
+  });
 }
 applyPhoneMode();
 start();
