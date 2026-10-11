@@ -271,6 +271,8 @@ td.notes-cell { width: auto; min-width: 140px; }
 ::placeholder { color: var(--muted); opacity: .65; font-style: italic; }
 .picker .served { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
 .symbar-wrap { padding: 6px 14px 0; }
+table.tv .tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
+table.tv .tv-sep { color: var(--muted); padding: 0 2px; }
 .link-saved { align-items: baseline; gap: 6px; padding: 4px 0; }
 .link-saved .grow { flex: 1 1 auto; }
 .tagchip { display: inline-block; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 0 6px; border-radius: 8px; border: 1px solid var(--rule-strong); color: var(--muted); background: var(--sheet); vertical-align: middle; white-space: nowrap; }
@@ -725,7 +727,7 @@ function showSave() {
   el.textContent = S.dirty.size || S.saving.size ? "Saving…" : "All changes saved";
 }
 // reference-mark symbols that are hard to type: click one to put it where the cursor is
-const SYMBOLS = ["♮", "†", "‡", "§", "¶", "*", "#", "■", "□", "⊡", "●", "🌙", "▲", "★", "Ψ", "√"];
+const SYMBOLS = ["♮", "†", "‡", "§", "¶", "*", "#", "■", "□", "⊡", "◆", "●", "🌙", "▲", "★", "Ψ", "√"];
 // draw the crescent mark solid: wrap it in text, and flag inputs that hold it
 const MOON = "\u{1F319}";
 const moonText = root => { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => n.nodeValue.includes(MOON) && !n.parentElement?.closest(".moon,script,style,textarea,option") ? 1 : 2 }); const ns = []; while (w.nextNode()) ns.push(w.currentNode);
@@ -1341,6 +1343,7 @@ function renderTrain(el, t, tr) {
       <details class="menu sa-menu"><summary>Train tools ▾</summary><div class="menu-pop">
         <button id="btnSplitPair" title="Make two trains out of this one at a stop you pick, joined by a through-cars link. Each part can have its own railroad and number (a dashed number like 5-3 fills them in).">Split into two trains…</button>
         <button id="btnSections" title="For a train that splits into parts for different places, or parts that join into one train">${showSec ? (secs.length ? "Sections" : "Hide sections") : "Split / join sections…"}</button>
+        <button id="btnColumn" title="How this train is laid out in the read-only table view: automatic, its own column, or the same column as another train">Column in the table view…</button>
         <button id="btnAppear" title="For a train printed twice on this table, such as a daily train that also runs a different part of its route under another name and days">Add a second appearance…</button>
       </div></details>
       ${outOfOrder(tStops(tr)) || roleCheck(tStops(tr)) ? `<button id="btnTimeOrder2" class="primary" title="Some stops are out of time order">Put stops in time order</button>` : ""}
@@ -1410,6 +1413,7 @@ function renderTrain(el, t, tr) {
   $("btnAppear").onclick = () => addAppearance(tr.id);
   if ($("btnTimeOrder2")) $("btnTimeOrder2").onclick = () => $("btnTimeOrder").click();
   if ($("btnSplitPair")) $("btnSplitPair").onclick = () => splitPairDialog(tr.id);
+  if ($("btnColumn")) $("btnColumn").onclick = () => columnDialog(tr.id);
   document.querySelectorAll(".sa-menu").forEach(m => { m.addEventListener("click", e => { if (e.target.closest(".menu-pop button")) m.open = false; }); m.addEventListener("toggle", () => { if (m.open) document.querySelectorAll("details.menu").forEach(o => { if (o !== m) o.open = false; }); }); });
   el.querySelectorAll("[data-openapp]").forEach(b => b.onclick = () => { S.trainId = b.dataset.openapp; LS.set("train", S.trainId); renderTrainList(); renderEntry(); });
   $("btnCopyHere").onclick = () => copyStopsDialog(tr.id, "this");
@@ -3281,6 +3285,20 @@ function splitPairAt(id, pt, merged, o = {}) {
   A.rr = rrA; A.trainNo = na; A.stops = stopsA; A.tables = tablesOf(stopsA); A.throughTo = link(rrB, nb, idB);
   return idB;
 }
+function columnDialog(id) {
+  const T = S.tableId, tr = trainDoc(id), t = tableById(T); if (!tr || !t || !tr.tables?.[T]) return;
+  const others = trainsInTable().filter(x => x.id !== id), cur = tr.tables[T].col || "";
+  const auto = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)).filter(x => x.id !== id);
+  dialog(`<h2>${esc(trLabel(tr))} in the table view</h2>
+    <p class="small muted">On ${esc(tableName(t))}. Each train keeps its own record and its own column in the grid; this only changes how the read-only table view lays the columns out.</p>
+    <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="" ${!cur ? "checked" : ""}> Automatic: share a column with the trains it runs on from or into (through cars or a connection that starts where it ends)${auto.length ? ` <span class="muted">(now with ${auto.map(x => esc(trLabel(x))).join(", ")})</span>` : ` <span class="muted">(now on its own)</span>`}</label>
+    <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="own" ${cur === "own" ? "checked" : ""}> Always its own column</label>
+    <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="with" ${cur && cur !== "own" ? "checked" : ""}> In the same column as <select id="dColWith">${others.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? "selected" : ""}>${esc(trLabel(x))}${x.trainName ? " " + esc(x.trainName) : ""}</option>`).join("")}</select></label>`, "Save", () => {
+    const v = document.querySelector('input[name="dCol"]:checked')?.value || "", w = edit(id);
+    if (v === "with") { const o = $("dColWith").value; if (!o) return "Pick a train."; w.tables[T].col = o; } else if (v === "own") w.tables[T].col = "own"; else delete w.tables[T].col;
+    renderEntry();
+  });
+}
 function splitPairDialog(id) {
   const tr = trainDoc(id); if (!tr) return;
   const { merged, pts } = splitPoints(tr); const [na, nb] = splitNos(tr.trainNo), rr = trRR(tr);
@@ -3298,7 +3316,7 @@ function splitPairDialog(id) {
     if (!o.rrA || !o.rrB) return "Pick a railroad for both parts.";
     if (!o.noA && !o.noB) return "Give at least one of the parts a number.";
     const i = $("dSplitAt") ? +$("dSplitAt").value : -1; const idB = splitPairAt(id, i >= 0 ? pts[i] : null, merged, o);
-    notice(`Split into ${esc(o.rrA)} ${esc(o.noA || "(no number)")} and ${esc(o.rrB)} ${esc(o.noB || "(no number)")}. Check the changeover, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage(); return idB && "";
+    notice(`Split into ${esc(o.rrA)} ${esc(o.noA || "(no number)")} and ${esc(o.rrB)} ${esc(o.noB || "(no number)")}. Check the changeover, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage();
   });
 }
 // ---------- home page ----------
@@ -3612,27 +3630,57 @@ function applyPhoneMode() {
 phoneMQ.addEventListener?.("change", () => { applyPhoneMode(); showPage(S.page || "home"); });
 function openTrainRecord(id, tableId) { mtSel = id; if (tableId && trainDoc(id)?.tables?.[tableId]) { S.tableId = tableId; LS.set("table", tableId); } mtFilter = "all"; LS.set("mtAll", false); showPage("trains"); scrollTo(0, 0); setTimeout(() => document.querySelector(".mt-head")?.scrollIntoView({ block: "start" }), 50); }
 // a table as printed: stations down the side, one column per train, times as text
+// columns for the read-only table view: trains that run on from one another on this table share a column.
+// Automatic: a through-car link or a connection where one train ends at the station where the other starts (on this table).
+// A train's tables[T].col can be "own" (always its own column) or another train's id (always in that train's column).
+function tableColumns(T, trs) {
+  const ids = new Set(trs.map(x => x.id)), up = new Map(trs.map(x => [x.id, x.id]));
+  const find = x => { while (up.get(x) !== x) { up.set(x, up.get(up.get(x))); x = up.get(x); } return x; };
+  const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) up.set(rb, ra); };
+  const colOf = x => x.tables?.[T]?.col || "";
+  const ends = x => { const st = (x.stops || []).filter(s => s.tableId === T && s.stationId && !s.pass); return st.length ? [st[0].stationId, st[st.length - 1].stationId] : null; };
+  const byNo = new Map(trs.filter(x => x.trainNo).map(x => [`${trRR(x)}|${x.trainNo}`, x]));
+  for (const x of trs) {
+    const c = colOf(x); if (c && c !== "own" && ids.has(c)) { join(c, x.id); continue; }
+    if (c === "own") continue;
+    const ex = ends(x); if (!ex) continue;
+    for (const l of links(x, "to")) {
+      const o = (l.trainId && ids.has(l.trainId) && trs.find(y => y.id === l.trainId)) || (l.phId && trs.find(y => y.id === l.phId)) || byNo.get(`${l.rr}|${l.trainNo}`);
+      if (!o || o.id === x.id || colOf(o)) continue;
+      const eo = ends(o); if (!eo) continue;
+      if (ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1])) join(x.id, o.id);
+    }
+  }
+  const groups = new Map(); for (const x of trs) { const r = find(x.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x); }
+  return [...groups.values()];
+}
 function renderTableView(el, t) {
-  $("entryHint").textContent = S.viewOnly ? "Tap a train number for its full record." : "Read-only view of this table. Click a heading to edit that train on the Trains page.";
+  $("entryHint").textContent = S.viewOnly ? "Tap a train number for its full record." : "Read-only view of this table. Trains that run on from one another (through cars or a connection) share a column. Click a train number to open it.";
   const allTrs = trainsInTable();
-  const trs = allTrs;
+  const cols = tableColumns(t.id, allTrs);
   const rows = (t.rows || []).slice();
   for (const tr of allTrs) if (!rowsDeferred(tr)) for (const s of tStops(tr)) if (s.stationId && !rows.some(r => r.rid === s.rid)) rows.push({ rid: s.rid || "", stationId: s.stationId });
   const cellFor = (tr, r) => tStops(tr).find(s => s.rid && s.rid === r.rid) || (!r.rid ? tStops(tr).find(s => s.stationId === r.stationId) : null);
-  if (!trs.length) { el.innerHTML = `<div class="empty">No trains on this table yet.</div>`; return; }
+  if (!allTrs.length) { el.innerHTML = `<div class="empty">No trains on this table yet.</div>`; return; }
   const used = new Set();
-  const cell = (host, r) => {
-    const hits = [cellFor(host, r)].filter(Boolean);
+  const cell = (col, r) => {
+    const hits = col.map(tr => cellFor(tr, r)).filter(Boolean);
     if (!hits.length) return `<td></td>`;
     hits.forEach(s => { if (s.mark) used.add(s.mark); });
     const pm = hits.some(s => !s.pass && Core.isPM(s.dep || s.arr));
     return `<td class="tv-t ${pm ? "pm" : ""}">${hits.map(s => esc(Core.formatCell12(s))).join(" / ")}</td>`;
   };
-  // the column heading: what you typed for this column, otherwise the main train's name and number ("The South Wind No. 15")
-  const headOf = tr => (tr.trainName ? `${tr.trainName} No. ${tr.trainNo || "?"}` : tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `No. ${tr.trainNo || "?"}`);
+  // the column heading: the train name(s) once, then each train's number (with its railroad when it isn't this table's)
+  const noOf = tr => tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `${trRR(tr) !== t.rr ? trRR(tr) + " " : ""}No. ${tr.trainNo || "?"}`;
+  const head = col => {
+    const names = [...new Set(col.map(x => x.trainName).filter(Boolean))], fqs = new Set(col.map(x => x.frequency || "Daily"));
+    // one frequency for the whole column when they all match; otherwise name the train it belongs to
+    const fq = fqs.size === 1 ? [...fqs].filter(f => f !== "Daily") : col.filter(x => (x.frequency || "Daily") !== "Daily").map(x => `${noOf(x)}: ${x.frequency}`);
+    return `<th>${names.length ? `<div class="tv-nm">${esc(names.join(" / "))}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
+  };
   el.innerHTML = `<div class="tv-wrap"><table class="tv">
-    <thead><tr><th class="tv-st">Station</th>${trs.map(tr => `<th><button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${trRR(tr) !== t.rr ? `<span class="tv-rr">${esc(trRR(tr))}</span> ` : ""}${esc(headOf(tr))}</button>${tr.frequency && tr.frequency !== "Daily" ? `<span class="tv-fq">${esc(tr.frequency)}</span>` : ""}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${trs.length + 1}"></td></tr>` : `<tr><td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${trs.map(tr => cell(tr, r)).join("")}</tr>`).join("")}</tbody>
+    <thead><tr><th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
+    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1}"></td></tr>` : `<tr><td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
   </table></div>
   ${marksLine(t, [...used])}
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}
