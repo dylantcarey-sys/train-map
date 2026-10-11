@@ -1337,7 +1337,7 @@ function renderTrain(el, t, tr) {
         <button id="btnReverse">Reverse stop order</button>
       </div></details>
       <details class="menu sa-menu"><summary>Train tools ▾</summary><div class="menu-pop">
-        ${PAIR.test(tr.trainNo || "") ? `<button id="btnSplitPair" title="For a dashed number like 5-3: make two trains joined by a through-cars link">Split into two trains (${esc(tr.trainNo)})…</button>` : ""}
+        <button id="btnSplitPair" title="Make two trains out of this one at a stop you pick, joined by a through-cars link. Each part can have its own railroad and number (a dashed number like 5-3 fills them in).">Split into two trains…</button>
         <button id="btnSections" title="For a train that splits into parts for different places, or parts that join into one train">${showSec ? (secs.length ? "Sections" : "Hide sections") : "Split / join sections…"}</button>
         <button id="btnAppear" title="For a train printed twice on this table, such as a daily train that also runs a different part of its route under another name and days">Add a second appearance…</button>
       </div></details>
@@ -3192,9 +3192,13 @@ function splitPoints(tr) {
   });
   return { merged: m, pts };
 }
-function splitPairAt(id, pt, merged) {
-  const A = edit(id), m = PAIR.exec(A.trainNo || ""); if (!m) return;
-  const [, na, nb] = m, rr = trRR(A), old = A.throughTo;
+// numbers for the two parts: a dashed number like 5-3 or 141-1-1 gives "5" + "3" / "141" + "1-1"
+const splitNos = no => { const parts = String(no || "").split(/\s*[-–]\s*/).filter(Boolean); return parts.length > 1 ? [parts[0], parts.slice(1).join("-")] : [String(no || ""), ""]; };
+// split a train at a point into A (stops before) and a new train B (stops after), each with its own railroad and number,
+// joined by a through-cars link at the split station
+function splitPairAt(id, pt, merged, o = {}) {
+  const A = edit(id); const [na0, nb0] = splitNos(A.trainNo);
+  const rrA = o.rrA || trRR(A), rrB = o.rrB || rrA, na = o.noA ?? na0, nb = o.noB ?? nb0, old = A.throughTo;
   const side = new Map();   // entered stop index -> merged index
   merged.forEach((s, j) => { if (s._k != null) side.set(s._k, j); (s._ks || []).forEach(k => side.set(k, j)); });
   const stopsA = [], stopsB = []; const last = {};
@@ -3206,25 +3210,37 @@ function splitPairAt(id, pt, merged) {
     else to = pt ? (j <= pt.j ? "A" : "B") : "A";
     (to === "A" ? stopsA : stopsB).push(s); last[s.tableId] = to;
   });
+  // the part ends and starts where it changes over
+  if (stopsA.length) { const z = stopsA[stopsA.length - 1]; delete z.origin; z.terminus = true; }
+  if (stopsB.length) { const a = stopsB[0]; delete a.terminus; a.origin = true; }
   const at = pt ? merged[pt.j].stationId : "";
   const idB = uid(); remember(`${trainsPath()}/${idB}`, null);
   const tablesOf = list => Object.fromEntries(Object.entries(A.tables || {}).filter(([k]) => !pt || list.some(s => s.tableId === k)).map(([k, v]) => [k, { ...v, order: (v.order ?? 0) + (list === stopsB ? 0.5 : 0) }]));
-  const B = { id: idB, rr, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB };
+  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB };
   if (old) B.throughTo = old;
-  const link = trainNo => [{ rr, trainNo, ...(at ? { stationId: at } : {}) }];
-  S.work.set(idB, B); edit(idB); B.throughFrom = link(na);
-  A.trainNo = na; A.stops = stopsA; A.tables = tablesOf(stopsA); A.throughTo = link(nb);
+  const link = (rr, trainNo, trainId) => [{ kind: "cars", rr, trainNo, ...(trainId ? { trainId } : {}), ...(at ? { stationId: at } : {}) }];
+  S.work.set(idB, B); edit(idB); B.throughFrom = link(rrA, na, A.id);
+  A.rr = rrA; A.trainNo = na; A.stops = stopsA; A.tables = tablesOf(stopsA); A.throughTo = link(rrB, nb, idB);
   return idB;
 }
 function splitPairDialog(id) {
-  const tr = trainDoc(id), m = PAIR.exec(tr?.trainNo || ""); if (!m) return;
-  const { merged, pts } = splitPoints(tr);
+  const tr = trainDoc(id); if (!tr) return;
+  const { merged, pts } = splitPoints(tr); const [na, nb] = splitNos(tr.trainNo), rr = trRR(tr);
   const def = Math.max(0, pts.findIndex(p => p.twice) >= 0 ? pts.findIndex(p => p.twice) : pts.findIndex(p => p.type === "at") >= 0 ? pts.findIndex(p => p.type === "at") : Math.floor(pts.length / 2));
-  dialog(`<h2>Split ${esc(trRR(tr))} ${esc(tr.trainNo)}</h2>
-    <p class="small muted">Into ${esc(trRR(tr))} ${esc(m[1])} and ${esc(trRR(tr))} ${esc(m[2])}, joined by a through-cars link. No. ${esc(m[1])} keeps the stops before the split; No. ${esc(m[2])} gets the stops after it.</p>
-    ${pts.length ? `<label class="f"><span>Where does it change from ${esc(m[1])} to ${esc(m[2])}?</span><select id="dSplitAt">${pts.map((p, i) => `<option value="${i}" ${i === def ? "selected" : ""}>${esc(p.label)}${p.twice ? " (station printed twice)" : ""}</option>`).join("")}</select></label>` : `<p class="small muted">It has no stops yet, so this just makes the two trains.</p>`}`, "Split", () => {
-    const i = $("dSplitAt") ? +$("dSplitAt").value : -1; const idB = splitPairAt(id, i >= 0 ? pts[i] : null, merged);
-    notice(`Split into ${esc(trRR(tr))} ${esc(m[1])} and ${esc(trRR(tr))} ${esc(m[2])}. Check the changeover, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage(); return idB && "";
+  dialog(`<h2>Split ${esc(trLabel(tr))}</h2>
+    <p class="small muted">Makes two trains joined by a through-cars link at the split. The first keeps the stops before the split; the second gets the stops after it. To split into three, split again on the second train.</p>
+    <div class="fields">
+      <label class="f"><span>First part: railroad</span><select id="dRrA">${rrOptions(rr)}</select></label>
+      <label class="f"><span>First part: number</span><input id="dNoA" value="${esc(na)}" autocomplete="off"></label>
+      <label class="f"><span>Second part: railroad</span><select id="dRrB">${rrOptions(rr)}</select></label>
+      <label class="f"><span>Second part: number</span><input id="dNoB" value="${esc(nb)}" placeholder="e.g. 1" autocomplete="off"></label>
+    </div>
+    ${pts.length ? `<label class="f" style="margin-top:8px"><span>Where does it change from the first train to the second?</span><select id="dSplitAt">${pts.map((p, i) => `<option value="${i}" ${i === def ? "selected" : ""}>${esc(p.label)}${p.twice ? " (station printed twice)" : ""}</option>`).join("")}</select></label>` : `<p class="small muted">It has no stops yet, so this just makes the two trains.</p>`}`, "Split", () => {
+    const o = { rrA: $("dRrA").value, rrB: $("dRrB").value, noA: $("dNoA").value.trim(), noB: $("dNoB").value.trim() };
+    if (!o.rrA || !o.rrB) return "Pick a railroad for both parts.";
+    if (!o.noA && !o.noB) return "Give at least one of the parts a number.";
+    const i = $("dSplitAt") ? +$("dSplitAt").value : -1; const idB = splitPairAt(id, i >= 0 ? pts[i] : null, merged, o);
+    notice(`Split into ${esc(o.rrA)} ${esc(o.noA || "(no number)")} and ${esc(o.rrB)} ${esc(o.noB || "(no number)")}. Check the changeover, and use Undo if that wasn't right.`); mtSel = id; renderTrainsPage(); return idB && "";
   });
 }
 // ---------- home page ----------
