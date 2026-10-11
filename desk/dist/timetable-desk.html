@@ -3346,7 +3346,7 @@ function masterProblems(tr, byNo) {
     if (c.phId && o && !o._deleted && !o.unnumbered) continue;   // waiting on its number: not a problem
     if (o && futureRR(o)) continue;
     if (!o) { out.push({ kind: "link", warn: true, text: `Its ${what} ${dir === "to" ? "to" : "from"} ${other}${at}: there's no ${other} entered in this source yet.`, fixes: fx }); continue; }
-    const back = links(o, dir === "to" ? "from" : "to").filter(x => x && (x.phId === tr.id || (x.rr === trRR(tr) && String(x.trainNo) === String(tr.trainNo))));
+    const back = links(o, dir === "to" ? "from" : "to").filter(x => x && (x.phId === tr.id || x.trainId === tr.id || (x.rr === trRR(tr) && String(x.trainNo) === String(tr.trainNo))));
     const oTable = Object.keys(o.tables || {}).find(k => tableById(k));
     const fxBoth = [...fx, { label: `Open ${trLabel(o)}'s links`, go: { source: S.sourceId, table: oTable, train: o.id, mode: "train", focus: "links" } }];
     if (!back.length) { out.push({ kind: "link", warn: true, text: `${trLabel(tr)} lists ${what} ${dir === "to" ? "to" : "from"} ${other}${at}, but ${other} doesn't list ${trLabel(tr)}.`, fixes: fxBoth }); }
@@ -3647,6 +3647,19 @@ function splitPairAt(id, pt, merged, o = {}) {
   if (stopsA.length) { const z = stopsA[stopsA.length - 1]; delete z.origin; z.terminus = true; }
   if (stopsB.length) { const a = stopsB[0]; delete a.terminus; a.origin = true; }
   const at = pt ? merged[pt.j].stationId : "";
+  // equipment goes to the part(s) it runs on: a car whose From/To span crosses the split goes in both; one with no From/To (whole train) goes in both
+  const posOf = new Map(); merged.forEach((m, j) => { if (m.stationId && !posOf.has(m.stationId)) posOf.set(m.stationId, j); });
+  const lastPos = new Map(); merged.forEach((m, j) => { if (m.stationId) lastPos.set(m.stationId, j); });
+  const cut = pt ? (pt.type === "at" ? pt.j : pt.j + 0.5) : Infinity;
+  const eqA = [], eqB = [];
+  for (const e of A.equipment || []) {
+    if (!pt || !posOf.has(e.from) || !posOf.has(e.to)) { eqA.push(e); if (pt) eqB.push(structuredClone(e)); continue; }
+    // the stretch of the train the car covers (either direction; a station printed twice counts from its first to its last row)
+    const lo = Math.min(posOf.get(e.from), posOf.get(e.to)), hi = Math.max(lastPos.get(e.from), lastPos.get(e.to));
+    const inA = lo < cut, inB = hi > cut;
+    if (inA || !inB) eqA.push(e); if (inB) eqB.push(structuredClone(e));
+  }
+  const oldRR = trRR(A), oldNo = A.trainNo, oldTo = links(A, "to").map(l => (l.trainId && trainDoc(l.trainId)) || allTrainDocs().find(x => trRR(x) === l.rr && String(x.trainNo) === String(l.trainNo))).filter(Boolean).map(x => x.id);
   const idB = uid(); remember(`${trainsPath()}/${idB}`, null);
   const tablesOf = list => Object.fromEntries(Object.entries(A.tables || {}).filter(([k]) => !pt || list.some(s => s.tableId === k)).map(([k, v]) => [k, { ...v, order: (v.order ?? 0) + (list === stopsB ? 0.5 : 0) }]));
   const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB };
@@ -3654,6 +3667,15 @@ function splitPairAt(id, pt, merged, o = {}) {
   const link = (rr, trainNo, trainId) => [{ kind: "cars", rr, trainNo, ...(trainId ? { trainId } : {}), ...(at ? { stationId: at } : {}) }];
   S.work.set(idB, B); edit(idB); B.throughFrom = link(rrA, na, A.id);
   A.rr = rrA; A.trainNo = na; A.stops = stopsA; A.tables = tablesOf(stopsA); A.throughTo = link(rrB, nb, idB);
+  if (pt) { A.equipment = eqA; B.equipment = eqB; }
+  // other trains' links to the old train: those it continued into now come from the second part; the rest point at the first part
+  const isOld = l => l && (l.trainId === A.id || (!l.trainId && l.rr === oldRR && String(l.trainNo) === String(oldNo)));
+  for (const x of allTrainDocs()) {
+    if (x.id === A.id || x.id === idB) continue;
+    const hits = ["from", "to"].filter(d => links(x, d).some(isOld)); if (!hits.length) continue;
+    const wx = edit(x.id);
+    for (const d of hits) linkList(wx, d).forEach(l => { if (!isOld(l)) return; const toB = d === "from" && oldTo.includes(x.id); Object.assign(l, toB ? { rr: rrB, trainNo: nb, trainId: idB } : { rr: rrA, trainNo: na, trainId: A.id }); });
+  }
   return idB;
 }
 function columnDialog(id) {
