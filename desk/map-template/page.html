@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Historic Passenger Train Map</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.32/esri/themes/light/main.css">
+<script>window.__errs = []; window.addEventListener("error", e => window.__errs.push((e.message || "error") + (e.filename ? " (" + e.filename.split("/").pop() + ")" : "")));</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://js.arcgis.com/4.32/"></script>
+<style>
+  :root { --bg:#fff; --ink:#1f2933; --muted:#5f6b78; --line:#d9dee4; --accent:#1d6f42; --accent-2:#e8f3ec; --warn:#8a5200; --warn-bg:#fff4e0; --panel:#fafbfc; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
+  #app { display:flex; height:100%; }
+  #panel { width:340px; flex:none; overflow-y:auto; border-right:1px solid var(--line); padding:14px 16px 24px; }
+  #mapWrap { flex:1; position:relative; min-width:0; }
+  #viewDiv { position:absolute; inset:0; }
+  h1 { font-size:17px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:12.5px; margin-bottom:10px; }
+  details { border:1px solid var(--line); border-radius:8px; margin:10px 0; background:var(--panel); }
+  summary { cursor:pointer; padding:9px 12px; font-weight:600; }
+  .sec { padding:2px 12px 12px; }
+  label.f { display:block; font-size:12.5px; color:var(--muted); margin:9px 0 3px; }
+  select, input[type=search] { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+  button { font:inherit; padding:7px 12px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  .msg { padding:8px 10px; border-radius:6px; margin:6px 0; font-size:12.5px; }
+  .msg.ok { background:var(--accent-2); }
+  .msg.warn { background:var(--warn-bg); color:var(--warn); }
+  .chk { display:flex; gap:6px; align-items:center; margin:4px 0; font-size:13px; }
+  .sw { width:12px; height:12px; border-radius:3px; flex:none; display:inline-block; }
+  #trainList { list-style:none; margin:6px 0 0; padding:0; max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  #trainList li { padding:5px 8px; border-bottom:1px solid #eef1f4; cursor:pointer; font-size:13px; display:flex; gap:8px; align-items:baseline; }
+  #trainList li:last-child { border-bottom:none; }
+  #trainList li[aria-current=true] { background:var(--accent-2); }
+  #trainList li.off { opacity:.45; }
+  #trainList .no { font-weight:700; min-width:64px; }
+  #info .mk { font-style: italic; }
+  .rrname { all: unset; cursor: pointer; } .rrname:hover { text-decoration: underline; }
+  #app.nopanel #panel { display: none; }
+  #app:fullscreen { background: var(--bg); }
+  #trainList li.sub { padding-left:18px; font-size:12.5px; }
+  #trainList .when { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #bar { position:absolute; left:12px; right:12px; bottom:22px; background:rgba(255,255,255,.96); border:1px solid var(--line); border-radius:10px; padding:8px 12px; display:flex; gap:10px; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,.12); z-index:5; flex-wrap:wrap; }
+  #bar select { width:auto; }
+  #clock { font-variant-numeric:tabular-nums; font-weight:700; min-width:150px; }
+  #clock small { font-weight:400; color:var(--muted); }
+  #slider { flex:1; min-width:120px; accent-color:var(--accent); }
+  #count { color:var(--muted); font-size:12.5px; white-space:nowrap; }
+  #info { position:absolute; top:12px; right:12px; width:300px; max-height:calc(100% - 110px); overflow:auto; background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; box-shadow:0 2px 10px rgba(0,0,0,.12); display:none; z-index:5; font-size:13px; }
+  #info h3 { margin:0 22px 2px 0; font-size:15px; }
+  #info .x { position:absolute; top:4px; right:6px; border:none; background:none; font-size:18px; padding:2px 6px; }
+  #info table { border-collapse:collapse; width:100%; margin-top:6px; font-variant-numeric:tabular-nums; }
+  #info td { padding:2px 4px; border-bottom:1px solid #eef1f4; vertical-align:top; }
+  #info td.t { white-space:nowrap; text-align:right; }
+  #info tr.here td { background:var(--accent-2); font-weight:600; }
+  #info tr.done td { color:var(--muted); }
+  .pm { font-weight:700; }
+  #loading { position:absolute; top:12px; left:60px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; z-index:6; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+  #noSdk { position:absolute; inset:0; display:none; align-items:center; justify-content:center; padding:24px; text-align:center; background:#f4f6f8; z-index:10; }
+  @media (max-width: 760px) {
+    html,body { height:100dvh; font-size:15px; }
+    #app { height:100dvh; }
+    /* the map fills the screen; the panel is a sheet that slides over it */
+    #panel { position:fixed; inset:0; z-index:20; width:100%; max-height:none; border:none; background:#fff; padding:12px 14px calc(70px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling:touch; }
+    #app.nopanel #panel { display:none; }
+    #panel .closeSheet { display:block; position:sticky; top:0; z-index:2; width:100%; margin:0 0 8px; padding:11px; font-weight:600; background:var(--accent); color:#fff; border-color:var(--accent); }
+    select, input[type=search], input[type=date], button { font-size:16px; min-height:40px; }
+    input[type=checkbox] { width:20px; height:20px; }
+    .chk { margin:8px 0; font-size:14px; }
+    #trainList { max-height:none; }
+    #trainList li { padding:10px 8px; font-size:14px; }
+    /* slim control bar: one row of buttons, one thin slider; speed and count live in the panel */
+    #bar { left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom)); padding:6px 8px; gap:4px 8px; flex-wrap:wrap; border-radius:12px; }
+    #bar button, #bar select { min-height:36px; }
+    #bar #play { min-width:0; padding:4px 10px; order:1; }
+    #bar #clock { min-width:0; flex:1; order:2; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #bar #locBtn { order:3; padding:4px 10px; }
+    #bar #panelBtn { order:4; padding:4px 10px; background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+    #bar #slider { order:5; flex:1 1 100%; min-width:0; margin:0; height:22px; }
+    #clock small { display:none; }
+    #bar #speed, #bar #count, #bar #fsBtn { display:none; }
+    #info { left:8px; right:8px; top:auto; bottom:calc(104px + env(safe-area-inset-bottom)); width:auto; max-height:24dvh; font-size:13px; padding:8px 10px; }
+    #info .x { font-size:24px; padding:4px 10px; }
+    #loading { left:12px; right:12px; top:8px; }
+    .esri-ui-top-left { top:44px !important; }
+  }
+  @media (min-width: 761px) { #panel .closeSheet, .phoneOnly { display:none !important; } }
+  ul.issues { margin:4px 0 0; padding-left:18px; max-height:240px; overflow:auto; }
+  ul.issues li { margin:3px 0; }
+  .muted { color:#5b6670; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <button class="closeSheet" id="closeSheet">Show the map ▸</button>
+    <h1>Historic Passenger Train Map</h1>
+    <div class="sub">Trains from the Timetable Desk, moving along the Historic Passenger Lines.</div>
+
+    <label class="f" for="selSource">Timetable</label>
+    <select id="selSource"></select>
+    <label class="f" for="selDay">Day of the week</label>
+    <select id="selDay">
+      <option value="all">Any day (show every train)</option>
+      <option value="1" selected>Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+    </select>
+    <label class="f phoneOnly" for="speed2">Playback speed</label>
+    <select id="speed2" class="phoneOnly"><option value="60">1 min/s</option><option value="300" selected>5 min/s</option><option value="900">15 min/s</option><option value="1800">30 min/s</option><option value="3600">1 hr/s</option></select>
+    <div class="hint">Times are shown in Eastern time; each train's own printed times are in its details.</div>
+
+    <details open>
+      <summary>Trains</summary>
+      <div class="sec">
+        <div id="rrChecks"></div>
+        <input type="search" id="trainSearch" placeholder="Find a train (number or name)" style="margin-top:6px">
+        <select id="lineFilter" title="Show only trains whose route uses this rail line" style="margin-top:6px;width:100%"><option value="">Any line</option></select>
+        <label class="chk"><input type="checkbox" id="onlyRunning"> Only trains running at this time</label>
+        <label class="chk"><input type="checkbox" id="onlyInView"> Only trains in the map view</label>
+        <div class="hint" id="listCount" style="margin:2px 0 0"></div>
+        <ul id="trainList"></ul>
+        <div class="hint">Click a train to see its stops and follow it.</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Display</summary>
+      <div class="sec">
+        <label class="f" for="basemap">Basemap</label>
+        <select id="basemap">
+          <option value="gray-vector">Light gray</option><option value="topo-vector">Topographic</option>
+          <option value="streets-vector">Streets</option><option value="hybrid">Imagery with labels</option>
+          <option value="dark-gray-vector">Dark gray</option><option value="osm">OpenStreetMap</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="showTrainLabels" checked> Train number labels</label>
+        <label class="chk"><input type="checkbox" id="showAllStations" checked> Stations where trains stop (small dots)</label>
+        <label class="chk"><input type="checkbox" id="showUnserved" checked> Lines without passenger service at this date</label>
+        <label class="chk"><input type="checkbox" id="onlyWatchedLines"> Only lines of the railroads being shown</label>
+        <label class="chk"><input type="checkbox" id="showRoutes" checked> Highlight the routes of the trains shown</label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Timetable data</summary>
+      <div class="sec">
+        <div id="dataNote" class="hint" style="margin-top:0"></div>
+        <label class="f" for="csvFile">Load a newer Timetable Desk export (CSV)</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+        <div class="hint">In the Timetable Desk, use <b>Export CSV</b>, then choose that file here.</div>
+        <label class="f" for="gtfsFile" style="margin-top:10px">Add a modern timetable (GTFS .zip)</label>
+        <input type="file" id="gtfsFile" accept=".zip,application/zip">
+        <label class="f" for="gtfsWeek" style="margin-top:6px">Week starting (optional)</label>
+        <input type="date" id="gtfsWeek">
+        <div class="hint">Download a railroad's published timetable feed and choose the .zip here: <a href="https://content.amtrak.com/content/gtfs/GTFS.zip" target="_blank" rel="noopener">Amtrak</a>, <a href="https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip" target="_blank" rel="noopener">Metro-North</a>, <a href="https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip" target="_blank" rel="noopener">LIRR</a>. Its rail trains for one typical week (the next whole week the feed covers, unless you pick one) are added as their own source in the list above. Stations within 400 m of one of your historic stations use that station; the rest are added from the feed.</div>
+      </div>
+    </details>
+
+    <div id="status"></div>
+  </aside>
+
+  <div id="mapWrap">
+    <div id="viewDiv"></div>
+    <div id="loading">Loading lines and stations…</div>
+    <div id="noSdk"><div style="max-width:420px"><h2 style="font-size:17px">The ArcGIS map library didn't load</h2>
+      <p id="noSdkWhy"></p><p class="hint">The chat preview blocks outside websites, so download this file and open it in Chrome, Edge, Firefox or Safari.</p></div></div>
+    <div id="info"><button class="x" id="infoClose" aria-label="Close">×</button><div id="infoBody"></div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="follow"> Follow this train</label></div>
+    <div id="bar">
+      <button id="play" style="min-width:76px">▶ Play</button>
+      <span id="clock">--:--</span>
+      <input type="range" id="slider" min="0" max="1440" step="0.25" value="480" aria-label="Time of day">
+      <select id="speed" title="Playback speed" aria-label="Playback speed">
+        <option value="60">1 min/s</option><option value="300" selected>5 min/s</option><option value="900">15 min/s</option><option value="1800">30 min/s</option><option value="3600">1 hr/s</option>
+      </select>
+      <span id="count"></span>
+      <button id="locBtn" title="Zoom to my location" aria-label="Zoom to my location">📍</button>
+      <button id="panelBtn" title="Hide or show the side panel">◂ Panel</button>
+      <button id="fsBtn" title="Full screen">⛶ Full screen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*CORE*/
+</script>
+<script>
+// Snapshot of the Timetable Desk export (replace by loading a newer CSV in the panel)
+const EMBEDDED = { exported: "/*EXPORTED*/", csv: /*CSV*/, railroads: (() => { try { return /*RAILROADS*/; } catch { return []; } })() };
+</script>
+<script>
+const LINES_URL = "https://services8.arcgis.com/rd2DawKbk2tfv3gN/arcgis/rest/services/Historic_Passenger_Lines/FeatureServer/0";
+const STATIONS_URL = "https://services8.arcgis.com/rd2DawKbk2tfv3gN/arcgis/rest/services/Historic_Passenger_Stations/FeatureServer/0";
+
+require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/GraphicsLayer", "esri/layers/FeatureLayer", "esri/geometry/Point", "esri/geometry/Polyline", "esri/geometry/Extent", "esri/core/reactiveUtils"],
+(EsriMap, MapView, Graphic, GraphicsLayer, FeatureLayer, Point, Polyline, Extent, reactiveUtils) => {
+  window.__sdkReady = true;
+  const C = MapCore;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const WM = { wkid: 3857 };
+  // labels only when zoomed in (the basemap names places when zoomed out): end stations from about 1:600,000, every stop from about 1:250,000
+  const END_LABEL_SCALE = 600000, STOP_LABEL_SCALE = 250000, TRAIN_LABEL_SCALE = 4800000;
+  const PALETTE = ["#1d4ed8", "#c2410c", "#1d6f42", "#a21caf", "#b45309", "#0f766e", "#be123c", "#4d7c0f", "#6d28d9", "#0369a1"];
+
+  const map = new EsriMap({ basemap: "gray-vector" });
+  const linesLayer = new GraphicsLayer({ title: "Rail lines" });
+  const routeLayer = new GraphicsLayer({ title: "Routes" });
+  const gapLayer = new GraphicsLayer({ title: "Straight-line gaps" });
+  const trainsLayer = new GraphicsLayer({ title: "Trains" });
+  const labelsLayer = new GraphicsLayer({ title: "Train labels" });
+  let dotsLayer = null, terminiLayer = null;
+  map.addMany([linesLayer, routeLayer, gapLayer]);
+  map.addMany([trainsLayer, labelsLayer]);
+  const view = new MapView({ container: "viewDiv", map, center: [-77, 41.5], zoom: 6, constraints: { snapToZoom: false } });
+  view.ui.move("zoom", "top-left");
+  const setBasemap = id => { map.basemap = id; map.basemap.load().catch(() => { if (id !== "osm") { $("basemap").value = "osm"; setBasemap("osm"); } }); };
+  $("basemap").onchange = e => setBasemap(e.target.value);
+
+  const S = { lines: [], lineFields: [], stations: new Map(), allTrips: [], trips: [], net: null, colors: new Map(), graphics: new Map(), t: 480, playing: false, selected: null, rrOff: new Set(), source: "", day: "1", rows: [], exported: EMBEDDED.exported };
+
+  const status = (html, kind = "ok", append = false) => { const d = `<div class="msg ${kind}">${html}</div>`; $("status").innerHTML = append ? $("status").innerHTML + d : d; };
+
+  // ---------- load ArcGIS layers (paged queries) ----------
+  async function queryAll(url, params) {
+    const out = []; let fields = [];
+    for (let off = 0; ; ) {
+      const q = new URLSearchParams({ where: "1=1", outSR: "4326", f: "json", resultOffset: off, resultRecordCount: 2000, orderByFields: "OBJECTID", ...params });
+      const r = await fetch(url + "/query?" + q); const j = await r.json();
+      if (j.error) throw new Error(j.error.message || "query failed");
+      if (!fields.length) fields = j.fields || [];
+      out.push(...(j.features || []));
+      if (!j.exceededTransferLimit || !(j.features || []).length) break;
+      off += j.features.length;
+    }
+    return { features: out, fields };
+  }
+  async function loadGeo() {
+    const [L, St] = await Promise.all([
+      queryAll(LINES_URL, { outFields: "*", returnGeometry: true, geometryPrecision: 6 }),
+      queryAll(STATIONS_URL, { outFields: "OBJECTID,StationID,Name,Town,State,StationLabel,TZ", returnGeometry: true, geometryPrecision: 6 })
+    ]);
+    S.lineFields = L.fields.map(f => ({ name: f.name, alias: f.alias }));
+    S.lines = L.features.filter(f => f.geometry?.paths?.length).map(f => ({ paths: f.geometry.paths, attrs: f.attributes }));
+    for (const f of St.features) { const a = f.attributes, g = f.geometry; if (!a.StationID || !g) continue; S.stations.set(a.StationID, { id: a.StationID, name: a.Name || "", town: a.Town || "", state: a.State || "", label: a.StationLabel || a.Name || a.StationID, tz: a.TZ || "", lon: g.x, lat: g.y }); }
+    S.net = C.buildNetwork(S.lines);
+  }
+
+  // ---------- timetable ----------
+  function setRows(rows, note) {
+    S.rows = rows; S.allTrips = C.tripsFromExport(rows);
+    const sources = [...new Map(S.allTrips.map(t => [t.source, t.sourceDate])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    S.sourceList = sources;
+    if (!sources.some(([s]) => s === S.source)) S.source = (sources.find(([s]) => !/\(GTFS\)|^Modern trains/.test(s)) || sources[sources.length - 1] || [""])[0];
+    fillSources();
+    $("dataNote").innerHTML = note;
+    build();
+  }
+  function fillSources() {
+    const list = S.sourceList || [], hist = list.filter(([s]) => !/\(GTFS\)/.test(s)), modern = list.filter(([s]) => /\(GTFS\)/.test(s));
+    const opt = s => `<option value="${esc(s)}">${esc(s)}</option>`;
+    let h = hist.map(([s]) => opt(s)).join("") || `<option value="">(no trains yet)</option>`;
+    const td = typeof gtfsMan !== "undefined" ? gtfsMan?.today : null;
+    if (modern.length || td) h += `<optgroup label="Today's railroads">` + modern.map(([s]) => opt(s)).join("") + (td && !modern.some(([s]) => s.startsWith("Modern trains")) ? `<option value="modern">Modern trains, week of ${esc(td.weekText)} · ${td.railroads} railroads</option>` : "") + `</optgroup>`;
+    $("selSource").innerHTML = h; $("selSource").value = S.source;
+  }
+  const lineServed = (ln, field) => field ? String(ln.attrs[field] || "").trim() : "";
+  function build() {
+    if (!S.net) return;
+    const srcTrips = S.allTrips.filter(t => t.source === S.source);
+    const date = srcTrips[0]?.sourceDate || "";
+    const sf = C.servedField(S.lineFields, date); S.servedField = sf?.name || null;
+    // prefer lines the train's own railroad served at this date, then any passenger line, then the rest
+    // lines picked for a train in the Timetable Desk come first, then lines its railroad served at this date, then any passenger line
+    const lineFactor = (rrName, rr, t) => { const pick = new Set((t?.lineNames || []).map(n => n.toLowerCase())); return li => { const ln = S.lines[li], sv = lineServed(ln, S.servedField); if (pick.size) return pick.has(String(ln.attrs.Name || "").toLowerCase()) ? 1 : C.servedBy(sv, rrName, rr) ? 2.5 : sv ? 4 : 6; return C.servedBy(sv, rrName, rr) ? 1 : sv ? 2.2 : 4; }; };
+    const modern = S.source === S.modernSource;
+    const res = C.prepareTrips(srcTrips, S.stations, S.net, lineFactor, { legs: modern ? S.modernLegs : null });
+    S.trips = res.trips; S.res = res;
+    // railroad colors
+    // each railroad's own colour from the Timetable Desk's railroad list; a railroad without one gets the next spare colour
+    S.colors.clear(); let pi = 0;
+    [...new Set(S.trips.map(t => t.rr))].sort().forEach(r => { const own = S.trips.find(t => t.rr === r && t.color)?.color || (EMBEDDED.railroads || []).find(x => x.abbrev === r && x.color)?.color; S.colors.set(r, own || PALETTE[pi++ % PALETTE.length]); });
+    // sections of one train (e.g. 363's Ocean City and Cape May parts): the first one leads and is the only symbol drawn on the shared part
+    S.families = new Map(); for (const t of S.trips) if (t.section) { if (!S.families.has(t.base)) S.families.set(t.base, []); S.families.get(t.base).push(t); }
+    for (const fam of S.families.values()) { fam.sort((a, b) => a.section.localeCompare(b.section)); fam.forEach((t, i) => { t.lead = i === 0; t.family = fam; }); }
+    // rail-line filter: the lines these trains' routes use
+    const usedL = new Map(); for (const t of S.trips) for (const L of t.legs) for (const li of L.used || []) usedL.set(li, (usedL.get(li) || 0) + 1);
+    const lname = li => { const a = S.lines[li]?.attrs || {}; return [a.Name, a.Description].filter(Boolean).join(" — ") || `Line ${li}`; };
+    if (S.lineFilter && !usedL.has(+S.lineFilter)) S.lineFilter = "";
+    $("lineFilter").innerHTML = `<option value="">Any line</option>` + [...usedL.keys()].sort((a, b) => lname(a).localeCompare(lname(b))).map(li => `<option value="${li}" ${String(li) === S.lineFilter ? "selected" : ""}>${esc(lname(li))}</option>`).join("");
+    drawLines(); drawStations(); drawGaps(); makeTrainGraphics(); renderRRChecks(); renderList(); render();
+    const notes = [];
+    const rev = srcTrips.filter(t => t.reversed);
+    if (rev.length && !modern) notes.push(`<b>${rev.length} train${rev.length > 1 ? "s" : ""} had stops entered in the opposite order from their times</b> (${esc(rev.map(t => t.id).join(", "))}). The map reverses them; in the Timetable Desk, use <b>Reverse stop order</b> on each to fix the record.`);
+    if (res.missing.length && !modern) notes.push(`${res.missing.length} station${res.missing.length > 1 ? "s aren't" : " isn't"} in the stations layer yet, so ${res.missing.length > 1 ? "they're" : "it's"} skipped: ${esc(res.missing.map(m => `${m.name} (${m.id})`).join(", "))}`);
+    const gaps = res.legs.filter(L => L.straight);
+    if (gaps.length && !modern) notes.push(`<b>${gaps.length} of ${res.legs.length} station-to-station segments couldn't follow a line</b> and are drawn as red dashed straight lines. Click a red line for details. Each one below says what's wrong and what to fix:<ul class="issues">${gaps.map(L => `<li><b>${esc(L.fromName)} → ${esc(L.toName)}</b> (${esc([...L.trains].join(", "))}): ${esc(L.why || "no route found")}.${L.fix ? ` <span class="muted">${esc(L.fix)}</span>` : ""}${L.snap ? `<br><span class="muted">${esc(L.snap)}</span>` : ""}</li>`).join("")}</ul>`);
+    const longs = res.legs.filter(L => L.long);
+    if (longs.length) notes.push(`${longs.length} segment${longs.length > 1 ? "s take" : " takes"} a roundabout route on the railroad's own lines, which the map keeps: ${esc(longs.map(L => `${L.fromName} → ${L.toName}`).join("; "))}.`);
+    if (modern) status(`${S.trips.length} trains from ${new Set(S.trips.map(t => t.rr)).size} railroads, each drawn along its railroad\'s own published track. Trains run on the days shown; pick a day of the week above.`);
+    else status(`${S.trips.length} trains from ${esc(S.source || "the timetable")}. ${res.legs.length - gaps.length} of ${res.legs.length} segments follow the rail lines${S.servedField ? `, preferring lines each railroad served (${esc(sf.alias || sf.name)})` : ""}.`);
+    notes.forEach(n => status(n, "warn", true));
+  }
+
+  // the railroad (with a colour) that served a line at this date, by the layer's "served by" field
+  function servingRR(ln) {
+    const sv = lineServed(ln, S.servedField); if (!sv) return null;
+    // only railroads with trains on this map: a line served by a railroad you haven't entered yet stays grey
+    const cands = [...S.colors.keys()].map(ab => { const e = (EMBEDDED.railroads || []).find(r => r.abbrev === ab); return { abbrev: ab, name: S.trips.find(t => t.rr === ab)?.rrName || e?.name || "", other: e?.other || "", color: S.colors.get(ab) }; });
+    for (const r of cands) { const names = [r.name, ...String(r.other || "").split(/[\n;]+/)].map(x => x.trim()).filter(Boolean); if (names.some(n => C.servedBy(sv, n, r.abbrev))) return r; }
+    return null;
+  }
+  // lines the shown railroads' trains use (from their routes), or that the layer lists them as serving
+  function watchedLines() {
+    const set = new Set();
+    for (const t of S.trips) if (!S.rrOff.has(t.rr)) for (const L of t.legs) for (const li of L.used || []) set.add(li);
+    const shown = [...new Set(S.trips.filter(t => !S.rrOff.has(t.rr)).map(t => [t.rrName, t.rr]).map(JSON.stringify))].map(JSON.parse);
+    S.lines.forEach((ln, li) => { const sv = lineServed(ln, S.servedField); if (sv && shown.some(([n, r]) => C.servedBy(sv, n, r))) set.add(li); });
+    return set;
+  }
+  function drawLines() {
+    linesLayer.removeAll();
+    const showUn = $("showUnserved").checked, onlyW = $("onlyWatchedLines").checked ? watchedLines() : null, lf = S.lineFilter ?? "";
+    const gs = [];
+    for (const [li, ln] of S.lines.entries()) {
+      const served = !!lineServed(ln, S.servedField) || !S.servedField;
+      if (!served && !showUn) continue;
+      if (onlyW && !onlyW.has(li)) continue;
+      if (lf !== "" && String(li) === lf) gs.push(new Graphic({ geometry: new Polyline({ paths: ln.paths, spatialReference: { wkid: 4326 } }), symbol: { type: "simple-line", color: [255, 200, 0, 0.55], width: 9 } }));
+      // a line its railroad served at this date takes that railroad's colour, trains entered or not (commuter branches etc.)
+      const own = served ? servingRR(ln) : null;
+      if (own && !S.rrOff.has(own.abbrev)) { gs.push(new Graphic({ geometry: new Polyline({ paths: ln.paths, spatialReference: { wkid: 4326 } }), symbol: { type: "simple-line", color: [...hexRGB(own.color), 0.6], width: 2.6 }, attributes: { name: ln.attrs.Name, desc: ln.attrs.Description, served: lineServed(ln, S.servedField) } })); continue; }
+      gs.push(new Graphic({ geometry: new Polyline({ paths: ln.paths, spatialReference: { wkid: 4326 } }), symbol: served ? { type: "simple-line", color: [80, 90, 100, 0.75], width: 1.6 } : { type: "simple-line", color: [140, 150, 160, 0.45], width: 1, style: "short-dot" }, attributes: { name: ln.attrs.Name, desc: ln.attrs.Description, served: lineServed(ln, S.servedField) } }));
+    }
+    linesLayer.addMany(gs);
+    drawRoutes();
+  }
+  function drawRoutes() {
+    routeLayer.removeAll();
+    if (!$("showRoutes").checked) return;
+    const seen = new Set();
+    for (const t of S.trips.filter(t => !S.rrOff.has(t.rr))) for (const L of t.legs) {   // every train in the source, whatever day is chosen
+      if (L.straight) continue; const k = t.rr + L.fromName + L.toName; if (seen.has(k)) continue; seen.add(k);
+      const c = hexRGB(S.colors.get(t.rr)); routeLayer.add(new Graphic({ geometry: new Polyline({ paths: [L.pts], spatialReference: WM }), symbol: { type: "simple-line", color: [...c, 0.55], width: 3.2 } }));
+    }
+  }
+  const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  function drawGaps() {
+    gapLayer.removeAll();
+    const gp = { title: "{title}", content: "<p>{why}.</p><p>{fix}</p><p class='muted'>{snap}</p><p>Trains: {trains}</p>" };
+    const gaps = S.res.legs.filter(L => L.straight);
+    if (S.source === S.modernSource) { gapLayer.addMany(gaps.map(L => new Graphic({ geometry: new Polyline({ paths: [L.pts], spatialReference: WM }), symbol: { type: "simple-line", color: [110, 110, 110, 0.7], width: 1.5 } }))); return; }
+    gapLayer.addMany(gaps.map(L => new Graphic({ geometry: new Polyline({ paths: [L.pts], spatialReference: WM }), symbol: { type: "simple-line", color: [200, 30, 30, 0.9], width: 2.4, style: "dash" },
+      attributes: { title: `${L.fromName} → ${L.toName}`, why: L.why || "No route found", fix: L.fix || "", snap: L.snap || "", trains: [...L.trains].join(", ") }, popupTemplate: gp })));
+    // where the fix is needed: a break between line pieces, or a station far from any line
+    const seenAt = new Set();
+    for (const L of gaps) { if (!L.at) continue; const k = Math.round(L.at[0] / 50) + "," + Math.round(L.at[1] / 50); if (seenAt.has(k)) continue; seenAt.add(k);
+      gapLayer.add(new Graphic({ geometry: new Point({ x: L.at[0], y: L.at[1], spatialReference: WM }), symbol: { type: "simple-marker", style: "circle", size: 16, color: [0, 0, 0, 0], outline: { color: [235, 120, 0, 1], width: 2.5 } },
+        attributes: { title: "Fix needed here", why: L.why || "", fix: L.fix || "", snap: L.snap || "", trains: [...L.trains].join(", ") }, popupTemplate: gp })); }
+  }
+  function drawStations() {
+    if (dotsLayer) map.remove(dotsLayer); if (terminiLayer) map.remove(terminiLayer);
+    const ends = new Map();
+    const onlyW = $("onlyWatchedLines").checked, shownTrips = S.trips.filter(t => !onlyW || !S.rrOff.has(t.rr));
+    for (const t of shownTrips) for (const s of [t.stops[0], t.stops[t.stops.length - 1]]) { if (!ends.has(s.sid)) ends.set(s.sid, new Set()); ends.get(s.sid).add(t.id); }
+    const stops = new Map();
+    for (const t of shownTrips) for (const s of t.stops) { if (!stops.has(s.sid)) stops.set(s.sid, new Set()); stops.get(s.sid).add(t.id); }
+    const fields = [{ name: "oid", type: "oid" }, { name: "label", type: "string" }, { name: "sid", type: "string" }, { name: "trains", type: "string" }];
+    let i = 0;
+    const g = (st, extra = {}) => new Graphic({ geometry: new Point({ longitude: st.lon, latitude: st.lat }), attributes: { oid: ++i, label: st.name, sid: st.id, trains: "", ...extra } });
+    dotsLayer = new FeatureLayer({ title: "Stations", objectIdField: "oid", geometryType: "point", spatialReference: { wkid: 4326 }, fields,
+      source: [...stops].filter(([sid]) => !ends.has(sid) && S.stations.get(sid)).map(([sid, set]) => g(S.stations.get(sid), { trains: [...set].join(", ") })),
+      renderer: { type: "simple", symbol: { type: "simple-marker", size: 5, color: [90, 100, 110, 0.9], outline: { color: "white", width: 0.6 } } },
+      labelingInfo: [{ labelExpressionInfo: { expression: "$feature.label" }, labelPlacement: "above-right", minScale: STOP_LABEL_SCALE, symbol: { type: "text", color: [60, 70, 80], haloColor: "white", haloSize: 1.2, font: { size: 9.5 } } }],
+      popupTemplate: { title: "{label}", content: "Trains stopping here: {trains}" }, visible: $("showAllStations").checked });
+    terminiLayer = new FeatureLayer({ title: "Terminals", objectIdField: "oid", geometryType: "point", spatialReference: { wkid: 4326 }, fields,
+      source: [...ends].map(([sid, set]) => S.stations.get(sid) && g(S.stations.get(sid), { trains: [...set].join(", ") })).filter(Boolean),
+      renderer: { type: "simple", symbol: { type: "simple-marker", size: 8, color: "white", outline: { color: [30, 40, 50], width: 1.8 } } },
+      labelingInfo: [{ labelExpressionInfo: { expression: "$feature.label" }, labelPlacement: "above-right", minScale: END_LABEL_SCALE, symbol: { type: "text", color: [30, 40, 50], haloColor: "white", haloSize: 1.5, font: { size: 10.5, weight: "bold" } } }],
+      popupTemplate: { title: "{label}", content: "Trains starting or ending here: {trains}" } });
+    map.add(dotsLayer, 3); map.add(terminiLayer, 4);
+  }
+
+  // ---------- trains ----------
+  // a diesel seen from above, cab end first, in the railroad's colour
+  const locoCache = new Map();
+  // black with grey details, so it stands out from the coloured line it runs on (a gold outline when selected)
+  const locoURL = (color, sel) => {
+    const k = color + sel; if (locoCache.has(k)) return locoCache.get(k);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 48" width="24" height="48"><rect x="3.5" y="2.5" width="17" height="43" rx="4" fill="#161616" stroke="${sel ? "#f2b705" : "#ffffff"}" stroke-width="${sel ? 2.6 : 1.6}"/><path d="M6 7.5 Q12 4.5 18 7.5 L18 11 L6 11 Z" fill="#9aa3a8"/><rect x="6" y="13" width="12" height="1.2" fill="#9aa3a8"/>${[22, 30, 38].map(y => `<circle cx="12" cy="${y}" r="2.6" fill="none" stroke="#9aa3a8" stroke-width="1.1"/>`).join("")}</svg>`;
+    const u = "data:image/svg+xml;base64," + btoa(svg); locoCache.set(k, u); return u;
+  };
+  const trainSymbol = (color, angle, sel) => ({ type: "picture-marker", url: locoURL(color, sel), width: sel ? 10.5 : 8.25, height: sel ? 21 : 16.5, angle });
+  function makeTrainGraphics() {
+    trainsLayer.removeAll(); labelsLayer.removeAll(); S.graphics.clear();
+    for (const t of S.trips) {
+      const color = S.colors.get(t.rr);
+      const g = new Graphic({ geometry: null, symbol: trainSymbol(color, 0), attributes: { key: t.key } });
+      const l = new Graphic({ geometry: null, symbol: { type: "text", text: t.no, color, haloColor: "white", haloSize: 1.6, yoffset: 12, font: { size: 9.5, weight: "bold" } } });
+      trainsLayer.add(g); labelsLayer.add(l); S.graphics.set(t.key, { t, g, l, color, angle: null });
+    }
+  }
+  const usesLine = t => !S.lineFilter || t.legs.some(L => (L.used || []).includes(+S.lineFilter));
+  const visibleTrips = () => S.trips.filter(t => !S.rrOff.has(t.rr) && usesLine(t) && runsToday(t));
+  // does this train run on the chosen day (any of its runs touching the day)?
+  const runsOnDay = (t, d) => !t.days || t.days.has(((d % 7) + 7) % 7);
+  const runsToday = t => S.day === "all" || [0, 1, 2].some(b => runsOnDay(t, +S.day - b) && t.end - b * 1440 >= 0 && t.start - b * 1440 < 1440);
+  const runsBack = (t, back) => S.day === "all" || runsOnDay(t, +S.day - back);
+  // weekday a run left (for stops that are only made some days); with "any day" every stop counts
+  const posOpts = () => ({ depDay: S.day === "all" ? null : back => (((+S.day - back) % 7) + 7) % 7, span: (view.resolution || 100) * 14 });
+  const onShared = (t, p) => p && t.section && (p.status === "at" ? t.stops[p.stop]?.shared : t.stops[p.leg]?.shared && t.stops[p.leg + 1]?.shared);
+
+  function renderRRChecks() {
+    const rrs = [...S.colors.keys()];
+    const names = new Map(S.trips.map(t => [t.rr, t.rrName]));
+    $("rrChecks").innerHTML = rrs.map(r => `<label class="chk"><input type="checkbox" data-rr="${esc(r)}" ${S.rrOff.has(r) ? "" : "checked"}><span class="sw" style="background:${S.colors.get(r)}"></span><button type="button" class="rrname" data-only="${esc(r)}" title="Show only ${esc(r)} (click again to show every railroad)">${esc(r)} <span class="hint" style="margin:0">${esc(names.get(r) || "")}</span></button></label>`).join("");
+    const after = () => { renderRRChecks(); renderList(); drawLines(); if ($("onlyWatchedLines").checked) drawStations(); render(); };
+    $("rrChecks").querySelectorAll("[data-rr]").forEach(c => c.onchange = () => { c.checked ? S.rrOff.delete(c.dataset.rr) : S.rrOff.add(c.dataset.rr); after(); });
+    // clicking a railroad's name shows only that railroad; clicking it again (when it's the only one shown) shows them all
+    $("rrChecks").querySelectorAll("[data-only]").forEach(b => b.onclick = e => { e.preventDefault(); const r = b.dataset.only; const only = rrs.every(x => x === r ? !S.rrOff.has(x) : S.rrOff.has(x)); S.rrOff = new Set(only ? [] : rrs.filter(x => x !== r)); after(); });
+  }
+  function renderList() {
+    listAt = Date.now();
+    const q = $("trainSearch").value.trim().toLowerCase(), onlyRun = $("onlyRunning").checked, onlyView = $("onlyInView").checked;
+    const ext = onlyView ? view.extent : null;
+    const inView = t => { const o = S.graphics.get(t.key); if (o?.pos) return ext.contains(new Point({ x: o.pos.x, y: o.pos.y, spatialReference: WM })); return !onlyRun && t.stops.some(s => ext.contains(new Point({ x: s.p[0], y: s.p[1], spatialReference: WM }))); };
+    const keep = t => !S.rrOff.has(t.rr) && usesLine(t) && (!q || (t.id + " " + t.name + " " + t.alsoCalled).toLowerCase().includes(q)) && (!onlyRun || S.graphics.get(t.key)?.pos) && (!ext || inView(t));
+    // one line per train; a train in sections is listed once, with its sections under it
+    const groups = new Map();
+    for (const t of S.trips) { const g = t.section ? t.base : t.key; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(t); }
+    const list = [...groups.values()].filter(g => g.some(keep)).sort((a, b) => a[0].rr.localeCompare(b[0].rr) || String(a[0].no).localeCompare(String(b[0].no), undefined, { numeric: true }));
+    const li = (t, label, sub) => `<li data-key="${esc(t.key)}" aria-current="${t.key === S.selected}" class="${runsToday(t) ? "" : "off"} ${sub ? "sub" : ""}" title="${esc(t.freq)}"><span class="no" style="color:${S.colors.get(t.rr)}">${esc(label)}</span><span>${esc(sub ? "" : t.name || "")}</span><span class="when">${C.fmtClock(t.start)}–${C.fmtClock(t.end)}</span></li>`;
+    const CAP = 400, shown = list.length > CAP ? list.slice(0, CAP) : list;
+    $("trainList").innerHTML = shown.map(g => g[0].section ? li(g.find(t => t.lead) || g[0], g[0].base, false).replace(/<span class="when">.*?<\/span>/, `<span class="when">${g.length} sections</span>`) + g.map(t => li(t, "↳ " + t.section, true)).join("") : li(g[0], g[0].id, false)).join("") || `<li class="off">${onlyRun || onlyView ? "No trains match" : "No trains"}</li>`;
+    if (list.length > CAP) $("trainList").insertAdjacentHTML("beforeend", `<li class="sub muted" style="cursor:default">… and ${list.length - CAP} more. Type a train number or name above, or untick some railroads.</li>`);
+    $("trainList").querySelectorAll("li[data-key]").forEach(li => li.onclick = () => select(li.dataset.key, true));
+    $("listCount").textContent = list.length ? `${list.length} train${list.length > 1 ? "s" : ""}` : "";
+  }
+  function select(key, jump) {
+    S.selected = key; const o = S.graphics.get(key);
+    renderList(); render();
+    if (jump && o) {
+      let p = C.positionAt(o.t, S.t, runsBack, posOpts());
+      if (!p) { setTime(Math.max(0, Math.min(1439, o.t.start))); p = C.positionAt(o.t, S.t, runsBack, posOpts()); }
+      if (p) view.goTo({ center: new Point({ x: p.x, y: p.y, spatialReference: WM }) }).catch(() => {});
+    }
+  }
+
+  function setTime(t) { S.t = t; $("slider").value = t; $("clock").innerHTML = `${C.fmtClock(t)} <small>Eastern${S.day === "all" ? "" : ", " + C.DAYS[+S.day]}</small>`; render(); }
+  let listAt = 0;
+  function render() {
+    let running = 0; const showL = $("showTrainLabels").checked, po = posOpts();
+    for (const o of S.graphics.values()) {
+      const vis = !S.rrOff.has(o.t.rr) && usesLine(o.t);
+      const p = vis ? C.positionAt(o.t, S.t, runsBack, po) : null;
+      o.pos = p;
+      // on the stretch a split train's sections share, only the leading section is drawn
+      const hide = p && !o.t.lead && onShared(o.t, p) && o.t.family.some(f => f.lead && C.positionAt(f, S.t, runsBack, po));
+      if (!p || hide) { if (o.g.geometry) { o.g.geometry = null; o.l.geometry = null; } if (p) running++; continue; }
+      running++;
+      const pt = new Point({ x: p.x, y: p.y, spatialReference: WM });
+      o.g.geometry = pt; o.l.geometry = showL && (view.scale || 0) < TRAIN_LABEL_SCALE ? pt : null;
+      const sel = o.t.key === S.selected;
+      if (o.angle === null || Math.abs(p.angle - o.angle) > 3 || o.sel !== sel) { o.angle = p.angle; o.sel = sel; o.g.symbol = trainSymbol(o.color, p.angle, sel); }
+    }
+    $("count").textContent = S.trips.length ? `${running} running` : "";
+    if (($("onlyRunning").checked || $("onlyInView").checked) && Date.now() - listAt > 700) renderList();
+    renderInfo();
+  }
+  const t12 = s => { const v = C.fmt12(s); return v ? `<span class="${C.toMin(s) >= 720 ? "pm" : ""}">${v}</span>` : ""; };
+  function renderInfo() {
+    const o = S.selected && S.graphics.get(S.selected);
+    if (!o) { $("info").style.display = "none"; return; }
+    const t = o.t, p = o.pos;
+    const cur = p ? (p.status === "at" ? p.stop : p.leg + 0.5) : null;
+    const back = p ? p.back : 0, now = S.t + back * 1440;
+    const first = t.stops[0], last = t.stops[t.stops.length - 1];
+    let line;
+    if (!p) line = !runsToday(t) ? `Doesn't run ${S.day === "all" ? "" : "on " + C.DAYS[+S.day] + "s"}.` : S.t < t.start ? `Not yet left ${esc(first.name)}.` : `Arrived at ${esc(last.name)}.`;
+    else if (p.status === "at") line = `At <b>${esc(t.stops[p.stop].name)}</b>`;
+    else line = `Between ${esc(t.stops[p.leg].name)} and <b>${esc(t.stops[p.leg + 1].name)}</b>`;
+    const rows = t.stops.map((s, i) => `<tr class="${cur !== null && i === cur ? "here" : cur !== null && i < cur ? "done" : ""}"><td>${esc(s.name)}${s.mark ? ` <b title="${esc(s.markMeaning)}">${esc(s.mark)}</b>` : ""}<div class="hint" style="margin:0">${esc([s.town, s.state].filter(Boolean).join(", "))}${s.tz !== "ET" ? " · " + esc(s.tz) : ""}</div>${s.mark ? `<div class="hint mk" style="margin:0"><b>${esc(s.mark)}</b> ${esc(s.markMeaning || "(meaning not entered)")}</div>` : ""}</td><td class="t">${t12(s.arr)}${s.arr && s.dep ? "<br>" : ""}${t12(s.dep)}</td></tr>`).join("");
+    $("infoBody").innerHTML = `<h3 style="color:${o.color}">${esc(t.id)}${t.name ? " · " + esc(t.name) : ""}</h3>
+      <div class="hint" style="margin:0">${esc(t.rrName)}${t.alsoCalled ? " · also " + esc(t.alsoCalled) : ""}</div>
+      <div class="hint" style="margin:2px 0 0">${esc(t.freq || "Daily")} · Table ${esc(t.tables.join(", "))}${back ? ` · left ${back === 1 ? "yesterday" : back + " days ago"}` : ""}</div>
+      <div style="margin-top:6px">${line}</div>
+      ${t.consist ? `<div class="hint">${esc(t.consist)}</div>` : ""}${t.from ? `<div class="hint">Runs through from ${esc(t.from)}</div>` : ""}${t.to ? `<div class="hint">Continues as ${esc(t.to)}</div>` : ""}
+      <table>${rows}</table><div class="hint">Printed local times. Bold = p.m.</div>
+      ${(() => { const u = [...new Set(t.legs.flatMap(L => L.used || []))].map(li => S.lines[li]?.attrs?.Name).filter(Boolean); return u.length ? `<div class="hint">Rail lines${t.lineNames?.length ? " (picked in the Desk)" : " used"}: ${esc(u.join("; "))}</div>` : ""; })()}`;
+    $("info").style.display = "block";
+    if ($("follow").checked && p) view.goTo({ center: new Point({ x: p.x, y: p.y, spatialReference: WM }) }, { animate: false }).catch(() => {});
+  }
+  $("infoClose").onclick = () => { S.selected = null; $("follow").checked = false; renderList(); render(); };
+  view.on("click", async e => {
+    const hit = await view.hitTest(e, { include: [trainsLayer] });
+    const g = hit.results.find(r => r.graphic?.attributes?.key !== undefined);
+    if (g) select(g.graphic.attributes.key, false);
+  });
+
+  // ---------- playback ----------
+  let last = null;
+  function tick(ts) {
+    if (!S.playing) { last = null; return; }
+    if (last !== null) {
+      let t = S.t + (ts - last) / 1000 * (+$("speed").value / 60);
+      if (t >= 1440) { t -= 1440; if (S.day !== "all") { S.day = String((+S.day + 1) % 7); $("selDay").value = S.day; renderList(); drawRoutes(); } }   // carry on into the next day
+      setTime(t);
+    }
+    last = ts; requestAnimationFrame(tick);
+  }
+  // full screen (the whole map page) and a side-panel toggle for more map room
+  $("fsBtn").onclick = () => { if (document.fullscreenElement) document.exitFullscreen?.(); else ($("app").requestFullscreen?.() || Promise.resolve()).catch(() => {}); };
+  document.addEventListener("fullscreenchange", () => { $("fsBtn").textContent = document.fullscreenElement ? "✕ Exit full screen" : "⛶ Full screen"; });
+  $("panelBtn").onclick = () => { const hide = !$("app").classList.contains("nopanel"); $("app").classList.toggle("nopanel", hide); $("panelBtn").textContent = hide ? "▸ Panel" : "◂ Panel"; };
+  // zoom to the viewer's location at about city level
+  $("locBtn").onclick = () => {
+    if (!navigator.geolocation) { status("This browser can't find your location.", "warn"); return; }
+    $("locBtn").disabled = true;
+    navigator.geolocation.getCurrentPosition(pos => {
+      $("locBtn").disabled = false;
+      const { longitude, latitude } = pos.coords;
+      try { view.graphics?.removeAll(); view.graphics?.add(new Graphic({ geometry: new Point({ longitude, latitude }), symbol: { type: "simple-marker", style: "circle", size: 12, color: [29, 78, 216, 0.95], outline: { color: [255, 255, 255, 1], width: 2 } } })); } catch {}
+      view.goTo({ center: [longitude, latitude], scale: 100000 }).catch(() => {});
+    }, err => { $("locBtn").disabled = false; status("Couldn't get your location" + (err && err.code === 1 ? " — allow location access for this site in your browser settings." : "."), "warn"); }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+  };
+  $("speed2").onchange = e => { $("speed").value = e.target.value; $("speed").dispatchEvent(new Event("change")); };
+  // phones: the map comes first and the panel opens over it
+  const phoneMQ = window.matchMedia("(max-width: 760px)");
+  const phoneSheet = hide => { $("app").classList.toggle("nopanel", hide); $("panelBtn").textContent = phoneMQ.matches ? (hide ? "☰ Menu" : "✕ Close") : (hide ? "▸ Panel" : "◂ Panel"); };
+  if (phoneMQ.matches) phoneSheet(true);
+  $("closeSheet").onclick = () => phoneSheet(true);
+  $("panelBtn").addEventListener("click", () => { if (phoneMQ.matches) $("panelBtn").textContent = $("app").classList.contains("nopanel") ? "☰ Menu" : "✕ Close"; });
+  $("trainList").addEventListener("click", e => { if (phoneMQ.matches && e.target.closest("li")) phoneSheet(true); });
+  $("play").onclick = () => { S.playing = !S.playing; $("play").textContent = S.playing ? "❚❚ Pause" : "▶ Play"; if (S.playing) requestAnimationFrame(tick); };
+  $("slider").oninput = e => setTime(+e.target.value);
+  $("showTrainLabels").onchange = render;
+  $("showAllStations").onchange = e => { if (dotsLayer) dotsLayer.visible = e.target.checked; };
+  $("showUnserved").onchange = drawLines; $("onlyWatchedLines").onchange = () => { drawLines(); drawStations(); };
+  $("lineFilter").onchange = e => { S.lineFilter = e.target.value; renderList(); drawLines(); render(); };
+  $("showRoutes").onchange = drawRoutes;
+  $("trainSearch").oninput = renderList;
+  $("onlyRunning").onchange = renderList; $("onlyInView").onchange = renderList;
+  reactiveUtils.watch(() => view.stationary, st => { if (st && $("onlyInView").checked) renderList(); });
+  $("selSource").onchange = e => { const v = e.target.value; if (v === "modern") { pickModern(); return; } S.source = v; S.selected = null; build(); };
+  $("selDay").onchange = e => { S.day = e.target.value; renderList(); drawRoutes(); setTime(S.t); };
+  // ---------- modern timetable feeds (GTFS) ----------
+  const gtfsAbbr = { "Amtrak": "Amtrak", "Metro-North Railroad": "MNR", "MTA Metro-North Railroad": "MNR", "Long Island Rail Road": "LIRR", "MTA Long Island Rail Road": "LIRR", "NJ TRANSIT RAIL": "NJT", "NJ Transit": "NJT", "VIA Rail Canada": "VIA", "MARC": "MARC", "SEPTA": "SEPTA" };
+  function nearestStation(lon, lat, maxM) {
+    let best = null; const c = Math.cos(lat * Math.PI / 180);
+    for (const st of S.stations.values()) { if (st.gtfs) continue; const dx = (st.lon - lon) * c * 111320, dy = (st.lat - lat) * 110540; const d = Math.hypot(dx, dy); if (d <= maxM && (!best || d < best.d)) best = { st, d }; }
+    return best?.st || null;
+  }
+  async function addGtfs(f, label) {
+    if (typeof JSZip === "undefined") { status("The map couldn't load the tool that opens .zip files (from cdnjs.cloudflare.com). Check your internet connection and reload.", "warn"); return; }
+    status(`Reading ${esc(f.name)}…`);
+    try {
+      const zip = await JSZip.loadAsync(f); const t = {};
+      for (const n of ["agency", "routes", "trips", "stop_times", "stops", "calendar", "calendar_dates", "feed_info"]) { const file = zip.file(new RegExp(`(^|/)${n}\\.txt$`))[0]; t[n] = file ? C.parseCSV(await file.async("string")) : []; }
+      if (!t.stop_times.length || !t.trips.length) throw new Error("it doesn't have the trips and stop times a GTFS feed should");
+      // the week: the one picked, else the next whole Monday-to-Sunday week inside the feed's dates
+      const range = C.gtfsRange(t); let week;
+      if ($("gtfsWeek").value) { const [y, m, d] = $("gtfsWeek").value.split("-").map(Number); week = new Date(y, m - 1, d); }
+      else { const now = new Date(); week = new Date(now.getFullYear(), now.getMonth(), now.getDate()); if (range.start && week < range.start) week = new Date(range.start); while (week.getDay() !== 1) week.setDate(week.getDate() + 1); if (range.end && new Date(week.getFullYear(), week.getMonth(), week.getDate() + 6) > range.end) { week = new Date(range.start || week); while (week.getDay() !== 1) week.setDate(week.getDate() + 1); } }
+      let matched = 0, added = 0; const seen = new Map();
+      const match = stop => {
+        if (seen.has(stop.stop_id)) return seen.get(stop.stop_id);
+        const lon = +stop.stop_lon, lat = +stop.stop_lat; const near = isFinite(lon) && isFinite(lat) ? nearestStation(lon, lat, 400) : null; let m;
+        if (near) { m = { sid: near.id, name: near.name, town: near.town, state: near.state }; matched++; }
+        else { const id = "GTFS:" + stop.stop_id; S.stations.set(id, { id, name: stop.stop_name || stop.stop_id, town: "", state: "", label: stop.stop_name || stop.stop_id, tz: "", lon, lat, gtfs: true }); m = { sid: id, name: stop.stop_name || stop.stop_id }; added++; }
+        seen.set(stop.stop_id, m); return m;
+      };
+      const res = C.gtfsToRows(t, { week, match, source: label ? `${label} timetable (GTFS), week of ${week.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : undefined, abbr: ag => gtfsAbbr[ag.agency_name] || (ag.agency_name || "").split(/\s+/).map(w => w[0]).join("").toUpperCase() });
+      if (!res.rows.length) throw new Error(`no rail trains run in the week of ${week.toDateString()}${range.start ? ` (the feed covers ${range.start.toDateString()} to ${range.end?.toDateString()})` : ""}`);
+      const keep = S.rows.filter(r => r.source !== res.source);
+      S.selected = null; S.source = res.source;
+      setRows(keep.concat(res.rows), `Added <b>${esc(res.source)}</b>: ${res.trains} trains.`);
+      status(`Added <b>${esc(res.source)}</b> from ${esc(f.name)}: ${res.trains} trains. ${matched} of its stations matched your historic stations; ${added} more ${added === 1 ? "was" : "were"} added from the feed (shown on the map, but not in your stations layer).${range.start ? ` The feed covers ${esc(range.start.toDateString())} to ${esc(range.end?.toDateString() || "?")}.` : ""}`, "ok", true);
+    } catch (err) { status("Couldn't read that timetable feed: " + esc(err.message || String(err)), "warn"); }
+  }
+  $("gtfsFile").onchange = async e => { const f = e.target.files[0]; if (!f) return; await addGtfs(f); e.target.value = ""; };
+  // the weekly job (GitHub Actions) saves the latest rail feeds next to this page in gtfs/
+  const FEED_BASE = "https://raw.githubusercontent.com/dylantcarey-sys/train-map/gtfs-data/";   // written weekly by the GitHub Action
+  // "Modern trains": every railroad's feed for this week, combined by the weekly GitHub job (today.json.gz)
+  let gtfsMan = null; S.modernSource = null; S.modernLegs = null;
+  fetch(FEED_BASE + "manifest.json", { cache: "no-cache" }).then(r => r.json()).then(m => { gtfsMan = m; fillSources(); }).catch(() => {});
+  const MARKS = { d: "Stops only to discharge passengers", r: "Stops only to receive passengers", f: "Stops only on signal or notice" };
+  async function pickModern() {
+    const td = gtfsMan?.today; if (!td) return;
+    if (typeof DecompressionStream === "undefined") { status("This browser is too old to open the modern timetable. Try a current Chrome, Edge, Firefox or Safari.", "warn"); fillSources(); return; }
+    $("selSource").disabled = true; const opt = $("selSource").selectedOptions[0]; if (opt) opt.textContent = "Loading modern trains…";
+    status("Loading every railroad's timetable for this week…");
+    try {
+      const r = await fetch(FEED_BASE + td.file, { cache: "no-cache" }); if (!r.ok) throw new Error("download failed");
+      const d = JSON.parse(await new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).text());
+      // each feed station becomes one of your historic stations when one is within 400 m, otherwise a new point on the map
+      const idOf = {};
+      for (const [sid, [name, lon, lat]] of Object.entries(d.stops)) {
+        const near = nearestStation(lon, lat, 400);
+        if (near) idOf[sid] = near.id;
+        else { idOf[sid] = "GTFS:" + sid; S.stations.set("GTFS:" + sid, { id: "GTFS:" + sid, name, town: "", state: "", label: name, tz: "", lon, lat, gtfs: true }); }
+      }
+      const source = `Modern trains, week of ${d.weekText}`;
+      const rows = [];
+      for (const [rr, railroad, no, id, name, tables, freq, color, tz, stops] of d.trains)
+        stops.forEach(([sid, arr, dep, mark], i) => { const st = S.stations.get(idOf[sid]);
+          rows.push({ source, source_date: d.week, railroad, rr, tables, train_id: id, train_no: no, train_name: name, frequency: freq, stop_sequence: String(i + 1),
+            station_id: idOf[sid], station: st?.name || "", city: st?.town || "", state: st?.state || "", arrival: arr, departure: dep, tz, stop_frequency: freq,
+            mark: mark || "", mark_meaning: MARKS[mark] || "", rr_color: color, status: "Complete", lines: "" }); });
+      const legs = new Map();
+      for (const [k, flat] of Object.entries(d.legs || {})) { const [a, b] = k.split(">"); const pts = []; for (let i = 0; i < flat.length; i += 2) pts.push(C.toMerc([flat[i], flat[i + 1]])); legs.set(idOf[a] + ">" + idOf[b], pts); }
+      S.modernSource = source; S.modernLegs = legs; S.selected = null; S.source = source;
+      // show today's trains
+      S.day = String(new Date().getDay()); $("selDay").value = S.day;
+      setRows(S.rows.filter(x => !String(x.source).startsWith("Modern trains")).concat(rows), `Added <b>${esc(source)}</b>: ${d.trains.length} trains from ${new Set(d.trains.map(t => t[0])).size} railroads.`);
+      renderList(); drawRoutes(); setTime(S.t);
+    } catch (err) { status("Couldn't load the modern trains: " + esc(err.message || String(err)), "warn"); }
+    $("selSource").disabled = false; fillSources();
+  }
+  $("csvFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const rows = C.parseCSV(await f.text()); if (!rows.length || !("train_id" in rows[0])) throw new Error("this doesn't look like a Timetable Desk export"); S.selected = null; setRows(rows, `Showing <b>${esc(f.name)}</b> (${rows.length} stops).`); }
+    catch (err) { status("Couldn't read that file: " + esc(err.message), "warn"); }
+  };
+
+  // ---------- start ----------
+  setBasemap("gray-vector");
+  // the timetable list shows straight away; the trains appear once the lines have loaded
+  setRows(C.parseCSV(EMBEDDED.csv), `Built in: a snapshot of the Timetable Desk from ${esc(EMBEDDED.exported)}.`);
+  view.when(async () => {
+    try { await loadGeo(); }
+    catch (err) { $("loading").textContent = "Couldn't load the ArcGIS layers: " + err.message; status("The Historic Passenger Lines and Stations layers couldn't be read: " + esc(err.message) + ". They need to be shared publicly (Everyone).", "warn"); return; }
+    $("loading").remove();
+    build();
+    const pts = S.trips.flatMap(t => t.stops.map(s => [s.st.lon, s.st.lat]));
+    if (pts.length) { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); view.goTo(new Extent({ xmin: Math.min(...xs), ymin: Math.min(...ys), xmax: Math.max(...xs), ymax: Math.max(...ys), spatialReference: { wkid: 4326 } }).expand(1.15)).catch(() => {}); }
+    setTime(S.t);
+  });
+});
+</script>
+<script>
+  window.addEventListener("load", () => setTimeout(() => {
+    if (window.__sdkReady) return;
+    const box = document.getElementById("noSdk"); box.style.display = "flex";
+    document.getElementById("noSdkWhy").textContent = typeof window.require !== "function" ? "The browser couldn't download the ArcGIS library from js.arcgis.com. Check your internet connection, or whether a firewall or browser extension is blocking that site." : "The ArcGIS library downloaded but failed to start" + (window.__errs.length ? ": " + window.__errs.slice(0, 3).join(" | ") : ".");
+  }, 5000));
+</script>
+</body>
+</html>
