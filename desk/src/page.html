@@ -430,7 +430,7 @@ dl.rrview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; marg
 dl.rrview dt { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
 dl.rrview dd { margin: 0; white-space: pre-line; }
 /* viewing mode hides the controls that change data */
-body.view-only #btnUndo, body.view-only #btnRedo, body.view-only .save-state, body.view-only #btnAddSource, body.view-only #btnAddTable, body.view-only #btnEditTable,
+body.view-only #btnUndo, body.view-only #btnRedo, body.view-only #tStatusBox, body.view-only #selRecent, body.view-only #btnEditTable, body.view-only .save-state, body.view-only #btnAddSource, body.view-only #btnAddTable, body.view-only #btnEditTable,
 #entryPanel.docked .entry-tabs { display: none; }
 #entryPanel.docked { margin-top: 10px; }
 body.view-only #btnNewTrain, body.view-only #btnAddExisting, body.view-only #btnAddSeveral, body.view-only .entry-tabs, body.view-only .edit-only,
@@ -440,6 +440,9 @@ body.view-only .home table.tbls td.act, body.view-only #trainsPanel, body.view-o
 
 /* ---- phones ---- */
 @media (max-width: 640px) {
+  table.tv .tv-st { min-width: 92px; max-width: 108px; font-size: 12.5px; }
+  table.tv td.tv-t { font-size: 12.5px; padding-inline: 6px; white-space: nowrap; }
+  table.tv thead th { font-size: 12px; }
   body { font-size: 15px; }
   .wrap { padding-inline: 12px; gap: 10px; }
   h1 { font-size: 21px; letter-spacing: .05em; }
@@ -2855,7 +2858,12 @@ async function remapStation(oldId, newId) {
       const w = src.id === S.sourceId && S.work.get(d.id) ? S.work.get(d.id) : d.data();
       const fix = arr => (arr || []).forEach(x => { if (x?.stationId === oldId) x.stationId = newId; });
       const before = JSON.stringify(w); fix(w.stops); fix(w.throughFrom); fix(w.throughTo); fix([w.continuesFrom, w.continuesAs]);
-      if (JSON.stringify(w) !== before) { const { id: _i, _deleted, ...body } = w; await S.db.doc(`sources/${src.id}/trains/${d.id}`).set(body); changed++; }
+      (w.equipment || []).forEach(e => { if (e.from === oldId) e.from = newId; if (e.to === oldId) e.to = newId; });   // equipment ends too
+      if (JSON.stringify(w) !== before) {
+        const { id: _i, _deleted, ...body } = w; await S.db.doc(`sources/${src.id}/trains/${d.id}`).set(body); changed++;
+        // keep the copy this page is working on in step, so a later save doesn't put the old id back
+        if (src.id === S.sourceId) { if (S.work.has(d.id)) S.work.set(d.id, { ...structuredClone(body), id: d.id }); if (S.trains.has(d.id)) S.trains.set(d.id, normTrain({ ...structuredClone(body), id: d.id })); }
+      }
     }
   }
   await S.db.doc(`newstations/${oldId}`).delete();
@@ -3095,7 +3103,7 @@ function renderTrainsPage() {
     return trs.filter(t => out.has(t.id));
   };
   const relList = mtSel && !S.viewOnly ? relatedOf(mtSel) : null;
-  const listHidden = !!mtSel && !S.viewOnly && LS.get("mtListHide", false) && !(mtFilter === "problems" && LS.get("mtAll", false));
+  const listHidden = !!mtSel && (S.viewOnly ? phoneMQ.matches : LS.get("mtListHide", false)) && !(mtFilter === "problems" && LS.get("mtAll", false));
   if (mtFilter === "table" && !(mtTable && tableById(mtTable))) mtTable = (mtSel && Object.keys(trainDoc(mtSel)?.tables || {}).find(k => tableById(k))) || (tableById(S.tableId) ? S.tableId : "") || S.tables[0]?.id || "";
   const colOrd = t => t.tables?.[mtTable]?.order ?? 0;
   const tblList = mtTable ? trs.filter(t => t.tables?.[mtTable]).sort((a, b) => colOrd(a) - colOrd(b)) : [];
