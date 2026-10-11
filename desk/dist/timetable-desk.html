@@ -1818,7 +1818,7 @@ function linkBlock(dir, title, list, kind, id) {
       <input data-lk="${dir}" data-li="${i}" data-k="st" class="${c.stationId ? "set" : ""}" value="${esc(stLabel(c.stationId))}" placeholder="At station" autocomplete="off" aria-label="At station" style="flex:1 1 200px">
       <select data-lk="${dir}" data-li="${i}" data-k="days" aria-label="Days this link applies" title="Which days this connection applies" style="flex:0 1 150px">${[["", "Same as train"], ["Sunday", "Sunday"], ["Saturday", "Saturday"], ["Except Sunday", "Except Sunday"], ["Except Saturday", "Except Saturday"]].map(([v, l]) => `<option value="${v}" ${(c.days || "") === v ? "selected" : ""}>${l}</option>`).join("")}${c.days && !["Sunday", "Saturday", "Except Sunday", "Except Saturday"].includes(c.days) ? `<option value="${esc(c.days)}" selected>${esc(c.days)}</option>` : ""}</select>
       <select data-lk="${dir}" data-li="${i}" data-k="kind" aria-label="Through cars or connection" title="Move between through cars and connections"><option value="cars" ${kind === "cars" ? "selected" : ""}>Through cars</option><option value="conn" ${kind === "conn" ? "selected" : ""}>Connection</option></select>
-      ${lkDone(c) ? `<button class="small-btn" data-lkdone="${dir}" data-li="${i}" title="Save this link and show it as text">Done</button>` : ""}<button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`).join("") || `<div class="small muted">None</div>`}
+      <button class="small-btn" data-lkdone="${dir}" data-li="${i}" title="Save this link and show it as text">Done</button><button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`).join("") || `<div class="small muted">None</div>`}
     <button class="small-btn" data-addlink="${dir}" data-kind="${kind}">＋ Add a train</button></div>`;
 }
 function linkList(w, dir) {
@@ -1832,7 +1832,10 @@ function wireLinks(id) {
   box.querySelectorAll("[data-addlink]").forEach(b => b.onclick = () => { lkEditing.add(lkKey(id, b.dataset.addlink, links(trainDoc(id), b.dataset.addlink).length)); linkList(edit(id), b.dataset.addlink).push({ rr: trRR(trainDoc(id)), trainNo: "", stationId: "", ...(b.dataset.kind === "conn" ? { kind: "conn" } : {}) }); renderEntry(); const n = links(trainDoc(id), b.dataset.addlink).length - 1; setTimeout(() => box.querySelector(`[data-lk="${b.dataset.addlink}"][data-li="${n}"][data-k="no"]`)?.focus(), 0); });
   box.querySelectorAll("[data-dellink]").forEach(b => b.onclick = () => { linkList(edit(id), b.dataset.dellink).splice(+b.dataset.li, 1); for (const k of [...lkEditing]) if (k.startsWith(`${id}|${b.dataset.dellink}|`)) lkEditing.delete(k); renderEntry(); });
   box.querySelectorAll("[data-lkedit]").forEach(b => b.onclick = () => { lkEditing.add(lkKey(id, b.dataset.lkedit, +b.dataset.li)); renderEntry(); });
-  box.querySelectorAll("[data-lkdone]").forEach(b => b.onclick = () => { lkEditing.delete(lkKey(id, b.dataset.lkdone, +b.dataset.li)); renderEntry(); });
+  box.querySelectorAll("[data-lkdone]").forEach(b => b.onclick = () => {
+    const c = links(trainDoc(id), b.dataset.lkdone)[+b.dataset.li];
+    if (!lkDone(c)) { const miss = [!c?.rr && "railroad", !(c?.trainNo || c?.phId) && "train number", !c?.stationId && "station"].filter(Boolean); b.textContent = "Needs " + miss.join(" and "); b.classList.add("danger"); setTimeout(() => { b.textContent = "Done"; b.classList.remove("danger"); }, 2200); return; }
+    lkEditing.delete(lkKey(id, b.dataset.lkdone, +b.dataset.li)); renderEntry(); });
   box.querySelectorAll("[data-lkopen]").forEach(b => b.onclick = () => { mtSel = b.dataset.lkopen; LS.set("mtAll", false); if (S.page !== "trains") showPage("trains"); else renderTrainsPage(); scrollTo(0, 0); });
   box.querySelectorAll("[data-lk]").forEach(inp => {
     const dir = inp.dataset.lk, i = +inp.dataset.li, k = inp.dataset.k;
@@ -1851,6 +1854,7 @@ function wireLinks(id) {
     if (k === "st") {
       inp.addEventListener("input", () => openPicker(inp, s => {
         const cc = linkList(edit(id), dir)[i]; cc.stationId = s.id; inp.value = s.label; inp.classList.add("set");
+        if (lkDone(cc)) { lkEditing.delete(lkKey(id, dir, i)); setTimeout(renderEntry, 0); }
         if (cc.phId && trainDoc(cc.phId)) { const me = trainDoc(id), p = edit(cc.phId); linkList(p, dir === "to" ? "from" : "to").forEach(x => { if (x.rr === trRR(me) && String(x.trainNo) === String(me.trainNo)) x.stationId = s.id; }); }
       }));
       inp.addEventListener("keydown", pickerKeys);
