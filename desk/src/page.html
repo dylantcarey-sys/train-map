@@ -1451,12 +1451,16 @@ function lkMirror(id, dir, c) {
 }
 const lkFinish = (id, dir, i) => { const c = linkList(edit(id), dir)[i]; if (!lkDone(c)) return false; lkEditing.delete(lkKey(id, dir, i)); const who = lkMirror(id, dir, c); if (who) notice(`Also added on ${esc(who)}, so the link shows on both trains.`); return true; };
 function lkSaved(c, i, dir, id) {
-  const o = lkTarget(c), st = (o?.stops || []).find(x => x.stationId === c.stationId);
-  const tm = st ? (dir === "from" ? (st.arr || st.dep) : (st.dep || st.arr)) : "";
+  // the other train's time there: its departure for a train this one runs into, its arrival for one it comes from
+  // (a station can be printed on two rows, arrival and departure, so look across all of them)
+  const o = lkTarget(c), at = (o?.stops || []).filter(x => x.stationId === c.stationId && !x.pass);
+  const want = dir === "from" ? "arr" : "dep", other = want === "arr" ? "dep" : "arr";
+  const hit = at.find(x => x[want]) || at.find(x => x[other]);
+  const field = hit ? (hit[want] ? want : other) : "", tm = hit ? hit[field] : "";
   const name = o ? (o.trainNo ? `${trRR(o)} ${o.trainNo}` : trLabel(o)) : `${c.rr} ${c.trainNo || ""}`;
   return `<div class="link-row link-saved">
     ${o ? `<button class="linkish" data-lkopen="${esc(o.id)}" title="Open ${esc(name)}"><b>${esc(name)}</b></button>` : `<b>${esc(name)}</b> <span class="small muted" title="No train with this number has been entered yet">(not entered yet)</span>`}${o?.trainName ? ` <span class="small muted">${esc(o.trainName)}</span>` : ""}
-    <span class="small">at ${esc(stName(c.stationId))}${tm ? ` · ${dir === "from" ? "arrives" : "leaves"} ${esc(Core.fmt12(tm))}` : ""}${c.days ? ` · ${esc(c.days)}` : ""}</span>
+    <span class="small">at ${esc(stName(c.stationId))}${tm ? ` · ${field === "arr" ? "arrives" : "leaves"} ${esc(Core.fmt12(tm))}` : ""}${c.days ? ` · ${esc(c.days)}` : ""}</span>
     <span class="grow"></span>
     <button class="ghost small-btn" data-lkedit="${dir}" data-li="${i}" title="Change this link">✎ Edit</button>
     <button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`;
