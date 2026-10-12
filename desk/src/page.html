@@ -271,6 +271,16 @@ td.notes-cell { width: auto; min-width: 140px; }
 ::placeholder { color: var(--muted); opacity: .65; font-style: italic; }
 .picker .served { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
 .symbar-wrap { padding: 6px 14px 0; }
+.dialog input[type="checkbox"], .dialog input[type="radio"] { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.pick-list { max-height: 260px; overflow: auto; border: 1px solid var(--rule); border-radius: 4px; }
+.pick-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--rule); }
+.pick-row:last-child { border-bottom: 0; }
+.pick-row.pick-train { border: 0; background: none; padding-inline: 0; font-size: 15px; }
+.pick-row.pick-train .pick-st { text-decoration: none; color: var(--ink); }
+.pick-row:nth-child(even) { background: color-mix(in srgb, var(--rule) 25%, transparent); }
+.pick-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.pick-row .pick-t { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pick-row:has(input:not(:checked)) .pick-st { color: var(--muted); text-decoration: line-through; }
 #eqTable input, #eqTable select, #eqTable td { font-size: 13px; }
 #eqTable td.eq-n { color: var(--muted); text-align: right; padding-right: 6px; font-variant-numeric: tabular-nums; }
 #eqTable select { max-width: 150px; }
@@ -538,7 +548,7 @@ body.view-only .home table.tbls td.act, body.view-only #trainsPanel, body.view-o
   <div class="main" id="main">
     <aside class="panel trains-panel" id="trainsPanel" aria-label="Trains in this table">
       <button class="collapse-tab" id="btnShowTrains" aria-expanded="false" title="Show the train list"><span>Trains</span><span id="trainCount"></span></button>
-      <div class="panel-h"><div class="row" style="gap:6px;align-items:center"><button class="ghost small-btn" id="btnHideTrains" aria-expanded="true" title="Hide the train list">◂</button><h2>Trains</h2></div><div class="row" style="gap:6px"><button id="btnNewTrain" class="primary">New train</button><button id="btnAddExisting" class="small-btn" title="Add a train from the roster, or one you entered on another table">Add existing</button><button id="btnAddSeveral" class="small-btn" title="Type a list of train numbers and add them all to this table, in order">Add several</button></div></div>
+      <div class="panel-h"><div class="row" style="gap:6px;align-items:center"><button class="ghost small-btn" id="btnHideTrains" aria-expanded="true" title="Hide the train list">◂</button><h2>Trains</h2></div><div class="row" style="gap:6px"><button id="btnNewTrain" hidden>New train</button><button id="btnAddSeveral" class="primary" title="Type one or more train numbers to add to this table, in order: new ones become blank columns, ones already entered elsewhere can come in with their stops">＋ Add trains</button><button id="btnAddExisting" class="small-btn" title="Add a train from the roster, or one you entered on another table">Add existing</button></div></div>
       <ul class="trains" id="trainList"></ul>
     </aside>
 
@@ -2607,17 +2617,23 @@ function stopsElsewhere(x) {
 }
 // tick-boxes for a train's stops on its other tables, to choose which to bring onto this one
 const stopPicker = (x, key) => { const st = stopsElsewhere(x); return st.length ? `<div class="stoppick" data-pick="${esc(key)}">
-  <div class="row small" style="gap:8px;margin:2px 0 4px"><button type="button" class="ghost small-btn" data-pickall="${esc(key)}">All</button><button type="button" class="ghost small-btn" data-picknone="${esc(key)}">None</button><span class="muted">${st.length} stops on ${esc(Object.keys(x.tables || {}).filter(k => k !== S.tableId && tableById(k)).map(k => tableName(tableById(k))).join(", "))}</span></div>
-  <div style="max-height:200px;overflow:auto;columns:2 220px;column-gap:16px">${st.map(s => `<label class="row small" style="gap:6px;break-inside:avoid;flex-wrap:nowrap"><input type="checkbox" data-pickst="${esc(key)}" value="${esc(s.stationId)}" checked> ${esc(stName(s.stationId))} <span class="muted">${esc([s.arr, s.dep].filter(Boolean).map(Core.fmt12).join(" / "))}</span></label>`).join("")}</div></div>` : `<p class="small muted">No stops on its other tables yet.</p>`; };
+  <div class="row small" style="gap:8px;margin:2px 0 4px"><button type="button" class="ghost small-btn" data-pickall="${esc(key)}">All</button><button type="button" class="ghost small-btn" data-picknone="${esc(key)}">None</button><span class="muted">${st.length} stops on ${(n => n === 1 ? esc(tableName(tableById(Object.keys(x.tables || {}).find(k => k !== S.tableId && tableById(k))))) : n + " other tables")(Object.keys(x.tables || {}).filter(k => k !== S.tableId && tableById(k)).length)}</span></div>
+  <div class="pick-list">${st.map(s => `<label class="pick-row"><input type="checkbox" data-pickst="${esc(key)}" value="${esc(s.stationId)}" checked><span class="pick-st">${esc(stName(s.stationId))}</span><span class="pick-t">${esc([s.arr, s.dep].filter(Boolean).map(Core.fmt12).join(" / "))}</span></label>`).join("")}</div></div>` : `<p class="small muted">No stops on its other tables yet.</p>`; };
 const pickedStops = key => new Set([...document.querySelectorAll(`[data-pickst="${CSS.escape(key)}"]:checked`)].map(c => c.value));
-document.addEventListener("click", e => { const a = e.target.closest("[data-pickall],[data-picknone]"); if (!a) return; const key = a.dataset.pickall ?? a.dataset.picknone; document.querySelectorAll(`[data-pickst="${CSS.escape(key)}"]`).forEach(c => c.checked = a.dataset.pickall != null); });
+// a station ticked or unticked on one train carries to the trains after it in the same list (each can still be changed)
+const carryPick = (key, stationIds, on) => {
+  const pickers = [...document.querySelectorAll(".stoppick[data-pick]")], i = pickers.findIndex(p => p.dataset.pick === key);
+  for (const p of pickers.slice(i + 1)) p.querySelectorAll("[data-pickst]").forEach(c => { if (stationIds.has(c.value)) c.checked = on; });
+};
+document.addEventListener("click", e => { const a = e.target.closest("[data-pickall],[data-picknone]"); if (!a) return; const key = a.dataset.pickall ?? a.dataset.picknone, on = a.dataset.pickall != null; const ids = new Set(); document.querySelectorAll(`[data-pickst="${CSS.escape(key)}"]`).forEach(c => { c.checked = on; ids.add(c.value); }); carryPick(key, ids, on); });
+document.addEventListener("change", e => { const c = e.target.closest?.("[data-pickst]"); if (c) carryPick(c.dataset.pickst, new Set([c.value]), c.checked); });
 // Trains › Add several: type a list of numbers; new ones become blank columns, ones already entered elsewhere can be brought in with their stops
 function addSeveralDialog() {
   const t = curTable(); if (!t) return;
-  dialog(`<h2>Add several trains</h2>
+  dialog(`<h2>Add trains</h2>
     <label class="f"><span>Train numbers, in the order the table prints them</span><textarea id="dNos" rows="5" placeholder="e.g. 71, 73, 75, 77&#10;or one per line"></textarea></label>
-    <p class="small muted">Separate them with commas, spaces or new lines. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>.</p>`, "Next", () => {
-    const raw = $("dNos").value.trim(); if (!raw) return "Type at least one train number.";
+    <p class="small muted">One number or several, separated by commas, spaces or new lines. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>. Leave it blank to start one train whose number you'll fill in later.</p>`, "Next", () => {
+    const raw = $("dNos").value.trim(); if (!raw) { setTimeout(() => $("btnNewTrain").click(), 0); return; }
     const toks = raw.split(/[\n,;]+/).flatMap(part => { const m = part.trim().match(/^([A-Za-z][A-Za-z&.\-]*)\s+(\S+)$/); if (m && S.railroads.some(r => r.abbrev.toLowerCase() === m[1].toLowerCase())) return [{ rr: S.railroads.find(r => r.abbrev.toLowerCase() === m[1].toLowerCase()).abbrev, no: m[2] }]; return part.trim().split(/\s+/).filter(Boolean).map(no => ({ rr: t.rr, no })); });
     const here = trainsInTable(), all = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted);
     const seen = new Set(); const items = [];
@@ -2635,11 +2651,11 @@ function addSeveralStep2(items) {
   const where = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => tableName(tb)).join(", ") || "no table";
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
   const rowSt = new Set((t.rows || []).filter(r => !r.divider).map(r => r.stationId)), hasRows = rowSt.size > 0;
-  if (!add.length && !dupHere.length) { dialog(`<h2>Add several trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
-  dialog(`<h2>Add several trains</h2>
+  if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
+  dialog(`<h2>Add trains</h2>
     <p class="small">${add.length ? `${add.length} train${add.length > 1 ? "s" : ""} to add, in this order: <b>${esc(add.map(x => x.no).join(", "))}</b>` : "Nothing new to add."}${dupHere.length ? `<br><span class="muted">Already on this table: ${esc(dupHere.map(x => x.no).join(", "))}</span> <label class="row small" style="gap:6px;margin-top:4px"><input type="checkbox" id="dSevDup"> Add ${dupHere.length > 1 ? "them" : "it"} again as a second appearance of the same train (its own name, days and stops)</label>` : ""}</p>
     ${exist.length ? `<p class="small" style="margin-bottom:4px"><b>These numbers already exist.</b> Tick the ones to include; they come in with their stops.</p>
-    <div style="max-height:220px;overflow:auto;border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${exist.map((x, i) => x.ex.map((e, j) => `<label class="row small" style="gap:6px;margin:3px 0;flex-wrap:nowrap"><input type="checkbox" data-sev="${i}" data-exid="${esc(e.id)}" ${j === 0 ? "checked" : ""}> <b>${esc(x.rr + " " + x.no)}</b> ${esc(e.trainName || "")} <span class="muted">on ${esc(where(e))} · ${stopsElsewhere(e).length} stops</span></label><details style="margin:0 0 6px 24px"><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`).join("")).join("")}</div>
+    <div style="border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${exist.map((x, i) => x.ex.map((e, j) => `<label class="pick-row pick-train"><input type="checkbox" data-sev="${i}" data-exid="${esc(e.id)}" ${j === 0 ? "checked" : ""}><span class="pick-st"><b>${esc(x.rr + " " + x.no)}</b> ${esc(e.trainName || "")}</span><span class="pick-t">${(n => n === 1 ? esc(where(e)) : n + " tables")(Object.keys(e.tables || {}).filter(k => tableById(k)).length)} · ${stopsElsewhere(e).length} stops</span></label><details style="margin:0 0 6px 24px"><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`).join("")).join("")}</div>
     <label class="row small" style="margin-top:6px;gap:6px">Unticked numbers: <select id="dSevUn"><option value="skip">leave them out</option><option value="new">add as new, separate trains</option></select></label>` : ""}
     ${exist.length && hasRows ? `<label class="row small" style="margin-top:10px;gap:6px;align-items:flex-start"><input type="checkbox" id="dSevRows"> <span>Also add their stations that aren't rows on this grid yet <span class="muted" id="dSevRowsN"></span><br><span class="muted">Left unticked, they only get times at stations already listed here.</span></span></label>` : ""}
     ${exist.length && !hasRows ? `<p class="small muted" style="margin-top:8px">This grid has no stations yet, so the ticked trains' stations will be added as rows.</p>` : ""}`, "Add trains", () => {
