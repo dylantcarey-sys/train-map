@@ -584,7 +584,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
 // a read-only hook for automated checks of the Desk (no effect on the page)
-window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.name, other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.name, other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -2167,11 +2167,13 @@ function renderGrid(el, t) {
       <label class="row small" style="gap:6px;align-items:center;margin:0"><input type="checkbox" id="chkColNums" ${showCol ? "checked" : ""}> Show column numbers</label>
       ${showCol ? `<button id="btnApplyCol" class="primary small-btn" ${S.colPending.size ? "" : "disabled"}>Apply column numbers</button><button id="btnResetCol" class="small-btn" ${S.colPending.size ? "" : "disabled"}>Reset</button><span class="small muted" id="colHint">${S.colPending.size ? `${S.colPending.size} column${S.colPending.size > 1 ? "s" : ""} to move` : "Type new column numbers above the train numbers, then apply them together."}</span>` : ""}
     </div>` : ""}
+    ${trs.length > 1 ? `<div class="row" style="gap:8px;align-items:center"><button id="btnGridColumns" class="small-btn" title="Which trains share a column in the read-only table view, and the column headings">Columns in the table view…</button></div>` : ""}
     <p class="small muted" style="margin:0">Moving rows only changes this grid; each train keeps its own stop order (see One train). The ↓/↑ beside a train number shows whether it reads down or up the table, which decides where a new time you type here goes in its stops. Columns stay in the order you add them; use ‹ › to rearrange. A train already entered on another table can be added with <b>Add existing train</b> on the left.</p>`;
   const g = $("grid");
   wireMatch(el);
   $("chkOrd").onchange = e => { LS.set("gridOrderCol", e.target.checked); renderEntry(); };
   $("btnCopyRows").onclick = copyRowsDialog;
+  if ($("btnGridColumns")) $("btnGridColumns").onclick = () => columnDialog((trainsInTable().find(x => x.id === S.trainId) || trs[0]).id, true);
   $("btnAddExGrid").onclick = addExistingDialog;
   if ($("chkColNums")) $("chkColNums").onchange = e => { LS.set("gridColNums", e.target.checked); renderEntry(); };
   // typed column numbers wait for "Apply"; each typed train goes to its number, the rest keep their order around them
@@ -3494,11 +3496,13 @@ function splitPairAt(id, pt, merged, o = {}) {
   }
   return idB;
 }
-function columnDialog(id) {
+// pick: show a train picker at the top (opened from the grid, where no one train is open)
+function columnDialog(id, pick) {
   const T = S.tableId, tr = trainDoc(id), t = tableById(T); if (!tr || !t || !tr.tables?.[T]) return;
+  const picker = pick ? `<label class="f"><span>Train</span><select id="dColTrain">${trainsInTable().map(x => `<option value="${esc(x.id)}" ${x.id === id ? "selected" : ""}>${esc(trLabel(x))}${x.trainName ? " " + esc(x.trainName) : ""}</option>`).join("")}</select></label>` : "";
   const others = trainsInTable().filter(x => x.id !== id), cur = tr.tables[T].col || "";
   const auto = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)).filter(x => x.id !== id);
-  dialog(`<h2>${esc(trLabel(tr))} in the table view</h2>
+  dialog(`<h2>${esc(trLabel(tr))} in the table view</h2>${picker}
     <p class="small muted">On ${esc(tableName(t))}. Each train keeps its own record and its own column in the grid; this only changes how the read-only table view lays the columns out.</p>
     <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="" ${!cur ? "checked" : ""}> Automatic: share a column with the trains it runs on from or into (through cars or a connection that starts where it ends)${auto.length ? ` <span class="muted">(now with ${auto.map(x => esc(trLabel(x))).join(", ")})</span>` : ` <span class="muted">(now on its own)</span>`}</label>
     <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="own" ${cur === "own" ? "checked" : ""}> Always its own column</label>
@@ -3513,6 +3517,7 @@ function columnDialog(id) {
     if (nm) w.tables[T].colName = nm; else delete w.tables[T].colName;
     renderEntry();
   });
+  if (pick) $("dColTrain").onchange = e => columnDialog(e.target.value, true);
 }
 // take stops i..j (in running order) out of a train as a new train: e.g. SCL 91's Waycross - Montgomery section.
 // The rest stays on the first train. The two are joined by a through-cars link where the section leaves (or joins) it.
@@ -3919,7 +3924,8 @@ function tableColumns(T, trs) {
       if (linkKind(l) !== "conn") {
         // through cars: a train that splits off or joins partway (SCL 21 -> 23 at Jacksonville) shares the column too
         const at = l.stationId, stopsAt = y => (y.stops || []).some(s => s.tableId === T && s.stationId === at);
-        if (!at || (stopsAt(x) && stopsAt(o))) { join(x.id, o.id); joinC(x.id, o.id); }
+        // (one of the two stopping there is enough: RF&P 9-75 is printed only as far as Fredericksburg on SCL Table 2, and SCL 9 takes over at Richmond)
+        if (!at || stopsAt(x) || stopsAt(o)) { join(x.id, o.id); joinC(x.id, o.id); }
       } else if (ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1])) join(x.id, o.id);
     }
   }
