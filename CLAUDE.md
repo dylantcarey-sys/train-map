@@ -6,10 +6,11 @@ Dylan's personal project: historic passenger timetables (starting with the April
 
 | Path | What it is |
 |---|---|
-| `index.html` | The train map, hosted on GitHub Pages |
+| `index.html` | The train map, hosted on GitHub Pages (built; don't edit by hand) |
 | `scripts/` | Modern-timetable (GTFS) fetch and build scripts for the map |
 | `desk/src/page.html`, `desk/src/core.js` | Timetable Desk source (core.js holds parsing: times, marks, stop merging) |
-| `desk/map-template/` | The map page the Desk embeds for its **Map** download button |
+| `desk/map-template/` | Map source (`page.html` + `core.js`): used for `index.html` and embedded in the Desk for its **Map** download button |
+| `scripts/build_map.py` | Builds `index.html` from the map source plus a Desk export (CSV + railroads JSON); also copies the core to `scripts/map-core.js` for the GTFS job |
 | `desk/build.py` | Builds `desk/dist/timetable-desk.html` (the page that gets published) |
 | `desk/stations.json` | Station list the Desk falls back to (an export of the ArcGIS stations layer) |
 | `desk/test/` | `mock.js` (in-memory stand-in for the artifact database), `smoke.js`, `fake_geo.js` |
@@ -24,6 +25,16 @@ Dylan's personal project: historic passenger timetables (starting with the April
 3. `node desk/test/smoke.js [seed.json]` and check it says "no page errors". The seed is a database download (`{"documents": {...}}`), kept out of git as `desk/test/seed.json`. Chromium is preinstalled; don't run `playwright install`.
 4. Publish `desk/dist/timetable-desk.html` with the Artifact tool to the Desk's URL: https://claude.ai/artifact/5Q5YhkF8LaqtskkSX1gTBe (keep its capabilities: db, downloads, user).
 5. Commit the source and the built file together.
+
+## Changing the map
+
+1. Edit `desk/map-template/page.html` or `core.js`.
+2. Get a fresh Desk export: read `sources/og-1971-04/trains`, `.../tables` and `railroads` with ArtifactData (out_dir), make a seed, then run the built Desk with `desk/test/mock.js` in Playwright and call `__deskHook().buildCSV()` and `.rrList()`.
+3. `python3 scripts/build_map.py export.csv railroads.json "Month D, YYYY"` writes `index.html`.
+4. Test by loading `index.html` in Playwright with `js.arcgis.com` routed to `desk/test/fake_geo.js` + `desk/map-template/stub.js`.
+5. Rebuild and republish the Desk too (it embeds the map template), then commit both.
+
+Map behaviour to keep: the date (first of the guide's month by default) drives the weekday; alternate-day service, one-off dates and the PC Table 3 April 25 time change (`DATE_SHIFTS` in core.js) depend on it.
 
 ## The Desk's data
 

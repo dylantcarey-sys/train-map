@@ -37,15 +37,63 @@ const MapCore = (() => {
     return null;
   }
 
+  // ---------- calendar dates ("YYYY-MM-DD", read as UTC so no clock changes get in the way) ----------
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const isoOf = ms => new Date(ms).toISOString().slice(0, 10);
+  const msOf = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  const addDays = (iso, n) => isoOf(msOf(iso) + n * 86400000);
+  const weekdayOf = iso => new Date(msOf(iso)).getUTCDay();
+  const daysBetween = (a, b) => Math.round((msOf(b) - msOf(a)) / 86400000);
+  const fmtDate = iso => iso ? new Date(msOf(iso)).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "";
+  // service that isn't a weekly pattern: "Alternate days (from Apr 1, 1971)", "Every 3rd day (from ...)", "Runs February 12 and 15 only"
+  // year: the guide's year, for dates written without one
+  function parseService(text, year) {
+    const s = String(text || "").toLowerCase(), out = {};
+    const ev = s.match(/\balternate days\b|\bevery (other|second|third|fourth|(\d+)(?:st|nd|rd|th)) days?\b/);
+    if (ev) {
+      out.every = ev[0].startsWith("alternate") || ev[1] === "other" || ev[1] === "second" ? 2 : ev[1] === "third" ? 3 : ev[1] === "fourth" ? 4 : +ev[2] || 2;
+      const f = s.match(/from ([a-z]{3})[a-z]*\.? (\d{1,2}),? (\d{4})/);
+      if (f && MONTHS.includes(f[1])) out.from = `${f[3]}-${String(MONTHS.indexOf(f[1]) + 1).padStart(2, "0")}-${String(+f[2]).padStart(2, "0")}`;
+    }
+    // "Runs February 12 and 15 only", "Runs April 9, 10 and 11, 1971"
+    const rd = !ev && s.match(/\b(?:runs|operates|only)\b[^.]*?\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? ((?:\d{1,2}(?:st|nd|rd|th)?(?:,? (?:and |& )?)?)+)(\d{4})?/);
+    if (rd) {
+      const mo = MONTHS.indexOf(rd[1]) + 1, yr = rd[3] || year || "";
+      const days = (rd[2].match(/\d{1,2}/g) || []).map(Number).filter(d => d >= 1 && d <= 31);
+      if (yr && days.length) out.dates = new Set(days.map(d => `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`));
+    }
+    return out;
+  }
+  // does a train (or the run of it that left on this date) run on `iso`?
+  function runsOnDate(t, iso) {
+    if (!iso) return true;
+    if (t.days && !t.days.has(weekdayOf(iso))) return false;
+    if (t.dates && !t.dates.has(iso)) return false;
+    if (t.every) { const d = daysBetween(t.everyFrom || iso, iso); if (((d % t.every) + t.every) % t.every) return false; }
+    return true;
+  }
+  // printed times that change from a date. PC Table 3 (April 1971): Michigan doesn't observe advance time, so from
+  // April 25 the times at its Central-time stops are an hour later and those in Michigan an hour earlier than printed.
+  const DATE_SHIFTS = [
+    { rr: "PC", table: "3", from: "1971-04-25", until: "1971-10-31", shift: s => s.tz === "CT" ? 60 : String(s.state).toUpperCase() === "MI" ? -60 : 0, note: "From April 25, times at the Central-time stops are an hour later and times in Michigan an hour earlier than printed (Michigan doesn't observe advance time)." }
+  ];
+  // the rules in force on a date, as a key: when it changes, trains need their times worked out again
+  // table names come through as "3 — New York-Buffalo-..."
+  const onTable = (list, no) => [...list].some(x => x === no || String(x).startsWith(no + " "));
+  const shiftKey = (trips, iso) => DATE_SHIFTS.filter(r => iso && iso >= r.from && (!r.until || iso < r.until) && trips.some(t => t.rr === r.rr && onTable(t.tables, r.table))).map(r => r.rr + r.table + r.from).join(",");
+
   // Timetable Desk export rows -> trains with absolute Eastern minutes
-  function tripsFromExport(rows) {
+  // opts.date: the map's date, for printed times that change partway through the guide's life (DATE_SHIFTS)
+  function tripsFromExport(rows, opts = {}) {
     const by = new Map();
     for (const r of rows) {
       if (!r.train_id || !r.station_id) continue;
       const k = (r.source || "") + "|" + r.train_id;
       if (!by.has(k)) by.set(k, { key: k, id: r.train_id, section: r.section || "", base: r.section ? String(r.train_id).replace(/\s*\([^)]*\)\s*$/, "") : r.train_id, color: /^#[0-9a-f]{6}$/i.test(r.rr_color || "") ? r.rr_color : "", lineNames: String(r.lines || "").split(/[;\n]+/).map(x => x.trim()).filter(Boolean), source: r.source || "", sourceDate: r.source_date || "", rr: r.rr || "", rrName: r.railroad || "", no: r.train_no || "", name: r.train_name || "", alsoCalled: r.also_called || "", freq: r.frequency || "", consist: r.consist || "", notes: r.train_notes || "", tables: new Set(), status: r.status || "", from: r.continues_from || "", to: r.continues_as || "", stops: [] });
       const t = by.get(k); (r.tables || "").split(/;\s*/).filter(Boolean).forEach(x => t.tables.add(x));
-      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "" });
+      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "", tables: (r.tables || "").split(/;\s*/).filter(Boolean) });
+      if (!t.links) { const lk = (txt, dir, kind) => String(txt || "").split(/;\s*/).map(x => x.match(/^(.+?)(?: at (.+?) \((\S+)\))?$/)).filter(m => m && m[1].trim()).map(m => ({ id: m[1].trim(), sid: m[3] || "", at: m[2] || "", dir, kind }));
+        t.links = [...lk(r.continues_from, "from", "cars"), ...lk(r.continues_as, "to", "cars"), ...lk(r.connects_from, "from", "conn"), ...lk(r.connects_to, "to", "conn")]; t.tags = String(r.tags || "").split(/;\s*/).filter(Boolean); }
     }
     const out = [];
     for (const t of by.values()) {
@@ -57,8 +105,14 @@ const MapCore = (() => {
       let up = 0, down = 0; for (let i = 1; i < seq.length; i++) { if (seq[i] > seq[i - 1]) up++; else if (seq[i] < seq[i - 1]) down++; }
       t.reversed = down > up;
       if (t.reversed) t.stops.reverse();
+      t.shiftNote = "";
+      if (opts.date) { const rules = DATE_SHIFTS.filter(r => t.rr === r.rr && onTable(t.tables, r.table) && opts.date >= r.from && (!r.until || opts.date < r.until));
+        for (const r of rules) { let any = false; for (const s of t.stops) if (onTable(s.tables, r.table)) { const m = r.shift(s); if (m) { s.shift = (s.shift || 0) + m; any = true; } } if (any) t.shiftNote = r.note; } }
       unroll(t);
       t.days = parseDays(t.freq);
+      const sv = parseService(t.freq, String(t.sourceDate).slice(0, 4));
+      if (sv.every) { t.every = sv.every; t.everyFrom = sv.from || String(t.sourceDate).slice(0, 10) || null; }
+      if (sv.dates) { t.dates = sv.dates; t.days = null; }
       for (const s of t.stops) s.daySet = s.sdays ? parseDays(s.sdays) : null;   // days this stop is made (its own calendar day)
       t.tables = [...t.tables];
       out.push(t);
@@ -68,8 +122,8 @@ const MapCore = (() => {
   // absolute Eastern minutes from midnight of the day the train leaves its first station
   function unroll(t) {
     let prev = null, add = 0;
-    const step = (hhmm, tz) => { const m = toMin(hhmm); if (m == null) return null; let et = m + (TZ_OFF[tz] ?? 0) + add; if (prev != null && et < prev - 5) { add += 1440; et += 1440; } prev = et; return et; };
-    for (const s of t.stops) { s.arrAbs = step(s.arr, s.tz); s.depAbs = step(s.dep, s.tz); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
+    const step = (hhmm, tz, shift = 0) => { const m = toMin(hhmm); if (m == null) return null; let et = m + shift + (TZ_OFF[tz] ?? 0) + add; if (prev != null && et < prev - 5) { add += 1440; et += 1440; } prev = et; return et; };
+    for (const s of t.stops) { s.arrAbs = step(s.arr, s.tz, s.shift); s.depAbs = step(s.dep, s.tz, s.shift); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
     // a minute's stop at every regular station given one time, so trains visibly pause (not at "on signal" / "on notice" stops)
     const flag = s => /on signal|on notice|notice to (the )?(agent|conductor)/i.test(s.markMeaning || "");
     for (let i = 1; i < t.stops.length - 1; i++) {
@@ -421,6 +475,6 @@ const MapCore = (() => {
     }
     return { rows, source, trains: groups.size, range: gtfsRange(t), feedVersion: fi?.feed_version || "" };
   }
-  return { gtfsToRows, gtfsRange, daysText, firstStopFor, toMerc, TZ_OFF, toMin, DAYS, parseCSV, parseDays, tripsFromExport, normRR, servedBy, servedField, buildNetwork, route, prepareTrips, positionAt, lastStopFor, fmtClock, fmt12 };
+  return { parseService, runsOnDate, addDays, weekdayOf, daysBetween, fmtDate, DATE_SHIFTS, shiftKey, gtfsToRows, gtfsRange, daysText, firstStopFor, toMerc, TZ_OFF, toMin, DAYS, parseCSV, parseDays, tripsFromExport, normRR, servedBy, servedField, buildNetwork, route, prepareTrips, positionAt, lastStopFor, fmtClock, fmt12 };
 })();
 if (typeof module !== "undefined") module.exports = MapCore;

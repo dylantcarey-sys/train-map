@@ -1,13 +1,10 @@
 # Map: flagged for the next update
 
-## Date-based service (flagged 2026-10-07)
-Some 1971 trains run on alternating days (e.g. City of Miami: "Leaves Chicago April 2, 4, 6, 8 ... and every other day thereafter"), not on fixed weekdays.
-- Anchor the map to a calendar date: the first of the month of the guide (April 1, 1971 for the April 1971 Official Guide; the 1st of the month for any future guide), and base weekdays and rolling dates on that date.
-- A train's pattern becomes data: either weekdays, or "every N days starting on date D" (with the period and anchor), instead of free text.
-- Explore: when the map's date passes the end of one guide's month, switch automatically to the next published guide in the Desk (April 1971 -> May 1971 and so on), using each source's date. Fall back to the latest guide on or before the date.
+## Done 2026-10-12
+- The map has a date (default: the 1st of the guide's month). Weekday, alternate-day service ("Alternate days (from Apr 1, 1971)"), one-off dates ("Runs February 12 and 15 only") and the PC Table 3 April 25 time change all follow it.
+- Selecting a train shows its through run (gold), connections (dashed), and links in its details; "Show only this train and the trains it connects with".
 
-- Desk now writes alternating-day service one standard way: "Alternate days (from Apr 1, 1971)" or "Every 3rd day (from Apr 1, 1971)" (frequency / stop days text). The map should parse that pattern (start date + every N days) when the date-based service work is picked up. Entries that just say "alternate days" without a date are flagged as problems in the Desk.
-
-- Date-based time shifts (advance/daylight time): PC Table 3 notes that the State of Michigan does not observe advance time, and that effective April 25 times at the Chicago-side stops (CT) are one hour later and times in Michigan one hour earlier than shown. The 1971 guide tables are dated March 3, so the printed times hold until April 25. The map needs date-aware time handling when the date-based service work is picked up.
-
-- ArcGIS notebook (code/notebook/Rail_lines_check.ipynb in the timetable project): upload to ArcGIS Online and run Steps 1–6 (read-only) to find line gaps and stations far from any line, and get suggested "Served by" values from the Desk data. Check Step 5 results west of Akron and north of Marion. Step 8 is the only step that writes changes (after its dry run is switched off). Do this together with the other map changes.
+## Still to do
+- Explore: when the map's date passes the end of one guide's month, switch automatically to the next published guide in the Desk, using each source's date. Fall back to the latest guide on or before the date.
+- Daylight (advance) time generally: guide times are standard time; only the PC Table 3 note is applied so far.
+- ArcGIS notebook (`notebook/`): upload to ArcGIS Online and run Steps 1–6 (read-only) to find line gaps and stations far from any line, and get suggested "Served by" values. Check Step 5 results west of Akron and north of Marion. Step 8 is the only step that writes changes (after its dry run is switched off).
