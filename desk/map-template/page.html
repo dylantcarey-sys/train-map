@@ -22,12 +22,15 @@
   summary { cursor:pointer; padding:9px 12px; font-weight:600; }
   .sec { padding:2px 12px 12px; }
   label.f { display:block; font-size:12.5px; color:var(--muted); margin:9px 0 3px; }
-  select, input[type=search] { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+  select, input[type=search], input[type=date] { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
   button { font:inherit; padding:7px 12px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
   button:disabled { opacity:.5; cursor:default; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  ul.links { margin:2px 0 0; padding-left:16px; font-size:12.5px; }
+  .linkish { background:none; border:0; padding:0; font:inherit; font-weight:600; text-decoration:underline; cursor:pointer; }
+  .tag { display:inline-block; font-size:11px; font-weight:600; padding:0 6px; border-radius:8px; background:var(--accent-2); color:var(--accent); }
   .msg { padding:8px 10px; border-radius:6px; margin:6px 0; font-size:12.5px; }
   .msg.ok { background:var(--accent-2); }
   .msg.warn { background:var(--warn-bg); color:var(--warn); }
@@ -104,6 +107,8 @@
 
     <label class="f" for="selSource">Timetable</label>
     <select id="selSource"></select>
+    <label class="f" for="selDate">Date</label>
+    <input type="date" id="selDate">
     <label class="f" for="selDay">Day of the week</label>
     <select id="selDay">
       <option value="all">Any day (show every train)</option>
@@ -168,7 +173,8 @@
     <div id="noSdk"><div style="max-width:420px"><h2 style="font-size:17px">The ArcGIS map library didn't load</h2>
       <p id="noSdkWhy"></p><p class="hint">The chat preview blocks outside websites, so download this file and open it in Chrome, Edge, Firefox or Safari.</p></div></div>
     <div id="info"><button class="x" id="infoClose" aria-label="Close">×</button><div id="infoBody"></div>
-      <label class="chk" style="margin-top:6px"><input type="checkbox" id="follow"> Follow this train</label></div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="follow"> Follow this train</label>
+      <label class="chk"><input type="checkbox" id="onlySel"> Show only this train and the trains it connects with</label></div>
     <div id="bar">
       <button id="play" style="min-width:76px">▶ Play</button>
       <span id="clock">--:--</span>
@@ -210,10 +216,11 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
   const linesLayer = new GraphicsLayer({ title: "Rail lines" });
   const routeLayer = new GraphicsLayer({ title: "Routes" });
   const gapLayer = new GraphicsLayer({ title: "Straight-line gaps" });
+  const selLayer = new GraphicsLayer({ title: "Selected train's run and connections" });
   const trainsLayer = new GraphicsLayer({ title: "Trains" });
   const labelsLayer = new GraphicsLayer({ title: "Train labels" });
   let dotsLayer = null, terminiLayer = null;
-  map.addMany([linesLayer, routeLayer, gapLayer]);
+  map.addMany([linesLayer, routeLayer, gapLayer, selLayer]);
   map.addMany([trainsLayer, labelsLayer]);
   const view = new MapView({ container: "viewDiv", map, center: [-77, 41.5], zoom: 6, constraints: { snapToZoom: false } });
   view.ui.move("zoom", "top-left");
@@ -257,7 +264,17 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     if (!sources.some(([s]) => s === S.source)) S.source = (sources.find(([s]) => !/\(GTFS\)|^Modern trains/.test(s)) || sources[sources.length - 1] || [""])[0];
     fillSources();
     $("dataNote").innerHTML = note;
-    build();
+    if (!S.dateSource || S.dateSource !== S.source) dateForSource();
+    S.allTrips = C.tripsFromExport(rows, { date: S.date });
+    build(); $("selDate").value = S.date || ""; if (S.day !== "all") $("selDay").value = S.day;
+  }
+  // a guide's trains start on the first of its month (April 1, 1971 for the April 1971 Guide); modern timetables on today
+  function dateForSource() {
+    const sd = (S.sourceList || []).find(([n]) => n === S.source)?.[1] || "";
+    const m = String(sd).match(/^(\d{4})-(\d{2})/);
+    S.date = /\(GTFS\)|^Modern trains/.test(S.source) || !m ? new Date().toLocaleDateString("en-CA") : `${m[1]}-${m[2]}-01`;
+    if (S.day !== "all") S.day = String(C.weekdayOf(S.date));
+    S.dateSource = S.source;
   }
   function fillSources() {
     const list = S.sourceList || [], hist = list.filter(([s]) => !/\(GTFS\)/.test(s)), modern = list.filter(([s]) => /\(GTFS\)/.test(s));
@@ -279,6 +296,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     const modern = S.source === S.modernSource;
     const res = C.prepareTrips(srcTrips, S.stations, S.net, lineFactor, { legs: modern ? S.modernLegs : null });
     S.trips = res.trips; S.res = res;
+    S.linkCache = new Map(); S.byId = new Map(); for (const t of S.trips) for (const id of new Set([t.id, t.base])) { if (!S.byId.has(id)) S.byId.set(id, []); S.byId.get(id).push(t); }
     // railroad colors
     // each railroad's own colour from the Timetable Desk's railroad list; a railroad without one gets the next spare colour
     S.colors.clear(); let pi = 0;
@@ -291,7 +309,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     const lname = li => { const a = S.lines[li]?.attrs || {}; return [a.Name, a.Description].filter(Boolean).join(" — ") || `Line ${li}`; };
     if (S.lineFilter && !usedL.has(+S.lineFilter)) S.lineFilter = "";
     $("lineFilter").innerHTML = `<option value="">Any line</option>` + [...usedL.keys()].sort((a, b) => lname(a).localeCompare(lname(b))).map(li => `<option value="${li}" ${String(li) === S.lineFilter ? "selected" : ""}>${esc(lname(li))}</option>`).join("");
-    drawLines(); drawStations(); drawGaps(); makeTrainGraphics(); renderRRChecks(); renderList(); render();
+    drawLines(); drawStations(); drawGaps(); makeTrainGraphics(); renderRRChecks(); renderList(); drawSelected(); render();
     const notes = [];
     const rev = srcTrips.filter(t => t.reversed);
     if (rev.length && !modern) notes.push(`<b>${rev.length} train${rev.length > 1 ? "s" : ""} had stops entered in the opposite order from their times</b> (${esc(rev.map(t => t.id).join(", "))}). The map reverses them; in the Timetable Desk, use <b>Reverse stop order</b> on each to fix the record.`);
@@ -406,11 +424,46 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
   const usesLine = t => !S.lineFilter || t.legs.some(L => (L.used || []).includes(+S.lineFilter));
   const visibleTrips = () => S.trips.filter(t => !S.rrOff.has(t.rr) && usesLine(t) && runsToday(t));
   // does this train run on the chosen day (any of its runs touching the day)?
-  const runsOnDay = (t, d) => !t.days || t.days.has(((d % 7) + 7) % 7);
-  const runsToday = t => S.day === "all" || [0, 1, 2].some(b => runsOnDay(t, +S.day - b) && t.end - b * 1440 >= 0 && t.start - b * 1440 < 1440);
-  const runsBack = (t, back) => S.day === "all" || runsOnDay(t, +S.day - back);
+  // the run that left `back` days before the map's date: weekly days, alternate-day service and one-off dates all count
+  const runsBack = (t, back) => S.day === "all" || C.runsOnDate(t, C.addDays(S.date, -back));
+  const runsToday = t => S.day === "all" || [0, 1, 2].some(b => runsBack(t, b) && t.end - b * 1440 >= 0 && t.start - b * 1440 < 1440);
   // weekday a run left (for stops that are only made some days); with "any day" every stop counts
-  const posOpts = () => ({ depDay: S.day === "all" ? null : back => (((+S.day - back) % 7) + 7) % 7, span: (view.resolution || 100) * 14 });
+  const posOpts = () => ({ depDay: S.day === "all" ? null : back => C.weekdayOf(C.addDays(S.date, -back)), span: (view.resolution || 100) * 14 });
+  // ---------- links between trains: through cars (cars run on) and connections (passengers change) ----------
+  // a link names a train ("PC 72"); a train in sections matches each of its sections
+  const tripsNamed = id => S.byId?.get(id) || [];
+  function linksOf(t) {
+    if (S.linkCache?.has(t)) return S.linkCache.get(t);
+    const out = []; (S.linkCache ||= new Map()).set(t, out);
+    for (const k of t.links || []) for (const o of tripsNamed(k.id)) if (o !== t) out.push({ t: o, kind: k.kind, dir: k.dir, at: k.at, sid: k.sid });
+    // a link entered only on the other train still counts
+    for (const o of S.trips) if (o !== t) for (const k of o.links || []) if (tripsNamed(k.id).includes(t) && !out.some(x => x.t === o && x.kind === k.kind)) out.push({ t: o, kind: k.kind, dir: k.dir === "to" ? "from" : "to", at: k.at, sid: k.sid });
+    return out;
+  }
+  // the whole through run: every train whose cars run on from or into this one (NJR 34 -> D&H 34 -> PC 72 for the Laurentian), in running order
+  function throughRun(t) {
+    const seen = new Set([t]), order = [t];
+    const walk = (x, dir) => { for (const l of linksOf(x)) if (l.kind === "cars" && l.dir === dir && !seen.has(l.t)) { seen.add(l.t); dir === "to" ? order.push(l.t) : order.unshift(l.t); walk(l.t, dir); } };
+    walk(t, "from"); walk(t, "to");
+    return order;
+  }
+  // trains drawn with the selected one: its through run, and every train that connects with any part of it
+  function focusSet() {
+    const o = S.selected && S.graphics.get(S.selected); if (!o) return null;
+    const run = throughRun(o.t), conn = new Set();
+    for (const x of run) for (const l of linksOf(x)) if (l.kind === "conn") conn.add(l.t);
+    run.forEach(x => conn.delete(x));
+    return { run, conn: [...conn], all: new Set([...run, ...conn]) };
+  }
+  function drawSelected() {
+    selLayer.removeAll(); S.focus = focusSet();
+    if (!S.focus) return;
+    const line = (t, sym) => { for (const L of t.legs) selLayer.add(new Graphic({ geometry: new Polyline({ paths: [L.pts], spatialReference: WM }), symbol: sym })); };
+    // connecting trains: thin dashed in their own colour; the through run: one gold line under its railroads' colours
+    for (const t of S.focus.conn) line(t, { type: "simple-line", color: [...hexRGB(S.colors.get(t.rr)), 0.85], width: 2, style: "dash" });
+    for (const t of S.focus.run) line(t, { type: "simple-line", color: [242, 183, 5, 0.9], width: 7 });
+    for (const t of S.focus.run) line(t, { type: "simple-line", color: [...hexRGB(S.colors.get(t.rr)), 1], width: 3 });
+  }
   const onShared = (t, p) => p && t.section && (p.status === "at" ? t.stops[p.stop]?.shared : t.stops[p.leg]?.shared && t.stops[p.leg + 1]?.shared);
 
   function renderRRChecks() {
@@ -441,7 +494,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
   }
   function select(key, jump) {
     S.selected = key; const o = S.graphics.get(key);
-    renderList(); render();
+    drawSelected(); renderList(); render();
     if (jump && o) {
       let p = C.positionAt(o.t, S.t, runsBack, posOpts());
       if (!p) { setTime(Math.max(0, Math.min(1439, o.t.start))); p = C.positionAt(o.t, S.t, runsBack, posOpts()); }
@@ -449,12 +502,12 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     }
   }
 
-  function setTime(t) { S.t = t; $("slider").value = t; $("clock").innerHTML = `${C.fmtClock(t)} <small>Eastern${S.day === "all" ? "" : ", " + C.DAYS[+S.day]}</small>`; render(); }
+  function setTime(t) { S.t = t; $("slider").value = t; $("clock").innerHTML = `${C.fmtClock(t)} <small>Eastern${S.day === "all" ? "" : ", " + esc(C.fmtDate(S.date))}</small>`; render(); }
   let listAt = 0;
   function render() {
     let running = 0; const showL = $("showTrainLabels").checked, po = posOpts();
     for (const o of S.graphics.values()) {
-      const vis = !S.rrOff.has(o.t.rr) && usesLine(o.t);
+      const vis = $("onlySel").checked && S.focus ? S.focus.all.has(o.t) : !S.rrOff.has(o.t.rr) && usesLine(o.t);
       const p = vis ? C.positionAt(o.t, S.t, runsBack, po) : null;
       o.pos = p;
       // on the stretch a split train's sections share, only the leading section is drawn
@@ -470,6 +523,19 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     if (($("onlyRunning").checked || $("onlyInView").checked) && Date.now() - listAt > 700) renderList();
     renderInfo();
   }
+  // through cars and connections in the details box; each train's name opens it
+  function linkHtml(t) {
+    const run = throughRun(t), ls = linksOf(t);
+    if (!ls.length) return "";
+    const btn = x => `<button class="linkish" data-open="${esc(x.key)}" style="color:${S.colors.get(x.rr)}">${esc(x.id)}</button>${x.name ? " " + esc(x.name) : ""}`;
+    const atTime = (x, l, leave) => { const s = x.stops.find(z => z.sid === l.sid); const v = s && (leave ? s.dep || s.arr : s.arr || s.dep); return v ? ` · ${leave ? "leaves" : "arrives"} ${C.fmt12(v)}` : ""; };
+    const item = l => `<li>${btn(l.t)}${l.at ? ` at ${esc(l.at)}` : ""}${atTime(l.t, l, l.dir === "to")}${runsToday(l.t) ? "" : ` <span class="muted">(not running this day)</span>`}</li>`;
+    const grp = (label, arr) => arr.length ? `<div class="hint" style="margin-top:6px"><b>${label}</b></div><ul class="links">${arr.map(item).join("")}</ul>` : "";
+    return (run.length > 1 ? `<div class="hint" style="margin-top:6px">Through run: ${run.map(x => x === t ? `<b>${esc(x.id)}</b>` : btn(x)).join(" → ")}, ${esc(run[0].stops[0].name)} to ${esc(run[run.length - 1].stops[run[run.length - 1].stops.length - 1].name)} (gold on the map)</div>` : "")
+      + grp("Cars run through from", ls.filter(l => l.kind === "cars" && l.dir === "from")) + grp("Cars run through to", ls.filter(l => l.kind === "cars" && l.dir === "to"))
+      + grp("Connects from", ls.filter(l => l.kind === "conn" && l.dir === "from")) + grp("Connects to", ls.filter(l => l.kind === "conn" && l.dir === "to"));
+  }
+  $("infoBody").addEventListener("click", e => { const b = e.target.closest("[data-open]"); if (b) select(b.dataset.open, true); });
   const t12 = s => { const v = C.fmt12(s); return v ? `<span class="${C.toMin(s) >= 720 ? "pm" : ""}">${v}</span>` : ""; };
   function renderInfo() {
     const o = S.selected && S.graphics.get(S.selected);
@@ -479,7 +545,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     const back = p ? p.back : 0, now = S.t + back * 1440;
     const first = t.stops[0], last = t.stops[t.stops.length - 1];
     let line;
-    if (!p) line = !runsToday(t) ? `Doesn't run ${S.day === "all" ? "" : "on " + C.DAYS[+S.day] + "s"}.` : S.t < t.start ? `Not yet left ${esc(first.name)}.` : `Arrived at ${esc(last.name)}.`;
+    if (!p) line = !runsToday(t) ? `Doesn't run ${S.day === "all" ? "" : "on " + esc(C.fmtDate(S.date))}.` : S.t < t.start ? `Not yet left ${esc(first.name)}.` : `Arrived at ${esc(last.name)}.`;
     else if (p.status === "at") line = `At <b>${esc(t.stops[p.stop].name)}</b>`;
     else line = `Between ${esc(t.stops[p.leg].name)} and <b>${esc(t.stops[p.leg + 1].name)}</b>`;
     const rows = t.stops.map((s, i) => `<tr class="${cur !== null && i === cur ? "here" : cur !== null && i < cur ? "done" : ""}"><td>${esc(s.name)}${s.mark ? ` <b title="${esc(s.markMeaning)}">${esc(s.mark)}</b>` : ""}<div class="hint" style="margin:0">${esc([s.town, s.state].filter(Boolean).join(", "))}${s.tz !== "ET" ? " · " + esc(s.tz) : ""}</div>${s.mark ? `<div class="hint mk" style="margin:0"><b>${esc(s.mark)}</b> ${esc(s.markMeaning || "(meaning not entered)")}</div>` : ""}</td><td class="t">${t12(s.arr)}${s.arr && s.dep ? "<br>" : ""}${t12(s.dep)}</td></tr>`).join("");
@@ -487,13 +553,16 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
       <div class="hint" style="margin:0">${esc(t.rrName)}${t.alsoCalled ? " · also " + esc(t.alsoCalled) : ""}</div>
       <div class="hint" style="margin:2px 0 0">${esc(t.freq || "Daily")} · Table ${esc(t.tables.join(", "))}${back ? ` · left ${back === 1 ? "yesterday" : back + " days ago"}` : ""}</div>
       <div style="margin-top:6px">${line}</div>
-      ${t.consist ? `<div class="hint">${esc(t.consist)}</div>` : ""}${t.from ? `<div class="hint">Runs through from ${esc(t.from)}</div>` : ""}${t.to ? `<div class="hint">Continues as ${esc(t.to)}</div>` : ""}
+      ${t.tags?.length ? `<div class="hint">${t.tags.map(x => `<span class="tag">${esc(x)}</span>`).join(" ")}</div>` : ""}${t.shiftNote ? `<div class="hint" style="color:var(--warn)">${esc(t.shiftNote)} The map uses the changed times.</div>` : ""}
+      ${t.consist ? `<div class="hint">${esc(t.consist)}</div>` : ""}${!linksOf(t).length && t.from ? `<div class="hint">Runs through from ${esc(t.from)}</div>` : ""}${!linksOf(t).length && t.to ? `<div class="hint">Continues as ${esc(t.to)}</div>` : ""}
+      ${linkHtml(t)}
       <table>${rows}</table><div class="hint">Printed local times. Bold = p.m.</div>
       ${(() => { const u = [...new Set(t.legs.flatMap(L => L.used || []))].map(li => S.lines[li]?.attrs?.Name).filter(Boolean); return u.length ? `<div class="hint">Rail lines${t.lineNames?.length ? " (picked in the Desk)" : " used"}: ${esc(u.join("; "))}</div>` : ""; })()}`;
     $("info").style.display = "block";
     if ($("follow").checked && p) view.goTo({ center: new Point({ x: p.x, y: p.y, spatialReference: WM }) }, { animate: false }).catch(() => {});
   }
-  $("infoClose").onclick = () => { S.selected = null; $("follow").checked = false; renderList(); render(); };
+  $("infoClose").onclick = () => { S.selected = null; $("follow").checked = false; drawSelected(); renderList(); render(); };
+  $("onlySel").onchange = () => render();
   view.on("click", async e => {
     const hit = await view.hitTest(e, { include: [trainsLayer] });
     const g = hit.results.find(r => r.graphic?.attributes?.key !== undefined);
@@ -506,7 +575,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     if (!S.playing) { last = null; return; }
     if (last !== null) {
       let t = S.t + (ts - last) / 1000 * (+$("speed").value / 60);
-      if (t >= 1440) { t -= 1440; if (S.day !== "all") { S.day = String((+S.day + 1) % 7); $("selDay").value = S.day; renderList(); drawRoutes(); } }   // carry on into the next day
+      if (t >= 1440) { t -= 1440; if (S.day !== "all") setDate(C.addDays(S.date, 1)); }   // carry on into the next day
       setTime(t);
     }
     last = ts; requestAnimationFrame(tick);
@@ -544,8 +613,20 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
   $("trainSearch").oninput = renderList;
   $("onlyRunning").onchange = renderList; $("onlyInView").onchange = renderList;
   reactiveUtils.watch(() => view.stationary, st => { if (st && $("onlyInView").checked) renderList(); });
-  $("selSource").onchange = e => { const v = e.target.value; if (v === "modern") { pickModern(); return; } S.source = v; S.selected = null; build(); };
-  $("selDay").onchange = e => { S.day = e.target.value; renderList(); drawRoutes(); setTime(S.t); };
+  $("selSource").onchange = e => { const v = e.target.value; if (v === "modern") { pickModern(); return; } S.source = v; S.selected = null; dateForSource(); build(); setDate(S.date); };
+  // the date drives the day of the week; picking a weekday moves the date to that day of the same week
+  function setDate(iso, opts = {}) {
+    if (!iso) return;
+    const before = C.shiftKey(S.trips, S.date);
+    S.date = iso; S.day = String(C.weekdayOf(iso)); $("selDate").value = iso; $("selDay").value = S.day;
+    if (C.shiftKey(S.trips, iso) !== before && S.rows && !opts.noRebuild) { const keep = S.selected; S.allTrips = C.tripsFromExport(S.rows, { date: S.date }); build(); S.selected = keep; }
+    renderList(); drawRoutes(); setTime(S.t);
+  }
+  $("selDate").onchange = e => { if (e.target.value) setDate(e.target.value); };
+  $("selDay").onchange = e => {
+    if (e.target.value === "all") { S.day = "all"; renderList(); drawRoutes(); setTime(S.t); return; }
+    const want = +e.target.value, cur = C.weekdayOf(S.date); setDate(C.addDays(S.date, ((want - cur + 10) % 7) - 3));
+  };
   // ---------- modern timetable feeds (GTFS) ----------
   const gtfsAbbr = { "Amtrak": "Amtrak", "Metro-North Railroad": "MNR", "MTA Metro-North Railroad": "MNR", "Long Island Rail Road": "LIRR", "MTA Long Island Rail Road": "LIRR", "NJ TRANSIT RAIL": "NJT", "NJ Transit": "NJT", "VIA Rail Canada": "VIA", "MARC": "MARC", "SEPTA": "SEPTA" };
   function nearestStation(lon, lat, maxM) {
@@ -613,7 +694,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
       for (const [k, flat] of Object.entries(d.legs || {})) { const [a, b] = k.split(">"); const pts = []; for (let i = 0; i < flat.length; i += 2) pts.push(C.toMerc([flat[i], flat[i + 1]])); legs.set(idOf[a] + ">" + idOf[b], pts); }
       S.modernSource = source; S.modernLegs = legs; S.selected = null; S.source = source;
       // show today's trains
-      S.day = String(new Date().getDay()); $("selDay").value = S.day;
+      S.date = new Date().toLocaleDateString("en-CA"); S.day = String(C.weekdayOf(S.date)); S.dateSource = source;
       setRows(S.rows.filter(x => !String(x.source).startsWith("Modern trains")).concat(rows), `Added <b>${esc(source)}</b>: ${d.trains.length} trains from ${new Set(d.trains.map(t => t[0])).size} railroads.`);
       renderList(); drawRoutes(); setTime(S.t);
     } catch (err) { status("Couldn't load the modern trains: " + esc(err.message || String(err)), "warn"); }
