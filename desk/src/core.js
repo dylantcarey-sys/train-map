@@ -366,6 +366,37 @@ const Core = (() => {
   const trainNoSort = (a, b) => { const na = parseInt(a, 10), nb = parseInt(b, 10); return (isNaN(na) ? 1e9 : na) - (isNaN(nb) ? 1e9 : nb) || String(a).localeCompare(String(b)); };
 
   const tableNoSort = (a, b) => { const A = String(a ?? "").trim(), B = String(b ?? "").trim(); const k = s => !s ? 2 : /^\d/.test(s) ? 1 : 0; return k(A) - k(B) || A.localeCompare(B, undefined, { numeric: true, sensitivity: "base" }); };
-  return { tableNoSort, fmt12, formatCell12, servedNear, servedKey, DEFAULT_MARKS, marksFromNotes, dayClock, TZ_OFF, mergeStops, toMin, pad, stationId, parseMonthDate, guideName, parseTime, parseCell, formatCell, isPM, effectiveTimes, buildIndex, search, toCSV, parseCSV, stationsFromCSV, trainNoSort, MON_SHORT };
+  // one standard wording for days: "Mondays, Wednesdays, and Fridays" / "Mon. Wed. Fri." -> "Monday, Wednesday and Friday only";
+  // all weekdays -> "Monday through Friday"; six days -> "Daily except Sunday". Anything else (dates, "Alternate days ...") is left as typed.
+  const WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const DAYRE = /^(mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)(day)?s?$|^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?$/;
+  const dayIdx = w => { const m = w.match(DAYRE); if (!m) return -1; const k = (m[1] || m[3]).slice(0, 3); return ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].indexOf(k); };
+  // same wording the Desk's day pickers use: up to three days listed ("... only"), otherwise "Daily except ...";
+  // days read in week order, starting where a wrap-around run reads naturally (Saturday and Sunday, Friday through Sunday)
+  const daysText = set => {
+    const all = [0, 1, 2, 3, 4, 5, 6];
+    if (set.size === 7) return "Daily";
+    if (set.size === 5 && [0, 1, 2, 3, 4].every(i => set.has(i))) return "Monday through Friday";
+    const circ = arr => { if (arr.length < 2) return arr; const a = [...arr].sort((x, y) => x - y); let best = -1, at = 0; a.forEach((d, i) => { const g = ((a[(i + 1) % a.length] - d) + 7) % 7 || 7; if (g > best) { best = g; at = (i + 1) % a.length; } }); return [...a.slice(at), ...a.slice(0, at)]; };
+    const join = a => a.length === 1 ? WEEK[a[0]] : a.slice(0, -1).map(i => WEEK[i]).join(", ") + " and " + WEEK[a[a.length - 1]];
+    // a run of days in a row that wraps past Sunday reads from its start (Friday, Saturday and Sunday; Sunday and Monday); otherwise Monday first
+    const run = arr => arr.length > 1 && arr.every((d, i) => i === 0 || d === (arr[i - 1] + 1) % 7);
+    const order = arr => { const c = circ(arr); return run(c) ? c : [...arr].sort((x, y) => x - y); };
+    const on = order(all.filter(i => set.has(i))), off = order(all.filter(i => !set.has(i)));
+    return on.length <= 3 ? join(on) + " only" : "Daily except " + join(off);
+  };
+  function normDays(text) {
+    const raw = String(text ?? ""); const s = raw.trim().toLowerCase().replace(/\./g, " ").replace(/\s+/g, " ");
+    if (!s) return raw;
+    if (s === "daily") return "Daily";
+    const words = str => str.split(/[\s,&;]+|\band\b/).map(w => w.trim()).filter(w => w && w !== "and" && w !== "only" && w !== "inclusive");
+    let m;
+    if ((m = s.match(/^daily,? except (.+)$/))) { const ws = words(m[1]), ix = ws.map(dayIdx); if (!ws.length || ix.includes(-1)) return raw; return daysText(new Set([0, 1, 2, 3, 4, 5, 6].filter(i => !ix.includes(i)))); }
+    if ((m = s.match(/^(\w+) (?:through|thru|to|-|–) (\w+)(?: only| inclusive)?$/))) { const a = dayIdx(m[1]), b = dayIdx(m[2]); if (a < 0 || b < 0) return raw; const set = new Set(); for (let i = a; ; i = (i + 1) % 7) { set.add(i); if (i === b) break; } return daysText(set); }
+    const ws = words(s), ix = ws.map(dayIdx);
+    if (!ws.length || ix.includes(-1)) return raw;
+    return daysText(new Set(ix));
+  }
+  return { normDays, tableNoSort, fmt12, formatCell12, servedNear, servedKey, DEFAULT_MARKS, marksFromNotes, dayClock, TZ_OFF, mergeStops, toMin, pad, stationId, parseMonthDate, guideName, parseTime, parseCell, formatCell, isPM, effectiveTimes, buildIndex, search, toCSV, parseCSV, stationsFromCSV, trainNoSort, MON_SHORT };
 })();
 if (typeof module !== "undefined") module.exports = Core;
