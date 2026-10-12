@@ -264,6 +264,7 @@ for tid, g in desk.sort_values(["train_id", "seq"]).groupby("train_id"):
     for li in picked: sure[(li, rr_name, rr)]["trains"].add(tid)
     sids = [s for s in g["station_id"] if s]
     for a, b in zip(sids, sids[1:]):
+        if a == b: continue   # one station printed as separate arrive and leave rows
         both = lines_near(a) & lines_near(b)
         if picked: both = (both & picked) or both
         if len(both) == 1:
@@ -342,7 +343,7 @@ else:
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
       "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}
 for i, c in enumerate(nb["cells"]): c["id"] = f"c{i:02d}"
-json.dump(nb, open("/home/claude/nb/Rail_lines_check.ipynb", "w"), indent=1)
+json.dump(nb, open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "Rail_lines_check.ipynb"), "w"), indent=1)
 # also a plain script of the code cells for local testing
-open("/home/claude/nb/_cells.py", "w").write("\n\n".join(c["source"] for c in cells if c["cell_type"] == "code"))
+(lambda s: None)("\n\n".join(c["source"] for c in cells if c["cell_type"] == "code"))
 print("written")
