@@ -102,7 +102,8 @@ const MapCore = (() => {
       if (t.stops.length < 2) continue;
       // stations entered top-to-bottom for a train that reads upward: times run backwards, so flip
       const seq = t.stops.flatMap(s => [s.arr, s.dep].filter(x => toMin(x) != null).map(x => toMin(x) + (TZ_OFF[s.tz] ?? 0)));
-      let up = 0, down = 0; for (let i = 1; i < seq.length; i++) { if (seq[i] > seq[i - 1]) up++; else if (seq[i] < seq[i - 1]) down++; }
+      // (a drop of more than 12 hours is the train passing midnight, e.g. Princeton Junction 11:56 pm -> Princeton 12:02 am)
+      let up = 0, down = 0; for (let i = 1; i < seq.length; i++) { const d = seq[i] - seq[i - 1]; if (d > 0 && d < 720 || d < -720) up++; else if (d < 0 || d >= 720) down++; }
       t.reversed = down > up;
       if (t.reversed) t.stops.reverse();
       t.shiftNote = "";
