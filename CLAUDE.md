@@ -23,8 +23,9 @@ Dylan's personal project: historic passenger timetables (starting with the April
 1. Edit `desk/src/page.html` or `desk/src/core.js`.
 2. `python3 desk/build.py`
 3. `node desk/test/smoke.js [seed.json]` and check it says "no page errors". The seed is a database download (`{"documents": {...}}`), kept out of git as `desk/test/seed.json`. Chromium is preinstalled; don't run `playwright install`.
-4. Publish `desk/dist/timetable-desk.html` with the Artifact tool to the Desk's URL: https://claude.ai/artifact/5Q5YhkF8LaqtskkSX1gTBe (keep its capabilities: db, downloads, user).
-5. Commit the source and the built file together.
+4. Before publishing, read `presence/desk` with ArtifactData (get). If `dialogOpen` is true and `at` is within the last 2 hours, Dylan has a pop-up open: don't publish (or write data); tell him it's ready and wait until he says go or the flag clears. Building and testing locally is always fine.
+5. Publish `desk/dist/timetable-desk.html` with the Artifact tool to the Desk's URL: https://claude.ai/artifact/5Q5YhkF8LaqtskkSX1gTBe (keep its capabilities: db, downloads, user).
+6. Commit the source and the built file together.
 
 ## Changing the map
 
