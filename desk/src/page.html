@@ -2611,13 +2611,13 @@ function makeTrains(nos) {
   return ids;
 }
 // a train's stops as entered on its other tables (combined when it's on more than one)
-function stopsElsewhere(x) {
-  const ks = Object.keys(x.tables || {}).filter(k => k !== S.tableId && tableById(k));
+function stopsElsewhere(x, except = S.tableId) {
+  const ks = Object.keys(x.tables || {}).filter(k => k !== except && tableById(k));
   return ks.length ? Core.mergeStops(ks.map(k => ({ key: k, stops: (x.stops || []).filter(s => s.tableId === k) })), tzOffFn()).stops.filter(s => s.stationId && !s.pass) : [];
 }
 // tick-boxes for a train's stops on its other tables, to choose which to bring onto this one
-const stopPicker = (x, key) => { const st = stopsElsewhere(x); return st.length ? `<div class="stoppick" data-pick="${esc(key)}">
-  <div class="row small" style="gap:8px;margin:2px 0 4px"><button type="button" class="ghost small-btn" data-pickall="${esc(key)}">All</button><button type="button" class="ghost small-btn" data-picknone="${esc(key)}">None</button><span class="muted">${st.length} stops on ${(n => n === 1 ? esc(tableName(tableById(Object.keys(x.tables || {}).find(k => k !== S.tableId && tableById(k))))) : n + " other tables")(Object.keys(x.tables || {}).filter(k => k !== S.tableId && tableById(k)).length)}</span></div>
+const stopPicker = (x, key, except = S.tableId) => { const st = stopsElsewhere(x, except); return st.length ? `<div class="stoppick" data-pick="${esc(key)}">
+  <div class="row small" style="gap:8px;margin:2px 0 4px"><button type="button" class="ghost small-btn" data-pickall="${esc(key)}">All</button><button type="button" class="ghost small-btn" data-picknone="${esc(key)}">None</button><span class="muted">${st.length} stops on ${(n => n === 1 ? esc(tableName(tableById(Object.keys(x.tables || {}).find(k => k !== except && tableById(k))))) : n + " other tables")(Object.keys(x.tables || {}).filter(k => k !== except && tableById(k)).length)}</span></div>
   <div class="pick-list">${st.map(s => `<label class="pick-row"><input type="checkbox" data-pickst="${esc(key)}" value="${esc(s.stationId)}" checked><span class="pick-st">${esc(stName(s.stationId))}</span><span class="pick-t">${esc([s.arr, s.dep].filter(Boolean).map(Core.fmt12).join(" / "))}</span></label>`).join("")}</div></div>` : `<p class="small muted">No stops on its other tables yet.</p>`; };
 const pickedStops = key => new Set([...document.querySelectorAll(`[data-pickst="${CSS.escape(key)}"]:checked`)].map(c => c.value));
 // a station ticked or unticked on one train carries to the trains after it in the same list (each can still be changed)
@@ -3274,7 +3274,7 @@ function attachDialog(id) {
   const hasStops = Object.keys(tr.tables || {}).length > 0 && (tr.stops || []).some(s => s.stationId);
   dialog(`<h2>Put ${esc(trLabel(tr))} on a table</h2>
     <label class="f"><span>Table</span><select id="dAtT">${opts.map(t => `<option value="${esc(t.id)}">${esc(tableName(t))}${t.page ? " · p. " + esc(t.page) : ""}</option>`).join("")}</select></label>
-    ${hasStops ? `<p class="small" style="margin:10px 0 4px"><b>Stops to bring onto it</b> <span class="muted">(with their times, from its other tables)</span></p>${stopPicker(tr, "att")}
+    ${hasStops ? `<p class="small" style="margin:10px 0 4px"><b>Stops to bring onto it</b> <span class="muted">(with their times, from its other tables)</span></p>${stopPicker(tr, "att", null)}
     <label class="row small" style="gap:6px;margin-top:8px;align-items:flex-start"><input type="checkbox" id="dAtRows" checked> <span>Add ticked stations that aren't rows on that table yet<br><span class="muted">Left unticked, only stations already listed there get times.</span></span></label>` : ""}`, "Add", () => {
     const T = $("dAtT").value; if (!T) return "Choose a table.";
     const only = hasStops ? pickedStops("att") : null, rows = !!$("dAtRows")?.checked;
