@@ -89,6 +89,12 @@ tr.sec0 { --secc: #4f7cac; } tr.sec1 { --secc: #c0793a; } tr.sec2 { --secc: #6a9
 #stopTable td.seccol { width: 140px; min-width: 140px; } #stopTable td.seccol input { width: 132px; }
 table.grid td.cellwrap input.insec { box-shadow: inset 3px 0 var(--secc); }
 table.grid input.cell.sec0 { --secc: #4f7cac; } table.grid input.cell.sec1 { --secc: #c0793a; } table.grid input.cell.sec2 { --secc: #6a9a54; } table.grid input.cell.sec3 { --secc: #9a5a9a; }
+.rrcard > summary { cursor: pointer; list-style: none; }
+.rrcard > summary::-webkit-details-marker { display: none; }
+.rrcard > summary::before { content: "▸"; display: inline-block; width: 16px; color: var(--muted); }
+.rrcard[open] > summary::before { content: "▾"; }
+.rrcard .rrsum { display: inline-flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 15px; }
+.rrcard { padding-top: 10px; padding-bottom: 10px; }
 .rrsw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
 .notice { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 10px 36px 10px 14px; position: relative; }
 .notice .notice-x { position: absolute; top: 6px; right: 6px; padding: 0 6px; font-size: 16px; line-height: 1.4; color: var(--warn); background: transparent; border: 0; opacity: .7; cursor: pointer; }
@@ -578,9 +584,10 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
 // a read-only hook for automated checks of the Desk (no effect on the page)
-window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S });
+window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
-const canonDays = v => /^\s*daily,? except saturdays? and sundays?\s*$/i.test(v || "") ? "Monday through Friday" : (v || "");
+// one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
+const canonDays = v => Core.normDays(v || "");
 const FREQ = ["Daily", "Daily except Sunday", "Daily except Saturday", "Daily except Monday", "Monday through Friday", "Sunday only", "Saturday only", "Saturday and Sunday only"];
 const TZS = ["AT", "ET", "CT", "MT", "PT"];
 const BASIS = ["Standard time", "War Time (1942–45)", "Daylight saving time", "Not stated"];
@@ -921,6 +928,9 @@ function compactTrain(body) {
   for (const k of ["throughFrom", "throughTo", "linkTodos", "notSame"]) if (Array.isArray(out[k]) && !out[k].length) delete out[k];
   for (const k of ["notes", "trainName", "alsoCalled", "consist", "throughName", "description"]) if (out[k] === "") delete out[k];
   if (Array.isArray(out.tags) && !out.tags.length) delete out.tags;
+  if (out.frequency) out.frequency = canonDays(out.frequency);
+  (out.stops || []).forEach(s => { if (s.days) s.days = canonDays(s.days); });
+  (out.equipment || []).forEach(e => { if (e.days) e.days = canonDays(e.days); });
   return out;
 }
 function normTrain(d) {
@@ -932,6 +942,7 @@ function normTrain(d) {
   t.stops = (t.stops || []).map(s => ({ ...STOP_BLANKS, rid: "", ...s, tableId: s.tableId || first }));
   if (t.frequency) t.frequency = canonDays(t.frequency); if (t.freqBefore) t.freqBefore = canonDays(t.freqBefore);
   t.stops.forEach(s => { if (s.days) s.days = canonDays(s.days); });
+  if (Array.isArray(t.equipment)) t.equipment.forEach(e => { if (e.days) e.days = canonDays(e.days); });
   delete t.tableId; delete t.status; delete t.order;
   return t;
 }
@@ -1256,18 +1267,70 @@ function sameTrainMatch(tr) {
   }
   return null;
 }
+// combined stops: a station printed as separate arrive and leave rows (or by two tables, one giving only the departure)
+// shows once, arrival from the first row and departure from the last. A train that leaves and later comes back keeps both.
+function oneRowPerStation(list) {
+  const out = [];
+  for (const s of list) {
+    const a = out[out.length - 1];
+    const loop = a && a.dep && !a.arr && s.arr && !s.dep && s.arr !== a.dep;
+    if (!a || a.stationId !== s.stationId || (a.section || "") !== (s.section || "") || loop) { out.push({ ...s }); continue; }
+    a.arr = a.arr || s.arr; a.dep = s.dep || a.dep; a.days = a.days || s.days;
+    a.mark = [...new Set([a.mark, s.mark].filter(Boolean))].join(" ");
+    a.from = [...new Set([...(a.from || []), ...(s.from || [])])];
+    a.pass = a.pass && s.pass; a.terminus = s.terminus; a.origin = a.origin || s.origin;
+  }
+  return out;
+}
+// an unnumbered leg gets its number: links on other trains that point at it pick up the railroad and number too
+function numberStub(id, rr, no) {
+  const w = edit(id); w.rr = rr; w.trainNo = no; delete w.placeholder; delete w.unnumbered; delete w.stubIgnore;
+  for (const o of allTrainDocs()) {
+    if (o.id === id) continue;
+    for (const dir of ["from", "to"]) {
+      if (!links(o, dir).some(c => c && (c.trainId === id || c.phId === id))) continue;
+      linkList(edit(o.id), dir).forEach(c => { if (c && (c.trainId === id || c.phId === id)) { c.rr = rr; c.trainNo = no; c.trainId = id; delete c.phId; } });
+    }
+  }
+}
 function combineTrains(keepId, dropId) {
   const keep = edit(keepId), drop = trainDoc(dropId);
   for (const [tid, m] of Object.entries(drop.tables || {})) if (!keep.tables[tid]) keep.tables[tid] = m;
+  const nKeep = (keep.stops || []).length;
   keep.stops = [...(keep.stops || []), ...(drop.stops || [])];
+  // two legs that meet at a station on the same table (arrive Jacksonville / leave Jacksonville) make one stop there
+  for (let k = keep.stops.length - 1; k >= nKeep; k--) {
+    const b = keep.stops[k]; if (!b.stationId) continue;
+    let j = nKeep - 1; while (j >= 0 && keep.stops[j].tableId !== b.tableId) j--;
+    const a = keep.stops[j]; if (!a || a.stationId !== b.stationId || (a.section || "") !== (b.section || "") || (a.rid && b.rid && a.rid !== b.rid)) continue;
+    if ((a.dep && b.dep) || (a.arr && b.arr) || (a.dep && !b.dep && b.arr)) continue;
+    keep.stops[j] = { ...b, ...a, arr: a.arr || b.arr, dep: a.dep || b.dep, mark: [...new Set([a.mark, b.mark].filter(Boolean))].join(" "), notes: [a.notes, b.notes].filter(Boolean).join("; ") };
+    keep.stops.splice(k, 1);
+  }
   for (const f of ["trainName", "alsoCalled", "consist", "notes", "throughName"]) {
     if (!keep[f]) keep[f] = drop[f] || ""; else if (drop[f] && drop[f] !== keep[f] && f !== "trainName") keep[f] = keep[f] + (f === "alsoCalled" ? ", " : "\n") + drop[f];
   }
   if (drop.trainName && keep.trainName && drop.trainName !== keep.trainName) keep.alsoCalled = [keep.alsoCalled, drop.trainName].filter(Boolean).join(", ");
   keep.equipment = [...(keep.equipment || []), ...(drop.equipment || [])];
   if (keep.tags || drop.tags) keep.tags = [...new Set([...(keep.tags || []), ...(drop.tags || [])])];
-  keep.throughFrom = [...links(keep, "from"), ...links(drop, "from")]; keep.throughTo = [...links(keep, "to"), ...links(drop, "to")];
+  // links from both records come over; links that pointed at the dropped record now point at the kept one
+  const rrK = trRR(keep), rrD = trRR(drop);
+  const isDrop = c => c && (c.trainId === dropId || c.phId === dropId || (drop.trainNo && c.rr === rrD && String(c.trainNo) === String(drop.trainNo)));
+  const isSelf = c => c && (c.trainId === keepId || c.phId === keepId || isDrop(c) || (keep.trainNo && c.rr === rrK && String(c.trainNo) === String(keep.trainNo)));
+  const lkSig = c => [c.trainId || c.phId || `${c.rr}|${c.trainNo}`, c.stationId || "", linkKind(c), c.days || ""].join("~");
+  const dedupe = arr => { const seen = new Set(); return arr.filter(c => { if (!c) return false; const k = lkSig(c); if (seen.has(k)) return false; seen.add(k); return true; }); };
+  keep.throughFrom = dedupe([...links(keep, "from"), ...links(drop, "from")].filter(c => !isSelf(c)));
+  keep.throughTo = dedupe([...links(keep, "to"), ...links(drop, "to")].filter(c => !isSelf(c)));
   delete keep.continuesFrom; delete keep.continuesAs;
+  for (const o of allTrainDocs()) {
+    if (!o || o._deleted || o.id === keepId || o.id === dropId) continue;
+    for (const dir of ["from", "to"]) {
+      if (!links(o, dir).some(isDrop)) continue;
+      const w = edit(o.id), arr = linkList(w, dir);
+      arr.forEach(c => { if (!isDrop(c)) return; c.rr = rrK; if (keep.trainNo) { c.trainNo = keep.trainNo; c.trainId = keepId; delete c.phId; } else { delete c.trainNo; delete c.trainId; c.phId = keepId; } });
+      w[dir === "from" ? "throughFrom" : "throughTo"] = dedupe(arr);
+    }
+  }
   rememberTrain(dropId); S.work.delete(dropId); S.dirty.delete(dropId);
   S.db.doc(`${trainsPath()}/${dropId}`).delete().catch(() => { saveErr = "Couldn't remove the duplicate record."; showSave(); });
   S.trains.delete(dropId);
@@ -1481,6 +1544,14 @@ const lkDone = c => !!(c && c.rr && (c.trainNo || c.phId) && c.stationId);
 const lkTarget = c => (c.trainId && trainDoc(c.trainId)) || (c.phId && trainDoc(c.phId)) || (c.trainNo ? allTrainDocs().find(x => trRR(x) === c.rr && String(x.trainNo) === String(c.trainNo) && !x.setupOf) : null);
 // suggestions for the train box: every entered train with a number, as "RR No"
 const lkTrainList = id => `<datalist id="lkTrains">${allTrainDocs().filter(t => t.id !== id && t.trainNo && !t.setupOf).sort((a, b) => trRR(a).localeCompare(trRR(b)) || Core.trainNoSort(a.trainNo, b.trainNo)).map(t => { const m = (t.stops || []).filter(x => x.stationId && !x.pass), a = m[0], z = m[m.length - 1]; return `<option value="${esc(trRR(t) + " " + t.trainNo)}">${esc([t.trainName, a && z && a !== z ? stName(a.stationId) + " – " + stName(z.stationId) : ""].filter(Boolean).join(" · "))}</option>`; }).join("")}</datalist>`;
+// "SCL 39" -> { rr: "SCL", no: "39" }; "rf&p 1" matches RF&P; a bare number belongs to this train's railroad
+function lkSplitRR(v, myRR) {
+  v = String(v || "").trim().replace(/\s+/g, " ");
+  const abbs = [...new Set([...(S.rrByAbbrev?.keys() || []), ...allTrainDocs().map(trRR)].filter(Boolean))].sort((a, b) => b.length - a.length);
+  const hit = abbs.find(a => v.toLowerCase().startsWith(a.toLowerCase()) && (v.length === a.length || /[\s\-#.]/.test(v[a.length]) || /\d/.test(v[a.length])));
+  if (hit) return { rr: hit, no: v.slice(hit.length).replace(/^[\s\-#.]+/, "").trim() };
+  return { rr: myRR, no: v };
+}
 // "PC 4205" (or just "4205" when only one railroad has it) -> that train
 const lkParseTrain = (v, rr, id) => { v = String(v || "").trim(); const all = allTrainDocs().filter(t => t.id !== id && t.trainNo && !t.setupOf);
   const full = all.find(t => `${trRR(t)} ${t.trainNo}`.toLowerCase() === v.toLowerCase()); if (full) return full;
@@ -1518,8 +1589,8 @@ function linkBlock(dir, title, list, kind, id) {
   const ord = c => c.stationId && at.has(c.stationId) ? at.get(c.stationId) : 1e6;
   return `<div class="links"><div class="links-h label-cap">${title}</div>
     ${list.map((c, i) => [c, i]).filter(([c]) => linkKind(c) === kind).sort((a, b) => ord(a[0]) - ord(b[0]) || a[1] - b[1]).map(([c, i]) => lkDone(c) && !lkEditing.has(lkKey(id, dir, i)) ? lkSaved(c, i, dir, id) : `<div class="link-row">
-      <select data-lk="${dir}" data-li="${i}" data-k="rr" aria-label="Railroad">${rrOptions(c.rr)}</select>
-      ${c.phId ? `<span class="phchip" title="Waiting for its number: it will be matched when you enter ${esc(c.rr || "its")} tables">placeholder${trainDoc(c.phId)?.description ? " · " + esc(trainDoc(c.phId).description) : ""}</span><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="phclear" title="Go back to typing a train number">Number</button>` : `<input data-lk="${dir}" data-li="${i}" data-k="no" value="${esc(c.trainNo || "")}" placeholder="Train no." list="lkTrains" autocomplete="off" aria-label="Train number: type to pick an entered train" title="Type a number or name to pick from the trains entered; a number not entered yet works too" style="width:120px"><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="ph" title="The number isn't known yet: use an unnumbered placeholder train">Unnumbered…</button>`}
+      ${c.phId ? `<select data-lk="${dir}" data-li="${i}" data-k="rr" aria-label="Railroad">${rrOptions(c.rr)}</select>` : ""}
+      ${c.phId ? `<span class="phchip" title="Waiting for its number: it will be matched when you enter ${esc(c.rr || "its")} tables">placeholder${trainDoc(c.phId)?.description ? " · " + esc(trainDoc(c.phId).description) : ""}</span><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="phclear" title="Go back to typing a train number">Number</button>` : `<input data-lk="${dir}" data-li="${i}" data-k="no" value="${esc(c.trainNo ? `${c.rr || ""} ${c.trainNo}`.trim() : "")}" placeholder="${c.trainId && !c.trainNo && c.rr ? esc(c.rr) + " (no number yet)" : "e.g. SCL 39"}" list="lkTrains" autocomplete="off" aria-label="Railroad and train number: type to pick an entered train" title="Railroad and number, like SCL 39 (a number alone means this train's railroad). Pick from the trains entered, or type one not entered yet" style="width:140px"><button class="ghost small-btn" data-lk="${dir}" data-li="${i}" data-k="ph" title="The number isn't known yet: use an unnumbered placeholder train">Unnumbered…</button>`}
       <input data-lk="${dir}" data-li="${i}" data-k="st" class="${c.stationId ? "set" : ""}" value="${esc(stLabel(c.stationId))}" placeholder="At station" autocomplete="off" aria-label="At station" style="flex:1 1 200px">
       <select data-lk="${dir}" data-li="${i}" data-k="days" aria-label="Days this link applies" title="Which days this connection applies" style="flex:0 1 150px">${[["", "Same as train"], ["Sunday", "Sunday"], ["Saturday", "Saturday"], ["Except Sunday", "Except Sunday"], ["Except Saturday", "Except Saturday"]].map(([v, l]) => `<option value="${v}" ${(c.days || "") === v ? "selected" : ""}>${l}</option>`).join("")}${c.days && !["Sunday", "Saturday", "Except Sunday", "Except Saturday"].includes(c.days) ? `<option value="${esc(c.days)}" selected>${esc(c.days)}</option>` : ""}</select>
       <select data-lk="${dir}" data-li="${i}" data-k="kind" aria-label="Through cars or connection" title="Move between through cars and connections"><option value="cars" ${kind === "cars" ? "selected" : ""}>Through cars</option><option value="conn" ${kind === "conn" ? "selected" : ""}>Connection</option></select>
@@ -1554,10 +1625,10 @@ function wireLinks(id) {
       renderEntry();
     };
     if (k === "no") {
-      inp.oninput = () => { linkList(edit(id), dir)[i].trainNo = inp.value.trim(); };
+      inp.oninput = () => { const c = linkList(edit(id), dir)[i], p = lkSplitRR(inp.value, trRR(trainDoc(id))); c.rr = p.rr; c.trainNo = p.no; };
       inp.onchange = () => {
-        const c = linkList(edit(id), dir)[i], o = lkParseTrain(inp.value, c.rr, id);
-        if (!o) { c.trainNo = inp.value.trim().replace(/^\S+\s+(?=\d)/, ""); delete c.trainId; return; }
+        const c = linkList(edit(id), dir)[i], p = lkSplitRR(inp.value, trRR(trainDoc(id))), o = lkParseTrain(inp.value, p.rr, id);
+        if (!o) { c.rr = p.rr; c.trainNo = p.no; delete c.trainId; return; }
         c.rr = trRR(o); c.trainNo = o.trainNo; c.trainId = o.id;
         if (!c.stationId) { const mine = new Set((trainDoc(id).stops || []).map(x => x.stationId)); const both = [...new Set((o.stops || []).map(x => x.stationId).filter(x => x && mine.has(x)))]; if (both.length === 1) c.stationId = both[0]; }
         lkFinish(id, dir, i); renderEntry();
@@ -2498,11 +2569,7 @@ function daysToSet(text) {
 }
 function setToDays(set) {
   if (!set || set.size === 7) return "Daily";
-  // list days in week order, starting so a run like Sunday–Monday or Saturday–Sunday reads naturally
-  const circ = arr => { if (arr.length < 2) return arr; const a = [...arr].sort((x, y) => x - y); let best = -1, at = 0; a.forEach((d, i) => { const g = ((a[(i + 1) % a.length] - d) + 7) % 7 || 7; if (g > best) { best = g; at = (i + 1) % a.length; } }); return [...a.slice(at), ...a.slice(0, at)]; };
-  const has = circ([0, 1, 2, 3, 4, 5, 6].filter(i => set.has(i))), miss = circ([0, 1, 2, 3, 4, 5, 6].filter(i => !set.has(i)));
-  const join = a => a.length === 1 ? DAYN[a[0]] : a.slice(0, -1).map(i => DAYN[i]).join(", ") + " and " + DAYN[a[a.length - 1]];
-  return has.length <= 3 ? join(has) + " only" : canonDays("Daily except " + join(miss));
+  return Core.normDays([...set].sort().map(i => DAYN[i]).join(", "));   // same wording as everywhere else
 }
 // (an earlier version carried the first stop's days down the train; clear any of those)
 function propagateFirstDays(w, T = S.tableId) {
@@ -2652,25 +2719,37 @@ function addSeveralStep2(items) {
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
   const rowSt = new Set((t.rows || []).filter(r => !r.divider).map(r => r.stationId)), hasRows = rowSt.size > 0;
   if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
+  // unnumbered legs of this railroad, entered from another road's condensed table (City of Miami, South Wind): one can become a train being added
+  const stubs = allTrainDocs().filter(x => !x.tables?.[T] && stubOf(x, S.tables) && stubRR(x, S.tables) === (t.rr || "")).sort((a, b) => (a.trainName || "").localeCompare(b.trainName || "") || (a.description || "").localeCompare(b.description || ""));
+  const numOpts = [...add.map((x, i) => ({ v: "a" + i, label: `${x.rr} ${x.no}` })), ...dupHere.map((x, i) => ({ v: "h" + i, label: `${x.rr} ${x.no} (on this table)` }))];
   dialog(`<h2>Add trains</h2>
     <p class="small">${add.length ? `${add.length} train${add.length > 1 ? "s" : ""} to add, in this order: <b>${esc(add.map(x => x.no).join(", "))}</b>` : "Nothing new to add."}${dupHere.length ? `<br><span class="muted">Already on this table: ${esc(dupHere.map(x => x.no).join(", "))}</span> <label class="row small" style="gap:6px;margin-top:4px"><input type="checkbox" id="dSevDup"> Add ${dupHere.length > 1 ? "them" : "it"} again as a second appearance of the same train (its own name, days and stops)</label>` : ""}</p>
     ${exist.length ? `<p class="small" style="margin-bottom:4px"><b>These numbers already exist.</b> Tick the ones to include; they come in with their stops.</p>
     <div style="border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${exist.map((x, i) => x.ex.map((e, j) => `<label class="pick-row pick-train"><input type="checkbox" data-sev="${i}" data-exid="${esc(e.id)}" ${j === 0 ? "checked" : ""}><span class="pick-st"><b>${esc(x.rr + " " + x.no)}</b> ${esc(e.trainName || "")}</span><span class="pick-t">${(n => n === 1 ? esc(where(e)) : n + " tables")(Object.keys(e.tables || {}).filter(k => tableById(k)).length)} · ${stopsElsewhere(e).length} stops</span></label><details style="margin:0 0 6px 24px"><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`).join("")).join("")}</div>
     <label class="row small" style="margin-top:6px;gap:6px">Unticked numbers: <select id="dSevUn"><option value="skip">leave them out</option><option value="new">add as new, separate trains</option></select></label>` : ""}
-    ${exist.length && hasRows ? `<label class="row small" style="margin-top:10px;gap:6px;align-items:flex-start"><input type="checkbox" id="dSevRows"> <span>Also add their stations that aren't rows on this grid yet <span class="muted" id="dSevRowsN"></span><br><span class="muted">Left unticked, they only get times at stations already listed here.</span></span></label>` : ""}
-    ${exist.length && !hasRows ? `<p class="small muted" style="margin-top:8px">This grid has no stations yet, so the ticked trains' stations will be added as rows.</p>` : ""}`, "Add trains", () => {
+    ${stubs.length && numOpts.length ? `<p class="small" style="margin:12px 0 4px"><b>Unnumbered ${esc(t.rr)} legs from condensed tables.</b> If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
+    <div style="border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${stubs.map(e => { const st = stopsElsewhere(e), a = st[0], z = st[st.length - 1]; return `<div class="pick-row pick-train" style="align-items:center"><select data-stubno="${esc(e.id)}" aria-label="Train number for this leg" style="flex:0 0 auto"><option value="">Not one of these</option>${numOpts.map(o => `<option value="${o.v}">${esc(o.label)}</option>`).join("")}</select><span class="pick-st"><b>${esc(e.trainName || "(no name)")}</b>${e.description ? ` <span class="muted">${esc(e.description)}</span>` : ""}</span><span class="pick-t">${a && z ? `${esc(stName(a.stationId))} ${esc(Core.fmt12(a.dep || a.arr || ""))} → ${esc(stName(z.stationId))} ${esc(Core.fmt12(z.arr || z.dep || ""))}` : ""} · ${esc(where(e))}</span></div><details style="margin:0 0 6px 24px" data-stubpick="${esc(e.id)}" hidden><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`; }).join("")}</div>` : ""}
+    ${(exist.length || stubs.length) && hasRows ? `<label class="row small" style="margin-top:10px;gap:6px;align-items:flex-start"><input type="checkbox" id="dSevRows"> <span>Also add their stations that aren't rows on this grid yet <span class="muted" id="dSevRowsN"></span><br><span class="muted">Left unticked, they only get times at stations already listed here.</span></span></label>` : ""}
+    ${(exist.length || stubs.length) && !hasRows ? `<p class="small muted" style="margin-top:8px">This grid has no stations yet, so the ticked trains' stations will be added as rows.</p>` : ""}`, "Add trains", () => {
     const picked = new Map(); document.querySelectorAll("[data-sev]:checked").forEach(c => { const i = +c.dataset.sev; if (!picked.has(i)) picked.set(i, c.dataset.exid); });
     const addRows = !hasRows || !!$("dSevRows")?.checked;
     let last = trainsInTable().slice(-1)[0], ord = Math.max(Date.now(), last ? ordT(last) + 1 : 0);
     const useIds = [], newIds = [], skipped = [], asNew = $("dSevUn")?.value === "new";
     if ($("dSevDup")?.checked) for (const x of dupHere) { const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (orig) w.setupOf = orig.setupOf || orig.id; }
-    for (const x of add) {
-      const ei = exist.indexOf(x), exId = ei >= 0 ? picked.get(ei) : null;
-      if (ei >= 0 && !exId && !asNew) { skipped.push(x.no); continue; }
-      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); }
+    const stubFor = new Map(); document.querySelectorAll("[data-stubno]").forEach(sel => { if (sel.value) stubFor.set(sel.value, [...(stubFor.get(sel.value) || []), sel.dataset.stubno]); });
+    const stubPicks = new Map();   // train id -> stations picked across the legs folded into it
+    const foldStubs = (targetId, legIds) => { const only = stubPicks.get(targetId) || new Set(); let any = stubPicks.has(targetId);
+      for (const sid of legIds) { if (document.querySelector(`.stoppick[data-pick="${CSS.escape(sid)}"]`)) { pickedStops(sid).forEach(v => only.add(v)); any = true; } if (sid !== targetId) combineTrains(targetId, sid); }
+      if (any) stubPicks.set(targetId, only); };
+    for (const [i, x] of add.entries()) {
+      const ei = exist.indexOf(x), exId = ei >= 0 ? picked.get(ei) : null, legs = stubFor.get("a" + i) || [];
+      if (ei >= 0 && !exId && !asNew && !legs.length) { skipped.push(x.no); continue; }
+      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) { stubPicks.set(exId, pickedStops(exId)); foldStubs(exId, legs); } }
+      else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); foldStubs(legs[0], legs); }
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); }
     }
-    const onlyOf = new Map(useIds.map(id => [id, pickedStops(id)]));
+    for (const [i, x] of dupHere.entries()) { const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; stubPicks.set(tgt.id, new Set()); foldStubs(tgt.id, legs); useIds.push(tgt.id); }
+    const onlyOf = new Map(useIds.map(id => [id, stubPicks.has(id) ? (document.querySelector(`.stoppick[data-pick="${CSS.escape(id)}"]`) ? new Set([...stubPicks.get(id), ...pickedStops(id)]) : stubPicks.get(id)) : pickedStops(id)]));
     let rowsAdded = 0;
     if (addRows && useIds.length) rowsAdded = addMissingRows(useIds, onlyOf);
     let filled = 0, missing = 0; for (const id of useIds) { const r = fillFromRows(id, onlyOf.get(id)); filled += r.added; missing += r.missing; }
@@ -2680,7 +2759,8 @@ function addSeveralStep2(items) {
     const first = [...useIds, ...newIds][0]; setTimeout(() => $("grid")?.querySelector(`th input[data-k="no"][data-train="${newIds[0] || first}"]`)?.focus(), 0);
   });
   const box = $("dSevRowsN");
-  const upd = () => { if (!box) return; const ids = [...new Set([...document.querySelectorAll("[data-sev]:checked")].map(c => c.dataset.exid))]; const miss = new Set(); ids.forEach(id => stopsElsewhere(trainDoc(id)).forEach(s => { if (!rowSt.has(s.stationId)) miss.add(s.stationId); })); box.textContent = `(${miss.size} station${miss.size === 1 ? "" : "s"})`; };
+  document.querySelectorAll("[data-stubno]").forEach(sel => sel.addEventListener("change", () => { const d = document.querySelector(`[data-stubpick="${CSS.escape(sel.dataset.stubno)}"]`); if (d) d.hidden = !sel.value; upd(); }));
+  const upd = () => { if (!box) return; const ids = [...new Set([...[...document.querySelectorAll("[data-sev]:checked")].map(c => c.dataset.exid), ...[...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno)])]; const miss = new Set(); ids.forEach(id => stopsElsewhere(trainDoc(id)).forEach(s => { if (!rowSt.has(s.stationId)) miss.add(s.stationId); })); box.textContent = `(${miss.size} station${miss.size === 1 ? "" : "s"})`; };
   // one train per number: ticking one match unticks the others for the same number
   document.querySelectorAll("[data-sev]").forEach(c => c.addEventListener("change", () => { if (c.checked) document.querySelectorAll(`[data-sev="${c.dataset.sev}"]`).forEach(o => { if (o !== c) o.checked = false; }); upd(); }));
   upd();
@@ -2992,6 +3072,7 @@ async function renderRailroads() {
 // ---------- trains page: one train's full record from all its tables, and everything that doesn't agree ----------
 // Built fresh from the tables every time (nothing is stored here): fix things in the table they came from.
 let mtSel = "", mtFilter = "all", mtAllPicked = false, mtTable = "";
+const mtRROpen = new Set(LS.get("mtRROpen", []));   // railroads opened in the Trains list (closed by default)
 function focusInTrain(o) {
   if (o.focus === "links") { const d = document.querySelector("details.more"); if (d) { d.open = true; const fs = [...d.querySelectorAll("legend")].find(l => /Through cars|Connections/.test(l.textContent)); (fs?.parentElement || d).scrollIntoView({ block: "center" }); } return; }
   if (S.mode === "grid") { const row = document.querySelector(`#gridTable tr[data-st="${o.stationId}"], #gridTable tr[data-sid="${o.stationId}"]`); if (row) { row.scrollIntoView({ block: "center" }); row.classList.add("flash"); } return; }
@@ -3138,16 +3219,17 @@ function renderTrainsPage() {
     const nConn = trs.reduce((a, t) => a + ["from", "to"].reduce((b, d) => b + links(t, d).filter(c => c && linkKind(c) === "conn").length, 0), 0) / 2;
     const tile = (n, label, extra = "") => `<div class="item"><b style="font-size:24px;font-variant-numeric:tabular-nums">${n}</b><span class="small muted">${label}</span>${extra}</div>`;
     const done = trs.filter(t => tStatus(t) === "complete").length;
-    right = (stubs.length ? `<div class="card"><h2 style="margin:0 0 4px">Unnumbered legs from condensed tables (${stubs.length})</h2><p class="small muted" style="margin:0 0 6px">Entered without a train number. They're flagged automatically once you've entered that railroad's own tables.</p><ul class="linkfix" style="margin:0;padding-left:18px;border:0">${stubs.map(t => `<li><button class="linkish" data-mtsel="${esc(t.id)}"><b>${esc(trRR(t))}${t.trainName ? " " + esc(t.trainName) : " (no name)"}</b></button> <span class="small">${stubReady(t, S.tables) ? '<span style="color:var(--accent);font-weight:600">✓ ready to fill in</span>' : '<span class="muted">waiting for ' + esc(trRR(t)) + " tables</span>"}</span></li>`).join("")}</ul></div>` : "") + (nTodo ? `<div class="card"><h2 style="margin:0 0 4px">Links that need correcting (${nTodo})</h2><p class="small muted" style="margin:0 0 6px">Your own notes on legs and links still to be connected. Name the railroad and train number if you know them, and you'll be told when that train has been entered.</p><ul class="linkfix" style="margin:0;padding-left:18px;border:0">${trs.filter(t => todosOf(t).length).map(t => `<li><button class="linkish" data-mtsel="${esc(t.id)}"><b>${esc(trLabel(t))}</b></button>${t.trainName ? ` <span class="small muted">${esc(t.trainName)}</span>` : ""}: ${todosOf(t).map(x => esc(x.text) + todoTag(x)).join("; ")}</li>`).join("")}</ul></div>` : "") + `<div class="card"><h2 style="margin:0 0 8px">${esc(src?.name || "")} at a glance</h2>
+    right = (stubs.length ? `<div class="card"><h2 style="margin:0 0 4px">Unnumbered legs from condensed tables (${stubs.length})</h2><p class="small muted" style="margin:0 0 6px">Entered without a train number. When you add that train to its own table (＋ Add trains), each leg is offered there: pick its number and it comes in with its stops and links.</p><ul class="linkfix" style="margin:0;padding-left:18px;border:0">${stubs.map(t => `<li><button class="linkish" data-mtsel="${esc(t.id)}"><b>${esc(trRR(t))}${t.trainName ? " " + esc(t.trainName) : " (no name)"}</b></button>${t.description ? ` <span class="small muted">${esc(t.description.replace(/^Seaboard Coast Line,?\s*/i, ""))}</span>` : ""} <span class="small">${stubReady(t, S.tables) ? '<span style="color:var(--accent);font-weight:600">✓ ready to fill in</span>' : '<span class="muted">waiting for ' + esc(trRR(t)) + " tables</span>"}</span></li>`).join("")}</ul></div>` : "") + (nTodo ? `<div class="card"><h2 style="margin:0 0 4px">Links that need correcting (${nTodo})</h2><p class="small muted" style="margin:0 0 6px">Your own notes on legs and links still to be connected. Name the railroad and train number if you know them, and you'll be told when that train has been entered.</p><ul class="linkfix" style="margin:0;padding-left:18px;border:0">${trs.filter(t => todosOf(t).length).map(t => `<li><button class="linkish" data-mtsel="${esc(t.id)}"><b>${esc(trLabel(t))}</b></button>${t.trainName ? ` <span class="small muted">${esc(t.trainName)}</span>` : ""}: ${todosOf(t).map(x => esc(x.text) + todoTag(x)).join("; ")}</li>`).join("")}</ul></div>` : "") + `<div class="card"><h2 style="margin:0 0 8px">${esc(src?.name || "")} at a glance</h2>
       <div class="tiles">${tile(trs.length, "trains")}${tile(trs.filter(t => t.trainName).length, "with names")}${tile(rrs.length, "railroads")}${tile(S.tables.length, "tables")}${tile(nStops.toLocaleString(), "stops, combined")}${tile(done, "done")}${tile(Math.round(nCars), "through-car links")}${tile(Math.round(nConn), "connections")}${tile(nProb, "things to check", nProb ? `<button class="linkish small" id="mtAll2">Show them</button>` : "")}</div></div>
       ${rrs.map(rr => { const list = trs.filter(t => trRR(t) === rr); const R = S.rrByAbbrev?.get(rr);
-        return `<div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">${R?.color ? `<span class="rrsw" style="background:${esc(R.color)}"></span>` : ""}${esc(R?.name || rr)}</h2><span class="small muted">${esc(rr)} · ${list.length} train${list.length === 1 ? "" : "s"}</span></div>
-        <div style="overflow-x:auto"><table class="mt"><thead><tr><th>No.</th><th>Name</th><th>From</th><th>To</th><th>Runs</th><th>Tables</th><th></th></tr></thead><tbody>
+        const nP = list.reduce((a, t) => a + probs.get(t.id).length, 0), nDone = list.filter(t => tStatus(t) === "complete").length;
+        return `<details class="card rrcard" data-rropen="${esc(rr)}" ${mtRROpen.has(rr) ? "open" : ""}><summary><span class="rrsum"><b>${R?.color ? `<span class="rrsw" style="background:${esc(R.color)}"></span>` : ""}${esc(R?.name || rr)}</b><span class="small muted">${esc(rr)} · ${list.length} train${list.length === 1 ? "" : "s"}${nDone ? ` · ${nDone} done` : ""}${nP ? ` · <span style="color:var(--bad)">${nP} to check</span>` : ""}</span></span></summary>
+        <div style="overflow-x:auto;margin-top:6px"><table class="mt"><thead><tr><th>No.</th><th>Name</th><th>From</th><th>To</th><th>Runs</th><th>Tables</th><th></th></tr></thead><tbody>
         ${list.map(t => { const m = mrg(t), a = m[0], z = m[m.length - 1]; const n = probs.get(t.id).length; const ks = Object.keys(t.tables || {}).filter(k => tableById(k));
           return `<tr><td><button class="linkish" data-mtsel="${esc(t.id)}"><b>${esc(t.trainNo || "?")}</b></button></td><td>${esc(t.trainName || "")}${t.alsoCalled ? ` <span class="small muted">${esc(t.alsoCalled)}</span>` : ""} ${tagChips(t)}${kidsOf(t.id).length ? ` <span class="small muted">+ ${kidsOf(t.id).map(k => esc(k.trainName || "second appearance")).join(", ")}</span>` : ""}</td>
             <td class="small">${a ? esc(stName(a.stationId)) + ` <span class="muted">${esc(Core.fmt12(a.dep || a.arr || ""))}</span>` : ""}</td><td class="small">${z && z !== a ? esc(stName(z.stationId)) + ` <span class="muted">${esc(Core.fmt12(z.arr || z.dep || ""))}</span>` : ""}</td>
             <td class="small">${esc(t.frequency || "")}</td><td class="small muted">${ks.map(k => esc(tblName(k).replace(" Table ", " "))).join(", ")}</td><td>${n ? `<span class="pcount" style="color:var(--bad);background:var(--bad-soft);border-radius:9px;padding:0 7px;font-size:12px">${n}</span>` : ""}</td></tr>`; }).join("")}
-        </tbody></table></div></div>`; }).join("")}`;
+        </tbody></table></div></details>`; }).join("")}`;
   } else if (mtFilter === "problems" && LS.get("mtAll", false)) {
     right = `<div class="card"><h2 style="margin:0 0 4px">Everything that doesn't agree</h2><p class="small muted" style="margin:0 0 6px">${nProb} item${nProb === 1 ? "" : "s"} on ${nTr} train${nTr === 1 ? "" : "s"} in ${esc(src?.name || "")}. Each button opens the table and stop to fix.</p>
       <button class="linkish small" data-mtsel="" style="margin-bottom:4px">← All trains</button>
@@ -3161,7 +3243,7 @@ function renderTrainsPage() {
     const confAt = new Set(merged.conflicts.map(c => c.stationId));
     const secs = sectionNames(merged.stops);
     const hasDays = merged.stops.some(x => x.stationId && x.days);
-    const rows = merged.stops.filter(s => s.stationId).map((s, i) => {
+    const rows = oneRowPerStation(merged.stops.filter(s => s.stationId)).map((s, i) => {
       const t0 = tableById(s.from?.[0]); const mean = s.mark ? markMeaning(t0, s.mark) : "";
       return `<tr class="${confAt.has(s.stationId) ? "bad" : ""}"><td class="small muted">${i + 1}</td><td>${(() => { const st = S.stById.get(s.stationId); return st ? `${esc(st.name)}<span class="stx muted"> (${esc([st.town, st.state].filter(Boolean).join(", "))})</span>` : esc(stLabel(s.stationId)); })()}${s.origin ? ' <span class="small muted">start</span>' : s.terminus ? ' <span class="small muted">end</span>' : ""}</td>
         <td class="t ${Core.isPM(s.arr) ? "pm" : ""}">${s.pass ? "—" : esc(Core.fmt12(s.arr || ""))}</td><td class="t ${Core.isPM(s.dep) ? "pm" : ""}">${s.pass ? "" : esc(Core.fmt12(s.dep || ""))}</td>
@@ -3237,6 +3319,7 @@ function renderTrainsPage() {
   if ($("phUn")) $("phUn").onchange = e => { const w = edit(mtSel); if (e.target.checked) w.unnumbered = true; else delete w.unnumbered; renderTrainsPage(); };
   $("mtAll").onclick = () => { mtFilter = "problems"; LS.set("mtAll", true); renderTrainsPage(); };
   if ($("mtAll2")) $("mtAll2").onclick = () => $("mtAll").click();
+  el.querySelectorAll("[data-rropen]").forEach(d => d.ontoggle = () => { if (d.open) mtRROpen.add(d.dataset.rropen); else mtRROpen.delete(d.dataset.rropen); LS.set("mtRROpen", [...mtRROpen]); });
   el.querySelectorAll("[data-mtsel]").forEach(b => b.onclick = () => { mtSel = b.dataset.mtsel; LS.set("mtAll", false); if (!mtSel) { mtFilter = "all"; mtAllPicked = false; } renderTrainsPage(); window.scrollTo({ top: 0 }); });
   el.querySelectorAll("[data-mtgo]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.mtgo)));
   const setKnown = (id, key, val) => { const w = edit(id); w.knownIssues = { ...(w.knownIssues || {}) }; if (val) w.knownIssues[key] = { ...(w.knownIssues[key] || {}), ...val }; else delete w.knownIssues[key]; };
