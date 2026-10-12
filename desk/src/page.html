@@ -584,7 +584,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
 // a read-only hook for automated checks of the Desk (no effect on the page)
-window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render });
+window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -1293,20 +1293,33 @@ function numberStub(id, rr, no) {
     }
   }
 }
+// stops of two records being combined. Where both have stops on the same table, the leg that ends where the other begins
+// goes first (Albany–Jacksonville before Jacksonville–Miami), whichever record is kept; the two legs' meeting stop
+// becomes one stop when the table prints it on one row (arrive and leave in the same cell row)
+function joinLegStops(A, B) {
+  const tbls = [...new Set([...A, ...B].map(s => s.tableId))], out = [];
+  const firstSt = l => l.find(s => s.stationId), lastSt = l => [...l].reverse().find(s => s.stationId);
+  const mins = s => s && Core.toMin(s.dep || s.arr || "");
+  for (const k of tbls) {
+    let a = A.filter(s => s.tableId === k), b = B.filter(s => s.tableId === k);
+    if (a.length && b.length) {
+      const bThenA = lastSt(b)?.stationId === firstSt(a)?.stationId && lastSt(a)?.stationId !== firstSt(b)?.stationId;
+      const aThenB = lastSt(a)?.stationId === firstSt(b)?.stationId && !bThenA;
+      if (bThenA || (!aThenB && mins(firstSt(b)) != null && mins(firstSt(a)) != null && mins(firstSt(b)) < mins(firstSt(a)))) [a, b] = [b, a];
+      const x = lastSt(a), y = firstSt(b);
+      if (x && y && x.stationId === y.stationId && (x.section || "") === (y.section || "") && !(x.rid && y.rid && x.rid !== y.rid) && !x.dep && !y.arr) {
+        a = a.map(s => s === x ? { ...y, ...x, arr: x.arr, dep: y.dep, mark: [...new Set([x.mark, y.mark].filter(Boolean))].join(" "), notes: [x.notes, y.notes].filter(Boolean).join("; ") } : s);
+        b = b.filter(s => s !== y);
+      }
+    }
+    out.push(...a, ...b);
+  }
+  return out;
+}
 function combineTrains(keepId, dropId) {
   const keep = edit(keepId), drop = trainDoc(dropId);
   for (const [tid, m] of Object.entries(drop.tables || {})) if (!keep.tables[tid]) keep.tables[tid] = m;
-  const nKeep = (keep.stops || []).length;
-  keep.stops = [...(keep.stops || []), ...(drop.stops || [])];
-  // two legs that meet at a station on the same table (arrive Jacksonville / leave Jacksonville) make one stop there
-  for (let k = keep.stops.length - 1; k >= nKeep; k--) {
-    const b = keep.stops[k]; if (!b.stationId) continue;
-    let j = nKeep - 1; while (j >= 0 && keep.stops[j].tableId !== b.tableId) j--;
-    const a = keep.stops[j]; if (!a || a.stationId !== b.stationId || (a.section || "") !== (b.section || "") || (a.rid && b.rid && a.rid !== b.rid)) continue;
-    if ((a.dep && b.dep) || (a.arr && b.arr) || (a.dep && !b.dep && b.arr)) continue;
-    keep.stops[j] = { ...b, ...a, arr: a.arr || b.arr, dep: a.dep || b.dep, mark: [...new Set([a.mark, b.mark].filter(Boolean))].join(" "), notes: [a.notes, b.notes].filter(Boolean).join("; ") };
-    keep.stops.splice(k, 1);
-  }
+  keep.stops = joinLegStops(keep.stops || [], drop.stops || []);
   for (const f of ["trainName", "alsoCalled", "consist", "notes", "throughName"]) {
     if (!keep[f]) keep[f] = drop[f] || ""; else if (drop[f] && drop[f] !== keep[f] && f !== "trainName") keep[f] = keep[f] + (f === "alsoCalled" ? ", " : "\n") + drop[f];
   }
