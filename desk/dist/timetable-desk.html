@@ -2792,11 +2792,18 @@ function renderGrid(el, t) {
 }
 
 // ---------- dialogs ----------
+// while a pop-up is open the Desk notes it in the database (presence/desk), so Claude can hold off publishing a new version until it's closed
+let presenceAt = 0;
+function notePresence(open, title) {
+  if (!S.db || S.viewOnly) return;
+  const now = Date.now(); if (open && now - presenceAt < 2000) return; presenceAt = now;
+  S.db.doc("presence/desk").set({ dialogOpen: !!open, dialog: open ? String(title || "").slice(0, 80) : "", unsaved: S.dirty?.size || 0, at: new Date().toISOString() }).catch(() => {});
+}
 function dialog(html, okLabel, onOk, onCancel) {
   const ov = $("overlay");
   ov.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">${html}<div class="err-text" id="dErr"></div><div class="actions"><button id="dCancel">Cancel</button><button id="dOk" class="primary">${esc(okLabel)}</button></div></div>`;
-  ov.hidden = false;
-  const close = () => { ov.hidden = true; ov.innerHTML = ""; };
+  ov.hidden = false; notePresence(true, ov.querySelector("h2")?.textContent);
+  const close = () => { ov.hidden = true; ov.innerHTML = ""; notePresence(false); };
   $("dCancel").onclick = () => { close(); onCancel?.(); };
   $("dOk").onclick = async () => { const r = await onOk(); if (typeof r === "string") { $("dErr").textContent = r; return; } close(); };
   ov.onkeydown = e => { if (e.key === "Escape") { close(); onCancel?.(); } };
