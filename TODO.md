@@ -7,4 +7,4 @@
 ## Still to do
 - Explore: when the map's date passes the end of one guide's month, switch automatically to the next published guide in the Desk, using each source's date. Fall back to the latest guide on or before the date.
 - Daylight (advance) time generally: guide times are standard time; only the PC Table 3 note is applied so far.
-- ArcGIS notebook (`notebook/`): upload to ArcGIS Online and run Steps 1–6 (read-only) to find line gaps and stations far from any line, and get suggested "Served by" values. Check Step 5 results west of Akron and north of Marion. Step 8 is the only step that writes changes (after its dry run is switched off).
+- Lines layer: the only route gap for entered trains (notebook run 2026-10-12) is Henderson -> Evansville (L&N 4): the L&N Henderson Subdivision doesn't connect to the L&N St. Louis-Evansville Line across the Ohio River. Four stations are >250 m from a line (St. Joseph, Tulsa, Orillia, Havelock), none used yet. "Served by" needed no changes.
