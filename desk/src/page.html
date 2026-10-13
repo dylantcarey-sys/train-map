@@ -292,7 +292,8 @@ td.notes-cell { width: auto; min-width: 140px; }
 #eqTable input, #eqTable select, #eqTable td { font-size: 13px; }
 #eqTable td.eq-n { color: var(--muted); text-align: right; padding-right: 6px; font-variant-numeric: tabular-nums; }
 #eqTable select { max-width: 150px; }
-table.tv .tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
+table.tv .tv td.tv-mi, .tv th.tv-mi { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-right: 6px; white-space: nowrap; }
+.tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
 table.tv .tv-sep { color: var(--muted); padding: 0 2px; }
 table.tv .tv-edit { padding: 0 3px; font-size: 12px; opacity: .6; }
 table.tv .tv-edit:hover { opacity: 1; }
@@ -920,7 +921,7 @@ const trainsPath = () => `sources/${S.sourceId}/trains`;
 const trainDoc = id => S.work.get(id) || S.trains.get(id);
 // older records kept one table per train (tableId/status/order): read them in the shared-train shape
 // stored trains leave out blank stop and car fields; they're filled back in here so the rest of the Desk always sees the full shape
-const STOP_BLANKS = { arr: "", dep: "", mark: "", days: "", notes: "", tz: "", miles: "", single: false, pass: false };
+const STOP_BLANKS = { via: "", arr: "", dep: "", mark: "", days: "", notes: "", tz: "", miles: "", single: false, pass: false };
 const CAR_BLANKS = { type: "", desc: "", pts: "" };
 const blankish = v => v === "" || v === false || v == null || (Array.isArray(v) && !v.length);
 function compactTrain(body) {
@@ -1698,8 +1699,8 @@ function commitTime(id, i, k, inp) {
   if (p.error) return; // stays marked red
   const effNow = { arr: st.arr || "", dep: st.dep || "" };
   const markWasHere = (effNow.dep ? "dep" : "arr") === k;
-  if (p.pass) { st.pass = true; st.arr = st.dep = ""; st.single = false; st.mark = ""; applyMarkDays(st, curTable(), w); inp.value = "—"; return; }
-  st.pass = false; st.single = false;
+  if (p.pass) { st.pass = true; st.via = p.via || ""; st.arr = st.dep = ""; st.single = false; st.mark = ""; applyMarkDays(st, curTable(), w); inp.value = Core.formatCell(st); return; }
+  st.pass = false; st.via = ""; st.single = false;
   if (p.empty) { st.arr = k === "arr" ? "" : effNow.arr; st.dep = k === "dep" ? "" : effNow.dep; if (markWasHere) st.mark = ""; }
   else if (!p.single) { st.arr = p.arr; st.dep = p.dep; }          // "1115/1135" typed in either box
   else { st.arr = k === "arr" ? p.dep : effNow.arr; st.dep = k === "dep" ? p.dep : effNow.dep; }
@@ -2296,7 +2297,7 @@ function renderGrid(el, t) {
     if (p.empty) { if (i >= 0) list.splice(i, 1); }
     else {
       const st = i >= 0 ? list[i] : { ...newStop(), rid, stationId: sid, tableId: S.tableId, ...(cellSec ? { section: cellSec } : {}) };
-      Object.assign(st, p.pass ? { pass: true, arr: "", dep: "", single: false, mark: "" } : { pass: false, arr: p.arr, dep: p.dep, single: p.single, mark: p.mark });
+      Object.assign(st, p.pass ? { pass: true, via: p.via || "", arr: "", dep: "", single: false, mark: "" } : { pass: false, via: "", arr: p.arr, dep: p.dep, single: p.single, mark: p.mark });
       if (i < 0) insertByRow(w, list, st);   // a new stop goes in travel order; existing stops never move
       inp.value = Core.formatCell12(st); inp.classList.toggle("pm", !st.pass && Core.isPM(st.dep || st.arr));
     }
@@ -2948,7 +2949,7 @@ async function allTrainsForExport() {
   }
   return out;
 }
-const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags"];
+const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via"];
 async function exportCSV() {
   if (!S.dl) { notice("Downloads aren't available in this view."); return; }
   const csv = await buildCSV();
@@ -2971,6 +2972,15 @@ async function downloadMap() {
   try { await S.dl.save({ filename: `historic-train-map-${new Date().toISOString().slice(0, 10)}.html`, data: html }); notice("Map saved. Open the file in Chrome, Edge, Firefox or Safari (it needs the internet for the ArcGIS map and your lines and stations)."); }
   catch (e) { notice(e?.code === "declined" ? "" : "The download didn't start: " + esc(e?.message || e?.code)); }
 }
+// "via Orlando" -> the Orlando station nearest the stops on either side (a name can match several stations)
+function viaStation(name, stops, i) {
+  const want = name.toLowerCase().replace(/[.]/g, "").trim();
+  const cands = S.stations.filter(st => st.nameLc.replace(/[.]/g, "") === want || st.nameLc.replace(/\s*\(.*\)\s*/g, "").replace(/[.]/g, "") === want || (st.town || "").toLowerCase() === want);
+  if (cands.length <= 1) return cands[0]?.id || "";
+  const near = [...stops.slice(0, i).reverse(), ...stops.slice(i + 1)].map(s => S.stById.get(s.stationId)).filter(st => st && st.lon != null).slice(0, 2);
+  const d = st => near.reduce((a, n) => a + Math.hypot(st.lon - n.lon, st.lat - n.lat), 0);
+  return cands.filter(st => st.lon != null).sort((a, b) => d(a) - d(b))[0]?.id || cands[0].id;
+}
 async function buildCSV() {
   const rows = []; const rrName = ab => S.rrByAbbrev.get(ab)?.name || "";
   const link = arr => arr.filter(c => c?.trainNo || c?.rr).map(c => `${c.rr || ""} ${c.trainNo || ""}${c.stationId ? " at " + (S.stById.get(c.stationId)?.name || c.stationId) + " (" + c.stationId + ")" : ""}`.replace(/\s+/g, " ").trim()).join("; ");
@@ -2991,13 +3001,21 @@ async function buildCSV() {
     const rr = tr.rr || tl[0]?.rr || "";
     const lowest = statusIdx(tStatus(tr));
     const printed = keys.map(k => tr.tables[k].printedAs).filter(Boolean).join("; ");
+    // "via Orlando" cells: on their own table, they belong to the next station the train stops at (Jacksonville ... via Orlando ... Winter Haven)
+    const viaAt = new Map();
+    for (const g of groups) { let q = [];
+      g.stops.forEach((s, i) => {
+        if (s.pass && s.via) { for (const nm of s.via.split(/\s*(?:,|\band\b|&)\s*/i).filter(Boolean)) { const id = viaStation(nm, g.stops, i); if (id && !q.includes(id)) q.push(id); } return; }
+        if (!s.pass && s.stationId && (s.arr || s.dep) && q.length) { viaAt.set(s.stationId, [...(viaAt.get(s.stationId) || []), ...q]); q = []; }
+      }); }
     let seq = 0;
     stops.forEach((s, i) => {
       if (s.pass || s.disp || !s.stationId) return; seq++;
+      const viaHere = [...new Set(viaAt.get(s.stationId) || [])].join("; "); viaAt.delete(s.stationId);
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
       const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}Table ${tno(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
-      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; ")]);
+      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere]);
     });
     }
   }
@@ -4092,9 +4110,11 @@ function renderTableView(el, t) {
     const key = (col.main || col)[0].id;
     return `<th>${names.length || !S.viewOnly ? `<div class="tv-nm">${esc(names.join(" / "))}${S.viewOnly ? "" : ` <button class="ghost tv-edit" data-colname="${esc(key)}" title="Change this column's heading" aria-label="Change the heading">✎</button>`}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
   };
+  // miles, as printed, when the table has any
+  const hasMiles = rows.some(r => !r.divider && String(r.miles || "").trim());
   el.innerHTML = `<div class="tv-wrap"><table class="tv">
-    <thead><tr><th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
-    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1}"></td></tr>` : `<tr><td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
+    <thead><tr>${hasMiles ? `<th class="tv-mi">Mls</th>` : ""}<th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
+    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1 + (hasMiles ? 1 : 0)}"></td></tr>` : `<tr>${hasMiles ? `<td class="tv-mi">${esc(r.miles || "")}</td>` : ""}<td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
   </table></div>
   ${marksLine(t, [...used])}
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}
