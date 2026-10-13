@@ -16,3 +16,6 @@ Repeat visits already reuse lines, stations and routes saved in the browser; the
 1. Work out routes ahead of time: a GitHub Actions job (button / after ArcGIS edits / weekly) downloads the layers, routes every train with the map's own core, and publishes a small routes file next to the map. The browser then skips the lines download and route-finding entirely. Re-run after editing lines or adding trains.
 2. Let ArcGIS draw the background lines (FeatureLayer with a renderer by "Served by") instead of downloading every line's geometry to colour it in the browser.
 3. Move the built-in timetable (~4 MB of CSV inside index.html) to a compressed file loaded alongside the page.
+
+## Desk: changes to make later
+- Reference marks (new table / Edit table): make the meaning text a little smaller, and make its box grow as you type so the whole meaning stays visible (noted 2026-10-12).
