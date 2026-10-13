@@ -91,7 +91,7 @@ const MapCore = (() => {
       const k = (r.source || "") + "|" + r.train_id;
       if (!by.has(k)) by.set(k, { key: k, id: r.train_id, section: r.section || "", base: r.section ? String(r.train_id).replace(/\s*\([^)]*\)\s*$/, "") : r.train_id, color: /^#[0-9a-f]{6}$/i.test(r.rr_color || "") ? r.rr_color : "", lineNames: String(r.lines || "").split(/[;\n]+/).map(x => x.trim()).filter(Boolean), source: r.source || "", sourceDate: r.source_date || "", rr: r.rr || "", rrName: r.railroad || "", no: r.train_no || "", name: r.train_name || "", alsoCalled: r.also_called || "", freq: r.frequency || "", consist: r.consist || "", notes: r.train_notes || "", tables: new Set(), status: r.status || "", from: r.continues_from || "", to: r.continues_as || "", stops: [] });
       const t = by.get(k); (r.tables || "").split(/;\s*/).filter(Boolean).forEach(x => t.tables.add(x));
-      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "", tables: (r.tables || "").split(/;\s*/).filter(Boolean) });
+      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "", via: String(r.via || "").split(/;\s*/).filter(Boolean), tables: (r.tables || "").split(/;\s*/).filter(Boolean) });
       if (!t.links) { const lk = (txt, dir, kind) => String(txt || "").split(/;\s*/).map(x => x.match(/^(.+?)(?: at (.+?) \((\S+)\))?$/)).filter(m => m && m[1].trim()).map(m => ({ id: m[1].trim(), sid: m[3] || "", at: m[2] || "", dir, kind }));
         t.links = [...lk(r.continues_from, "from", "cars"), ...lk(r.continues_as, "to", "cars"), ...lk(r.connects_from, "from", "conn"), ...lk(r.connects_to, "to", "conn")]; t.tags = String(r.tags || "").split(/;\s*/).filter(Boolean); }
     }
@@ -280,13 +280,15 @@ const MapCore = (() => {
       if (ok.length < 2) continue;
       const trip = { ...t, stops: ok, legs: [] };
       const fac = net ? lineFactor(t.rrName, t.rr, t) : null;
-      for (let i = 0; i < ok.length - 1; i++) {
-        const a = ok[i], b = ok[i + 1];
+      const legGeom = (a, b) => {
         const ck = (t.rrName || t.rr) + "|" + (t.lineNames || []).join(";") + "|" + a.sid + "|" + b.sid;
         let geom = legCache.get(ck);
-        if (!geom) {
+        if (!geom) { geom = buildGeom(a, b); legCache.set(ck, geom); }
+        return geom;
+      };
+      // one station-to-station piece of track (shared by trains of the same railroad between the same stations)
+      function buildGeom(a, b) {
           let pts = null, used = [], why = "", fix = "", at = null, long = false;
-          // modern trains bring their own track geometry (the feed's shapes), so no routing is needed
           const own = opts.legs?.get(a.sid + ">" + b.sid);
           if (own) pts = [a.p, ...own, b.p];
           else if (net) {
@@ -299,10 +301,9 @@ const MapCore = (() => {
               if (r && r.tooBig) { why = "the route search between them gave up (too large an area to search)"; fix = "Tell Claude: this is a map problem, not a data problem."; }
               else if (r) {
                 const via = r.ids.map(k => net.nodes[k]); const len = via.reduce((s, p, k) => k ? s + dist(via[k - 1], p) : 0, 0);
-                // length of the route on lines this train's railroad served (or the lines picked for it in the Desk)
-                const own = r.steps.reduce((s, [u, v, li]) => s + (li >= 0 && fac && fac(li) <= 1 ? dist(net.nodes[u], net.nodes[v]) : 0), 0);
+                const ownLen = r.steps.reduce((s, [u, v, li]) => s + (li >= 0 && fac && fac(li) <= 1 ? dist(net.nodes[u], net.nodes[v]) : 0), 0);
                 if (len < dist(a.p, b.p) * 3 + 8000) { pts = [a.p, ...via, b.p]; used = r.lines; }
-                else if (own >= len * 0.8) { pts = [a.p, ...via, b.p]; used = r.lines; long = true; }   // a roundabout route, but on the railroad's own lines: trust it
+                else if (ownLen >= len * 0.8) { pts = [a.p, ...via, b.p]; used = r.lines; long = true; }
                 else { why = "the only rail route found is a long detour over other railroads' lines"; fix = "Check for a missing or broken line between these stations, or fill in “Served by” on the lines this train used."; at = [(a.p[0] + b.p[0]) / 2, (a.p[1] + b.p[1]) / 2]; }
               } else { why = "no connected rail line between them"; fix = "Check the lines layer between these stations for a gap."; }
             } else if (!ca.length || !cb.length) {
@@ -318,10 +319,24 @@ const MapCore = (() => {
           if (straight && net) { const nm = p => { const c = candidates(net, p, maxSnap)[0]; if (!c) return "no line within reach"; const li = (net.adj[c.id].find(e => e[2] >= 0) || [])[2]; const ln = net.lines[li]; return `${(ln && (ln.attrs.Name || ln.attrs.NAME)) || "line " + li} (${Math.round(c.d * Math.cos(Math.atan(Math.sinh(p[1] / R))))} m away)`; };
             snap = `${a.name} attaches to ${nm(a.p)}; ${b.name} attaches to ${nm(b.p)}`; }
           const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + dist(pts[k - 1], pts[k]));
-          geom = { pts, cum, len: cum[cum.length - 1], straight, used, long, why, fix, at, snap, fromName: a.name, toName: b.name, trains: new Set() };
           if (why) warnings.push(`${a.name} → ${b.name}: ${why}`);
-          legCache.set(ck, geom);
+          return { pts, cum, len: cum[cum.length - 1], straight, used, long, why, fix, at, snap, fromName: a.name, toName: b.name, trains: new Set() };
+      }
+      for (let i = 0; i < ok.length - 1; i++) {
+        const a = ok[i], b = ok[i + 1];
+        // "via Orlando" in the timetable: the leg runs through those stations (no stop), so it's routed in pieces
+        const vias = (b.via || []).filter(sid => sid !== a.sid && sid !== b.sid).map(sid => { const st = stations.get(sid); return st ? { sid, name: st.name, p: toMerc([st.lon, st.lat]) } : null; }).filter(Boolean);
+        if (vias.length) {
+          const pts0 = [a, ...vias, b], parts = [];
+          for (let k = 0; k < pts0.length - 1; k++) parts.push(legGeom(pts0[k], pts0[k + 1]));
+          const pts = parts.flatMap((g, k) => k ? g.pts.slice(1) : g.pts), cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + dist(pts[k - 1], pts[k]));
+          const bad = parts.find(g => g.straight);
+          const geom = { pts, cum, len: cum[cum.length - 1], straight: false, used: [...new Set(parts.flatMap(g => g.used))], long: parts.some(g => g.long), why: "", fix: "", at: null, snap: "", fromName: a.name, toName: b.name, via: vias.map(v => v.name), trains: new Set([t.id]) };
+          if (bad) bad.trains.add(t.id);
+          trip.legs.push({ from: a, to: b, t0: a.depAbs, t1: b.arrAbs, ...geom });
+          continue;
         }
+        const geom = legGeom(a, b);
         geom.trains.add(t.id);
         trip.legs.push({ from: a, to: b, t0: a.depAbs, t1: b.arrAbs, ...geom });
       }

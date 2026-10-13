@@ -59,6 +59,8 @@ const Core = (() => {
     let s = String(text || "").trim();
     if (!s) return { empty: true };
     if (/^[-–—]+$/.test(s)) return { pass: true };
+    // "via Orlando": the train doesn't stop here; it runs by way of another station (used to route it on the map)
+    const via = s.match(/^via\s+(.+)$/i); if (via) return { pass: true, via: via[1].trim() };
     // "Arr. 930 p", "arr 930p", "ar 930p", "Lv. 645a", "lve 645 a f", or the word after the time ("930p arr") = arrives / leaves only
     const AR = "ar(?:r(?:ives?)?)?\\.?", LV = "(?:lv|lve|leaves?|dep(?:arts?)?)\\.?";
     const kw = s.match(new RegExp(`^(${AR}|${LV})\\s*(\\d.*)$`, "i")) || ((m => m && [m[0], m[2], m[1]])(s.match(new RegExp(`^(\\d.*?)\\s+(${AR}|${LV})$`, "i"))));
@@ -126,7 +128,7 @@ const Core = (() => {
   }
   function formatCell(st) {
     if (!st) return "";
-    if (st.pass) return "—";
+    if (st.pass) return st.via ? "via " + st.via : "—";
     let t = st.single ? (st.dep || st.arr) : (st.arr && st.dep ? `${st.arr}/${st.dep}` : (st.dep || st.arr));
     return (t || "") + (st.mark || "");
   }
@@ -138,7 +140,7 @@ const Core = (() => {
   }
   function formatCell12(st) {
     if (!st) return "";
-    if (st.pass) return "—";
+    if (st.pass) return st.via ? "via " + st.via : "—";
     let t;
     if (!st.single && st.arr && st.dep) {
       const a = fmt12(st.arr), d = fmt12(st.dep);
