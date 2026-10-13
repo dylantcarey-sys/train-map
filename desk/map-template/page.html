@@ -245,15 +245,46 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     }
     return { features: out, fields };
   }
+  // ---------- this browser's cache (IndexedDB): the lines and stations, and the routes worked out along them ----------
+  // kept until the layers are edited in ArcGIS (their "last edit" date changes), so a repeat visit skips the download and the route-finding
+  const idb = (() => { let dbp = null; const open = () => dbp || (dbp = new Promise((res, rej) => { try { const r = indexedDB.open("train-map", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }));
+    const tx = (mode, fn) => open().then(db => new Promise((res, rej) => { const t = db.transaction("kv", mode), st = t.objectStore("kv"), q = fn(st); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }));
+    return { get: k => tx("readonly", st => st.get(k)).catch(() => undefined), set: (k, v) => tx("readwrite", st => st.put(v, k)).catch(() => {}), del: k => tx("readwrite", st => st.delete(k)).catch(() => {}) }; })();
+  const lastEdit = url => fetch(url + "?f=json").then(r => r.json()).then(j => String(j.editingInfo?.lastEditDate || j.editingInfo?.dataLastEditDate || "")).catch(() => "");
   async function loadGeo() {
-    const [L, St] = await Promise.all([
-      queryAll(LINES_URL, { outFields: "*", returnGeometry: true, geometryPrecision: 6 }),
-      queryAll(STATIONS_URL, { outFields: "OBJECTID,StationID,Name,Town,State,StationLabel,TZ", returnGeometry: true, geometryPrecision: 6 })
-    ]);
+    const t0 = performance.now();
+    const [eL, eS] = await Promise.all([lastEdit(LINES_URL), lastEdit(STATIONS_URL)]);
+    S.geoKey = eL && eS ? `geo|${eL}|${eS}` : "";
+    let cached = S.geoKey && !S.noCache ? await idb.get("geo") : null;
+    if (cached && cached.key !== S.geoKey) cached = null;
+    let L, St;
+    if (cached) { ({ L, St } = cached); S.fromCache = true; }
+    else {
+      [L, St] = await Promise.all([
+        queryAll(LINES_URL, { outFields: "*", returnGeometry: true, geometryPrecision: 6 }),
+        queryAll(STATIONS_URL, { outFields: "OBJECTID,StationID,Name,Town,State,StationLabel,TZ", returnGeometry: true, geometryPrecision: 6 })
+      ]);
+      if (S.geoKey) { idb.set("geo", { key: S.geoKey, L, St }); idb.del("routes"); }
+    }
+    S.loadMs = performance.now() - t0;
     S.lineFields = L.fields.map(f => ({ name: f.name, alias: f.alias }));
     S.lines = L.features.filter(f => f.geometry?.paths?.length).map(f => ({ paths: f.geometry.paths, attrs: f.attributes }));
     for (const f of St.features) { const a = f.attributes, g = f.geometry; if (!a.StationID || !g) continue; S.stations.set(a.StationID, { id: a.StationID, name: a.Name || "", town: a.Town || "", state: a.State || "", label: a.StationLabel || a.Name || a.StationID, tz: a.TZ || "", lon: g.x, lat: g.y }); }
-    S.net = C.buildNetwork(S.lines);
+    S.geoReady = true;
+    // the network is only built when a route has to be found (on a first visit, or for new trains)
+    S.getNet = () => S.net || (S.net = C.buildNetwork(S.lines));
+    S.routeSeed = new Map();
+    if (S.geoKey && !S.noCache) { const r = await idb.get("routes"); if (r && r.key === S.geoKey) S.routeSeed = new Map(r.legs.map(([k, g]) => [k, unpackGeom(g)])); }
+  }
+  // routes are saved small: points rounded to the metre, without the running totals (worked out again on load)
+  const packGeom = g => ({ p: g.pts.flatMap(q => [Math.round(q[0]), Math.round(q[1])]), straight: g.straight, used: g.used, long: g.long, why: g.why, fix: g.fix, at: g.at, snap: g.snap, fromName: g.fromName, toName: g.toName });
+  function unpackGeom(g) { const pts = []; for (let k = 0; k < g.p.length; k += 2) pts.push([g.p[k], g.p[k + 1]]); const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1])); return { ...g, pts, cum, len: cum[cum.length - 1] }; }
+  let saveTimer = null;
+  function saveRoutes(legCache) {
+    if (!S.geoKey || S.noCache) return;
+    const fresh = [...legCache.entries()].filter(([, g]) => !g.seeded); if (!fresh.length) return;
+    for (const [k, g] of fresh) { S.routeSeed.set(k, g); g.seeded = true; }
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => idb.set("routes", { key: S.geoKey, legs: [...S.routeSeed.entries()].map(([k, g]) => [k, packGeom(g)]) }), 1500);
   }
 
   // ---------- timetable ----------
@@ -286,7 +317,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
   }
   const lineServed = (ln, field) => field ? String(ln.attrs[field] || "").trim() : "";
   function build() {
-    if (!S.net) return;
+    if (!S.geoReady) return;
     const srcTrips = S.allTrips.filter(t => t.source === S.source);
     const date = srcTrips[0]?.sourceDate || "";
     const sf = C.servedField(S.lineFields, date); S.servedField = sf?.name || null;
@@ -294,7 +325,13 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     // lines picked for a train in the Timetable Desk come first, then lines its railroad served at this date, then any passenger line
     const lineFactor = (rrName, rr, t) => { const pick = new Set((t?.lineNames || []).map(n => n.toLowerCase())); return li => { const ln = S.lines[li], sv = lineServed(ln, S.servedField); if (pick.size) return pick.has(String(ln.attrs.Name || "").toLowerCase()) ? 1 : C.servedBy(sv, rrName, rr) ? 2.5 : sv ? 4 : 6; return C.servedBy(sv, rrName, rr) ? 1 : sv ? 2.2 : 4; }; };
     const modern = S.source === S.modernSource;
-    const res = C.prepareTrips(srcTrips, S.stations, S.net, lineFactor, { legs: modern ? S.modernLegs : null });
+    const routeT0 = performance.now();
+    // saved routes are per "Served by" field, since that steers which lines a train prefers
+    const seedKey = S.servedField || "";
+    const seed = modern ? null : [...S.routeSeed].filter(([k]) => k.startsWith(seedKey + "#")).map(([k, g]) => [k.slice(seedKey.length + 1), g]);
+    const res = C.prepareTrips(srcTrips, S.stations, S.getNet, lineFactor, { legs: modern ? S.modernLegs : null, seed });
+    if (!modern) saveRoutes(new Map([...res.legCache].map(([k, g]) => [seedKey + "#" + k, g])));
+    S.routeMs = performance.now() - routeT0;
     S.trips = res.trips; S.res = res;
     S.linkCache = new Map(); S.byId = new Map(); for (const t of S.trips) for (const id of new Set([t.id, t.base])) { if (!S.byId.has(id)) S.byId.set(id, []); S.byId.get(id).push(t); }
     // railroad colors
@@ -321,6 +358,8 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     if (modern) status(`${S.trips.length} trains from ${new Set(S.trips.map(t => t.rr)).size} railroads, each drawn along its railroad\'s own published track. Trains run on the days shown; pick a day of the week above.`);
     else status(`${S.trips.length} trains from ${esc(S.source || "the timetable")}. ${res.legs.length - gaps.length} of ${res.legs.length} segments follow the rail lines${S.servedField ? `, preferring lines each railroad served (${esc(sf.alias || sf.name)})` : ""}.`);
     notes.forEach(n => status(n, "warn", true));
+    if (!modern && S.geoKey) status(`Loaded in ${((S.loadMs + S.routeMs) / 1000).toFixed(1)} s${S.fromCache ? " using the lines, stations and routes saved in this browser" : ""}. <button type="button" class="linkish" id="btnFreshGeo">Reload the lines and stations from ArcGIS</button>`, "", true);
+    const fb = $("btnFreshGeo"); if (fb) fb.onclick = async () => { S.noCache = true; await idb.del("geo"); await idb.del("routes"); location.reload(); };
   }
 
   // the railroad (with a colour) that served a line at this date, by the layer's "served by" field

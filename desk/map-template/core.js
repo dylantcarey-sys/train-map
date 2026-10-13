@@ -271,15 +271,19 @@ const MapCore = (() => {
   }
 
   // stations: Map StationID -> {lon, lat, name}; lineFactor(rrName, rr) -> (lineIndex) -> factor
-  function prepareTrips(trips, stations, net, lineFactor, opts = {}) {
+  // net: the rail network, or a function that builds it (only called when a leg isn't in opts.seed, the routes saved from last time)
+  function prepareTrips(trips, stations, netArg, lineFactor, opts = {}) {
     const maxSnap = opts.maxSnap ?? 3000;
+    let netBuilt = typeof netArg === "function" ? null : netArg;
+    const getNet = () => netBuilt || (netBuilt = netArg ? netArg() : null);
     const legCache = new Map(), missing = new Map(), warnings = [];
+    for (const [k, g] of opts.seed || []) legCache.set(k, { ...g, trains: new Set(), seeded: true });
     const out = [];
     for (const t of trips) {
       const ok = t.stops.filter(s => { const st = stations.get(s.sid); if (!st) { missing.set(s.sid, s.name); return false; } s.st = st; s.p = toMerc([st.lon, st.lat]); return true; });
       if (ok.length < 2) continue;
       const trip = { ...t, stops: ok, legs: [] };
-      const fac = net ? lineFactor(t.rrName, t.rr, t) : null;
+      const fac = netArg && lineFactor ? lineFactor(t.rrName, t.rr, t) : null;
       const legGeom = (a, b) => {
         const ck = (t.rrName || t.rr) + "|" + (t.lineNames || []).join(";") + "|" + a.sid + "|" + b.sid;
         let geom = legCache.get(ck);
@@ -288,6 +292,7 @@ const MapCore = (() => {
       };
       // one station-to-station piece of track (shared by trains of the same railroad between the same stations)
       function buildGeom(a, b) {
+          const net = getNet();
           let pts = null, used = [], why = "", fix = "", at = null, long = false;
           const own = opts.legs?.get(a.sid + ">" + b.sid);
           if (own) pts = [a.p, ...own, b.p];
@@ -343,7 +348,7 @@ const MapCore = (() => {
       trip.start = ok[0].depAbs; trip.end = ok[ok.length - 1].arrAbs;
       out.push(trip);
     }
-    return { trips: out, legs: [...legCache.values()], missing: [...missing].map(([id, name]) => ({ id, name })), warnings: [...new Set(warnings)] };
+    return { trips: out, legs: [...legCache.values()], legCache, missing: [...missing].map(([id, name]) => ({ id, name })), warnings: [...new Set(warnings)] };
   }
 
   // t: minutes into the selected day (Eastern). runsOn(trip, daysBack) says if the run that left `daysBack` days ago operates.
