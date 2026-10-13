@@ -19,3 +19,5 @@ Repeat visits already reuse lines, stations and routes saved in the browser; the
 
 ## Desk: changes to make later
 - Reference marks (new table / Edit table): make the meaning text a little smaller, and make its box grow as you type so the whole meaning stays visible (noted 2026-10-12).
+- Table view (read-only): don't stretch to the full screen width; size the table to fit its data.
+- Table view: when a table has trains in both directions, put the miles and station list in the middle, as the Guide prints it (reading-down trains on the left, reading-up trains on the right).
