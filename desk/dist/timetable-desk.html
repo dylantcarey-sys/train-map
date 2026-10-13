@@ -4516,9 +4516,13 @@ function renderTableView(el, t) {
   };
   // miles, as printed, when the table has any
   const hasMiles = rows.some(r => !r.divider && String(r.miles || "").trim());
+  // one style of rounding for the whole column: the number of decimal places most rows were entered with (267 or 267.0)
+  const mi = rows.filter(r => !r.divider && /^\d+(\.\d+)?$/.test(String(r.miles || "").trim())).map(r => (String(r.miles).trim().split(".")[1] || "").length);
+  const dp = (() => { const c = new Map(); mi.forEach(d => c.set(d, (c.get(d) || 0) + 1)); return [...c].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? 0; })();
+  const miles = v => { const t = String(v || "").trim(); return /^\d+(\.\d+)?$/.test(t) ? (+t).toFixed(dp) : t; };
   el.innerHTML = `<div class="tv-wrap"><table class="tv">
     <thead><tr>${hasMiles ? `<th class="tv-mi">Mls</th>` : ""}<th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
-    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1 + (hasMiles ? 1 : 0)}"></td></tr>` : `<tr>${hasMiles ? `<td class="tv-mi">${esc(r.miles || "")}</td>` : ""}<td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
+    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1 + (hasMiles ? 1 : 0)}"></td></tr>` : `<tr>${hasMiles ? `<td class="tv-mi">${esc(miles(r.miles))}</td>` : ""}<td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
   </table></div>
   ${marksLine(t, [...used])}
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}
