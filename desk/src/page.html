@@ -281,6 +281,8 @@ td.notes-cell { width: auto; min-width: 140px; }
 .pick-list { max-height: 260px; overflow: auto; border: 1px solid var(--rule); border-radius: 4px; }
 .pick-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--rule); }
 .pick-row:last-child { border-bottom: 0; }
+.pick-row.pick4 { grid-template-columns: 26px 1fr auto auto; padding: 3px 8px; }
+.pick-row.pick4 .small-btn { padding: 1px 6px; font-size: 12px; }
 .pick-row.pick-train { border: 0; background: none; padding-inline: 0; font-size: 15px; }
 .pick-row.pick-train .pick-st { text-decoration: none; color: var(--ink); }
 .pick-row:nth-child(even) { background: color-mix(in srgb, var(--rule) 25%, transparent); }
@@ -2750,7 +2752,7 @@ const trainsInTableOf = T => allTrainDocs().filter(x => x.tables?.[T]).sort((a, 
 // stations of several trains in one overall order, starting from this table's own rows. A train that runs the other way
 // (its shared stations come in reverse) is read backwards first; each new station goes after the one before it on that train.
 function mergedStations(ids, T = S.tableId) {
-  const t = tableById(T), master = [], info = new Map();
+  const t = tableById(T), master = [], info = new Map(), trainSeqs = [];
   for (const r of (t?.rows || [])) if (!r.divider && r.stationId && !info.has(r.stationId)) { master.push(r.stationId); info.set(r.stationId, { sid: r.stationId, onTable: true, trains: new Set(), times: [] }); }
   const seqs = ids.map(id => { const tr = trainDoc(id); return { tr, st: stopsElsewhere(tr) }; }).filter(x => x.st.length);   // in the order typed: the first train sets which way the list reads
   for (const { tr, st } of seqs) {
@@ -2758,6 +2760,7 @@ function mergedStations(ids, T = S.tableId) {
     const pos = list.map(s => master.indexOf(s.stationId)).filter(k => k >= 0); let up = 0, down = 0;
     for (let k = 1; k < pos.length; k++) { if (pos[k] > pos[k - 1]) up++; else if (pos[k] < pos[k - 1]) down++; }
     if (down > up) list = list.slice().reverse();
+    trainSeqs.push(list.map(x => x.stationId));
     let last = -1;
     list.forEach((s, k) => {
       const sid = s.stationId; let at = master.indexOf(sid);
@@ -2769,7 +2772,23 @@ function mergedStations(ids, T = S.tableId) {
       last = at; const e = info.get(sid); e.trains.add(trLabel(tr)); const tm = s.dep || s.arr; if (tm) e.times.push(Core.fmt12(tm));
     });
   }
-  return master.map(sid => info.get(sid)).filter(e => e.trains.size);
+  // settle the order with every train's own sequence (a station a train skips can otherwise land on the wrong side of a branch):
+  // each train, and the table's own rows, says "this station comes before the next"; ties keep the order found above
+  const rank = new Map(master.map((sid, k) => [sid, k])), after = new Map(master.map(sid => [sid, new Set()])), need = new Map(master.map(sid => [sid, 0]));
+  const edge = (a, b) => { if (a === b || after.get(a).has(b)) return; after.get(a).add(b); need.set(b, need.get(b) + 1); };
+  const rowSeq = (t?.rows || []).filter(r => !r.divider && r.stationId).map(r => r.stationId);
+  for (let k = 1; k < rowSeq.length; k++) edge(rowSeq[k - 1], rowSeq[k]);
+  for (const seq of trainSeqs) for (let k = 1; k < seq.length; k++) edge(seq[k - 1], seq[k]);
+  const out = [], ready = master.filter(sid => !need.get(sid)), done = new Set();
+  while (out.length < master.length) {
+    ready.sort((a, b) => rank.get(a) - rank.get(b));
+    let sid = ready.shift();
+    if (sid == null) sid = master.find(x => !done.has(x));   // a loop (shouldn't happen): fall back to the order found above
+    if (done.has(sid)) continue;
+    done.add(sid); out.push(sid);
+    for (const b of after.get(sid)) { need.set(b, need.get(b) - 1); if (!need.get(b) && !done.has(b)) ready.push(b); }
+  }
+  return out.map(sid => info.get(sid)).filter(e => e.trains.size);
 }
 // put new station rows into a table in the order of `order` (station ids), each after the station before it that's already there
 function insertRowsInOrder(order, add) {
@@ -2797,9 +2816,10 @@ function addSeveralStep2(items) {
   const stubs = allTrainDocs().filter(x => !x.tables?.[T] && stubOf(x, S.tables) && stubRR(x, S.tables) === (t.rr || "")).sort((a, b) => (a.trainName || "").localeCompare(b.trainName || "") || (a.description || "").localeCompare(b.description || ""));
   const numOpts = [...add.map((x, i) => ({ v: "a" + i, label: `${x.rr} ${x.no}` })), ...dupHere.map((x, i) => ({ v: "h" + i, label: `${x.rr} ${x.no} (on this table)` }))];
   const anyExisting = exist.length > 0 || dupHere.length > 0;
-  const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered on ${esc(x.ex.length === 1 ? where(x.ex[0]) : x.ex.length + " records")}</span>`;
+  const short = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => `${tb.rr} ${tb.tableNo || "?"}`).join(", ") || "no table";
+  const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
-    <div class="pick-list" style="margin-bottom:8px">${items.map(x => `<div class="pick-row"><span class="pick-st"><b>${esc(x.rr + " " + x.no)}</b></span><span class="pick-t">${status(x)}</span></div>`).join("")}</div>
+    <div class="pick-list" style="margin-bottom:8px;max-height:150px">${items.map(x => `<div class="pick-row" style="grid-template-columns:auto 1fr;padding:3px 8px"><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></div>`).join("")}</div>
     ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0"><input type="checkbox" id="dSevDup"> Add ${esc(dupHere.map(x => x.no).join(", "))} again as a second appearance (its own name, days and stops)</label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
@@ -2810,7 +2830,7 @@ function addSeveralStep2(items) {
       <label class="row small" style="gap:6px"><input type="radio" name="dSevMode" value="stations"> Only the stations (as rows; no trains added)</label>
     </fieldset>
     <div id="dSevStWrap">
-      <div class="row" style="gap:6px;margin-top:8px;align-items:center"><b class="small">Stations, in order</b><button type="button" class="small-btn" id="dSevAll">Tick all</button><button type="button" class="small-btn" id="dSevNone">Clear</button><span class="small muted" id="dSevCount"></span></div>
+      <div class="row" style="gap:6px;margin-top:8px;align-items:center"><b class="small">Stations, in order</b><button type="button" class="small-btn" id="dSevShared" hidden title="Tick only the stretch these trains run over together (e.g. Jacksonville to Miami)">Only the shared stretch</button><button type="button" class="small-btn" id="dSevAll">Tick all</button><button type="button" class="small-btn" id="dSevNone">Clear</button><span class="small muted" id="dSevCount"></span></div>
       <div id="dSevSt" class="pick-list" style="max-height:340px;overflow:auto;border:1px solid var(--rule);border-radius:4px;padding:6px 8px;margin-top:4px"></div>
       <p class="small muted" style="margin:4px 0 0">From the entered trains, merged into one order with this table's own rows. "Tick ↓" / "Clear ↓" ticks or clears a station and everything below it; Shift-click ticks or clears a stretch.</p>
     </div>`, "Add", () => {
@@ -2847,17 +2867,36 @@ function addSeveralStep2(items) {
   // the record used for each existing number (the first match, or the one picked)
   function chosenExisting() { return exist.map((x, i) => document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id); }
   const stubIds = () => [...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno);
-  const below = sid => `<span style="margin-left:auto;display:flex;gap:4px;flex:none"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
+  const below = sid => `<span style="display:flex;gap:4px"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
   const box = $("dSevSt");
   const count = () => { const n = box.querySelectorAll("[data-stpick]:checked").length, all = box.querySelectorAll("[data-stpick]").length; $("dSevCount").textContent = all ? `${n} of ${all} ticked` : ""; };
+  // the stretch the trains share: from the first to the last station that every train (or, failing that, more than one) stops at
+  let shared = null;
+  // (the part of the list every train's run covers, trimmed at each end to stations more than one train stops at:
+  // SCL 1, 5, 57 and 21 give Jacksonville - Miami, including the stations only some of them stop at)
+  const sharedRange = list => {
+    const names = [...new Set(list.flatMap(e => [...e.trains]))]; if (names.length < 2) return null;
+    const span = nm => { const ks = list.map((e, k) => e.trains.has(nm) ? k : -1).filter(k => k >= 0); return [ks[0], ks[ks.length - 1]]; };
+    let a = Math.max(...names.map(nm => span(nm)[0])), z = Math.min(...names.map(nm => span(nm)[1]));
+    while (a < z && list[a].trains.size < 2) a++;
+    while (z > a && list[z].trains.size < 2) z--;
+    return a < z ? [a, z] : null;
+  };
+  const tickShared = () => { if (!shared) return; box.querySelectorAll("[data-stpick]").forEach((c, k) => c.checked = k >= shared[0] && k <= shared[1]); count(); };
+  let firstDraw = true;
   const draw = () => {
     const mode = document.querySelector('input[name="dSevMode"]:checked')?.value;
     $("dSevStWrap").hidden = mode === "numbers";
     const keep = new Map([...box.querySelectorAll("[data-stpick]")].map(c => [c.value, c.checked]));
     const list = mergedStations([...chosenExisting(), ...stubIds(), ...dupHere.map(x => trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no)?.id).filter(Boolean)]);
-    box.innerHTML = list.map(e => `<label class="pick-row" style="align-items:center"><input type="checkbox" data-stpick value="${esc(e.sid)}" ${keep.has(e.sid) ? (keep.get(e.sid) ? "checked" : "") : "checked"}><span class="pick-st">${esc(stName(e.sid))}${e.onTable ? ' <span class="muted small">· on this table</span>' : ""}</span><span class="pick-t">${esc([...e.trains].length > 2 ? [...e.trains].length + " trains" : [...e.trains].join(", "))}${e.times.length === 1 ? " " + esc(e.times[0]) : ""}</span>${below(e.sid)}</label>`).join("") || `<p class="small muted">None of these trains has stations entered yet${mode === "trains" ? "; they'll come in as blank columns" : ""}.</p>`;
+    box.innerHTML = list.map(e => `<label class="pick-row pick4"><input type="checkbox" data-stpick value="${esc(e.sid)}" ${keep.has(e.sid) ? (keep.get(e.sid) ? "checked" : "") : "checked"}><span class="pick-st">${esc(stName(e.sid))}${e.onTable ? ' <span class="muted small">· on this table</span>' : ""}</span><span class="pick-t">${esc([...e.trains].length > 2 ? [...e.trains].length + " trains" : [...e.trains].join(", "))}${e.times.length === 1 ? " " + esc(e.times[0]) : ""}</span>${below(e.sid)}</label>`).join("") || `<p class="small muted">None of these trains has stations entered yet${mode === "trains" ? "; they'll come in as blank columns" : ""}.</p>`;
+    shared = sharedRange(list); $("dSevShared").hidden = !shared;
+    if (shared) $("dSevShared").textContent = `Only the shared stretch (${stName(list[shared[0]].sid)} – ${stName(list[shared[1]].sid)})`;
+    // first time round, several trains with a stretch in common start with just that stretch ticked
+    if (firstDraw && shared && !keep.size) { tickShared(); const c = box.querySelectorAll("[data-stpick]")[shared[0]]; if (c) box.scrollTop = Math.max(0, c.closest("label").offsetTop - box.offsetTop - 4); } firstDraw = false;
     count();
   };
+  $("dSevShared").onclick = tickShared;
   box.addEventListener("change", count);
   box.addEventListener("click", e => { const b = e.target.closest("[data-below]"); if (!b) return; e.preventDefault(); const cs = [...box.querySelectorAll("[data-stpick]")], from = cs.findIndex(c => c.value === b.dataset.sid), on = b.dataset.below === "1"; cs.forEach((c, k) => { if (k >= from) c.checked = on; }); count(); });
   let lastPick = null;
