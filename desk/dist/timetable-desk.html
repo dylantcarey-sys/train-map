@@ -160,6 +160,7 @@ table.grid th.tr .partno { display: inline-flex; align-items: center; font-size:
 table.grid th.tr .partno button { padding: 0 3px; font-size: 11.5px; font-weight: 700; }
 table.grid th.tr .partno .partx { font-weight: 400; opacity: .5; padding: 0 3px 0 1px; }
 table.grid th.tr .addpart { font-size: 10.5px; padding: 0 4px; opacity: .6; }
+table.grid input.cell.copycell { color: var(--muted); background: var(--sheet); }
 table.grid input.cell[data-clash] { outline: 1px dashed var(--warn); }
 table.grid td.partcell { background: color-mix(in srgb, var(--accent, #4f7cac) 7%, transparent); box-shadow: inset 2px 0 color-mix(in srgb, var(--accent, #4f7cac) 45%, transparent); }
 table.grid th.tr select.trr { display: block; margin: 0 auto 2px; font-size: 11px; font-weight: 600; padding: 0 2px; width: 72px; text-align-last: center; }
@@ -1358,7 +1359,10 @@ function normTrain(d) {
   delete t.tableId; delete t.status; delete t.order;
   return t;
 }
-const trainsInTable = () => [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && t.tables?.[S.tableId]).sort((a, b) => ordT(a) - ordT(b));
+const trainsInTable = () => [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && t.tables?.[S.tableId]).map(withCopy).sort((a, b) => ordT(a) - ordT(b));
+// a repeat column (PC 147 printed twice on RF&P Table 1, once for each connection): a record with no stops of its own that shows its train's times on the tables it's on.
+// It's display only: the export and the problem checks skip it, and its times are edited in the train's own column.
+const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId]) } : t; };
 
 function subscribeSource() {
   S.unsubTables?.(); S.unsubTrains?.();
@@ -1770,6 +1774,7 @@ function addAppearance(fromId) {
 }
 function appearanceNote(tr) {
   const here = x => x.tables?.[S.tableId];
+  if (tr.copyOf) { const o = trainDoc(tr.copyOf); return `<div class="appnote" style="margin-bottom:8px;background:var(--sheet);border-color:var(--rule-strong)"><div>This is a repeat column of <b>${esc(o ? trLabel(o) : "a train that's been removed")}</b>: the same train and times printed in a second column. It has no stops of its own; edit the times in ${o ? "its own record" : "the train"}. You can remove it from the grid with ✕.</div>${o ? `<div class="row"><button class="small-btn" data-openapp="${esc(o.id)}">Open ${esc(trLabel(o))}</button></div>` : ""}</div>`; }
   if (tr.setupOf) { const root = trainDoc(tr.setupOf); return root ? `<div class="appnote" style="margin-bottom:8px;background:var(--sheet);border-color:var(--rule-strong)"><div>This is a second appearance of <b>${esc(trLabel(root))}${root.trainName ? " " + esc(root.trainName) : ""}</b>: the same train, printed again with its own name, days and stops.</div><div class="row"><button class="small-btn" data-openapp="${esc(root.id)}">Open the first</button></div></div>` : ""; }
   const kids = trainsInTable().filter(x => x.setupOf === tr.id);
   return kids.length ? `<div class="small muted" style="margin:0 0 6px">Also printed on this table as: ${kids.map(k => `<button class="linkish" data-openapp="${esc(k.id)}">${esc(k.trainName || "second appearance")}${k.frequency && k.frequency !== "Daily" ? " (" + esc(k.frequency) + ")" : ""}</button>`).join(", ")}</div>` : "";
@@ -2550,6 +2555,7 @@ function renderGrid(el, t) {
         ${t.hosted ? `<select class="trr" data-train="${esc(tr.id)}" data-k="trr" aria-label="Railroad running train ${esc(tr.trainNo || "")}" title="Railroad that runs this train">${S.railroads.map(r => `<option value="${esc(r.abbrev)}" ${r.abbrev === trRR(tr) ? "selected" : ""}>${esc(r.abbrev)}</option>`).join("")}</select>` : trRR(tr) !== t.rr ? `<span class="tn">${esc(trRR(tr))}</span>` : ""}
         <div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:center"><input data-train="${esc(tr.id)}" data-k="no" value="${esc(tr.trainNo || "")}" placeholder="No." aria-label="Train number"><button class="ghost dirbtn ${mem(tr)?.dir ? "set" : ""}" data-dir="${esc(tr.id)}" title="${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "Reads down the table" : "Reads up the table"}${mem(tr)?.dir ? "" : " (worked out from its times)"}. Click to switch. This only decides where new stops go; it doesn't reorder anything.">${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "↓" : "↑"}</button></div>
         ${partsOf(tr).length ? `<div class="parts">${partsOf(tr).map(x => `<span class="partno" title="${esc(`No. ${x.trainNo || "?"}${x.trainName ? " " + x.trainName : ""} — shown in this column. Click to open it.`)}"><button class="ghost" data-openpart="${esc(x.id)}">${esc((trRR(x) !== trRR(tr) ? trRR(x) + " " : "") + (x.trainNo || "?"))}</button><button class="ghost partx" data-detach="${esc(x.id)}" title="Give No. ${esc(x.trainNo || "")} its own column again" aria-label="Separate No. ${esc(x.trainNo || "")}">×</button></span>`).join("")}</div>` : mem(tr)?.printedAs ? `<span class="tn">${esc("printed " + mem(tr).printedAs)}</span>` : ""}
+        ${tr.copyOf ? `<span class="tn" title="A second column showing the same train and times. Its times are edited in the train's own column.">repeat column</span>` : ""}
         <input class="tname" data-train="${esc(tr.id)}" data-k="tname" value="${esc(tr.trainName || "")}" placeholder="Name" autocomplete="off" aria-label="Train name" title="${esc(tr.trainName || "Train name")}">
         ${freqSelect(tr.frequency || "Daily", false, `class="tfreq" data-train="${esc(tr.id)}" data-k="tfreq" aria-label="Days the train runs" title="${esc(tr.frequency || "Daily")}${tr.freqAuto ? " (set by the first stop's mark)" : ""}"`)}
         <button class="chip st-${tStatus(tr)}" data-train="${esc(tr.id)}" data-k="status" title="Click to advance this train's status">${statusShort[tStatus(tr)]}</button>${tr.tags?.length ? `<div>${tagChips(tr)}</div>` : ""}
@@ -2563,7 +2569,7 @@ function renderGrid(el, t) {
         <td class="st"><div class="stline"><span class="stname" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId))].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></span>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
         ${showOrd ? `<td class="ord"><input data-k="ord" class="${S.ordPending.has(ordKey(r)) ? "pending" : ""}" value="${esc(S.ordPending.get(ordKey(r)) ?? stNo(ri))}" inputmode="numeric" autocomplete="off" aria-label="Row number for ${esc(S.stById.get(r.stationId)?.name || "")}" title="Type the row number this station should be, then press Apply row numbers"></td>` : ""}
         <td class="mls"><input data-k="mls" value="${esc(r.miles || "")}" inputmode="decimal" aria-label="Miles" ${r.orphan ? "disabled" : ""}></td>
-        ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input class="cell ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
+        ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input ${tr.copyOf ? `readonly title="Repeats No. ${esc(tr.trainNo || "")}'s times: edit them in its own column"` : ""} class="cell ${tr.copyOf ? "copycell" : ""} ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
         <td></td></tr>`)).join("")}
         <tr class="addrow"><td class="st" colspan="${showOrd ? 3 : 2}"><input id="addRow" placeholder="＋ Add a station row…" autocomplete="off"></td><td colspan="${trs.length + 1}" class="small muted"><button type="button" class="small-btn" id="btnAddExGrid" style="margin-right:8px" title="Add train numbers, and the stations and times of any already entered elsewhere">＋ Add trains or stations…</button>${rows.length ? "Pick a station with Tab to type its miles next, or Enter to go straight to the next station." : "Add the stations down the side in the order printed, then fill in each train's column."}</td></tr>
       </tbody>
@@ -2683,7 +2689,7 @@ function renderGrid(el, t) {
     if (inp.dataset.k === "colord") { const id = inp.dataset.train, ci = trs.findIndex(x => x.id === id); const v = parseInt(inp.value.trim(), 10); if (!Number.isFinite(v) || v === ci + 1) { S.colPending.delete(id); inp.value = ci + 1; inp.classList.remove("pending"); } else { S.colPending.set(id, String(v)); inp.classList.add("pending"); } colUi(); return; }
     if (inp.dataset.k === "ord") { const ri = +inp.closest("tr").dataset.r; const k = ordKey(rows[ri]); const v = inp.value.trim(); if (!v || parseInt(v, 10) === stNo(ri) || !Number.isFinite(parseInt(v, 10))) { S.ordPending.delete(k); inp.value = stNo(ri); inp.classList.remove("pending"); } else { S.ordPending.set(k, v); inp.classList.add("pending"); } ordUi(); return; }
     if (inp.dataset.k === "mls") { const ri = +inp.closest("tr").dataset.r; const rid = rows[ri]?.rid; mutateTable(tb => { const r = tb.rows.find(x => x.rid === rid); if (r) r.miles = inp.value.trim(); }); return; }
-    if (!inp.classList.contains("cell")) return;
+    if (!inp.classList.contains("cell") || inp.readOnly) return;
     const w0 = trainDoc(inp.dataset.train), rid = inp.dataset.rid, sid = inp.dataset.sid;
     // a time with no am/pm follows on from this train's time in the row before it (up or down the table, the way the train reads)
     const ri0 = +inp.closest("tr").dataset.r, ts0 = tStops(w0), at0 = r => ts0.find(s => (r.rid && s.rid === r.rid) || (!r.rid && s.stationId === r.stationId));
@@ -3239,7 +3245,7 @@ function addSeveralStep2(items) {
   const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
     <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
-    ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0"><input type="checkbox" id="dSevDup"> Add ${esc(dupHere.map(x => x.no).join(", "))} again as a second appearance (its own name, days and stops)</label>` : ""}
+    ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="app">add again as a second appearance (its own name, days and stops)</option></select></label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
     <div class="pick-list">${stubs.map(e => { const st = stopsElsewhere(e), a = st[0], z = st[st.length - 1]; return `<div class="pick-row" style="align-items:center"><select data-stubno="${esc(e.id)}" aria-label="Train number for this leg" style="flex:0 0 auto;width:auto"><option value="">Not one of these</option>${numOpts.map(o => `<option value="${o.v}">${esc(o.label)}</option>`).join("")}</select><span class="pick-st"><b>${esc(e.trainName || "(no name)")}</b>${e.description ? ` <span class="muted">${esc(e.description)}</span>` : ""}</span><span class="pick-t">${a && z ? `${esc(stName(a.stationId))} → ${esc(stName(z.stationId))}` : ""}</span></div>`; }).join("")}</div></details>` : ""}
@@ -3265,7 +3271,13 @@ function addSeveralStep2(items) {
     const withStops = mode === "trains";
     let last = trainsInTable().slice(-1)[0], ord = Math.max(Date.now(), last ? ordT(last) + 1 : 0);
     const useIds = [], newIds = [];
-    if ($("dSevDup")?.checked) for (const x of dupHere.filter(isOn)) { const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (orig) w.setupOf = orig.setupOf || orig.id; }
+    const dupKind = $("dSevDup")?.value || "";
+    if (dupKind) for (const x of dupHere.filter(isOn)) {
+      const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.copyOf); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
+      if (!orig) continue;
+      w.setupOf = orig.setupOf || orig.id;
+      if (dupKind === "copy") { w.copyOf = orig.id; w.stops = []; w.trainName = orig.trainName || ""; w.frequency = orig.frequency || "Daily"; }
+    }
     const stubFor = new Map(); document.querySelectorAll("[data-stubno]").forEach(sel => { if (sel.value) stubFor.set(sel.value, [...(stubFor.get(sel.value) || []), sel.dataset.stubno]); });
     const fold = (targetId, legIds) => { for (const sid of legIds) if (sid !== targetId) combineTrains(targetId, sid); };
     const order = withStops ? mergedStations([...exOn, ...stubIds(), ...hereIds()]).map(e => e.sid) : [];
@@ -3277,7 +3289,7 @@ function addSeveralStep2(items) {
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); }
     }
     // a train already on this table (added earlier as a number only) gets its times filled in too, unless it's being added again as a second appearance
-    if (withStops && !$("dSevDup")?.checked) for (const id of hereIds()) if (!useIds.includes(id)) useIds.push(id);
+    if (withStops && !dupKind) for (const id of hereIds()) if (!useIds.includes(id)) useIds.push(id);
     for (const [i, x] of dupHere.entries()) { if (!isOn(x)) continue; const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
     let rowsAdded = 0, filled = 0;
     if (withStops && useIds.length) { rowsAdded = insertRowsInOrder(order, P); for (const id of useIds) filled += fillFromRows(id, P).added; }
@@ -4346,7 +4358,7 @@ async function renderHome() {
   // needs attention
   const attn = [];
   for (const d of data) { const tm = new Map(d.tables.map(t => [t.id, t]));
-    for (const tr of d.trains.filter(t => !futureRR(t, d.tables))) for (const is of trainIssues(tr, tm).filter(is => !(tr.knownIssues || {})[`check|${is.table}|${is.text}`])) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id, mode: "train" }))}'>${trL(tr)}</button> <span class="small muted">${esc(tm.get(is.table) ? `${tm.get(is.table).rr} Table ${tno(tm.get(is.table))}` : "")}${data.filter(x => x.tables.length).length > 1 ? " · " + esc(d.src.name) : ""}</span> — ${esc(is.text)}${is.fix === "reverse" ? ` <button class="small-btn" data-rev='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id }))}'>Put stops in time order</button>` : ""}</li>`); }
+    for (const tr of d.trains.filter(t => !t.copyOf && !futureRR(t, d.tables))) for (const is of trainIssues(tr, tm).filter(is => !(tr.knownIssues || {})[`check|${is.table}|${is.text}`])) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id, mode: "train" }))}'>${trL(tr)}</button> <span class="small muted">${esc(tm.get(is.table) ? `${tm.get(is.table).rr} Table ${tno(tm.get(is.table))}` : "")}${data.filter(x => x.tables.length).length > 1 ? " · " + esc(d.src.name) : ""}</span> — ${esc(is.text)}${is.fix === "reverse" ? ` <button class="small-btn" data-rev='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id }))}'>Put stops in time order</button>` : ""}</li>`); }
   for (const d of data) for (const t of d.tables.filter(t => !String(t.page || "").trim())) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}' data-editpage="1">${tLabel(t)}</button> — no Guide page number entered, so it can't be put in Guide order. Open it and use Edit table to add the page.</li>`);
   for (const d of data) { const rrs = new Set(d.trains.map(t => trRR(t))), nos = new Set(d.trains.map(t => `${trRR(t)}|${t.trainNo}`));
     for (const tr of d.trains) for (const x of (tr.linkTodos || [])) if (x && x.text && x.rr && (x.trainNo ? nos.has(`${x.rr}|${x.trainNo}`) : rrs.has(x.rr)))
@@ -4480,7 +4492,7 @@ function tableColumns(T, trs) {
   const joinC = (a, b) => { const ra = findC(a), rb = findC(b); if (ra !== rb) upC.set(rb, ra); };
   const colOf = x => x.tables?.[T]?.col || "";
   const ends = x => { const st = (x.stops || []).filter(s => s.tableId === T && s.stationId && !s.pass); return st.length ? [st[0].stationId, st[st.length - 1].stationId] : null; };
-  const byNo = new Map(trs.filter(x => x.trainNo).map(x => [`${trRR(x)}|${x.trainNo}`, x]));
+  const byNo = new Map(trs.filter(x => x.trainNo && !x.copyOf).map(x => [`${trRR(x)}|${x.trainNo}`, x]));   // a repeat column only joins another column by hand
   for (const x of trs) {
     const c = colOf(x); if (c && c !== "own" && ids.has(c)) { join(c, x.id); joinC(c, x.id); continue; }
     if (c === "own") continue;
