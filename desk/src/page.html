@@ -292,7 +292,9 @@ td.notes-cell { width: auto; min-width: 140px; }
 #eqTable input, #eqTable select, #eqTable td { font-size: 13px; }
 #eqTable td.eq-n { color: var(--muted); text-align: right; padding-right: 6px; font-variant-numeric: tabular-nums; }
 #eqTable select { max-width: 150px; }
-table.tv .tv td.tv-mi, .tv th.tv-mi { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-right: 6px; white-space: nowrap; }
+table.tv td.tv-mi { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-right: 6px; white-space: nowrap; border-left: 1px solid var(--rule-strong); }
+table.tv thead th.tv-mi { text-align: center; border-left: 1px solid var(--rule-strong); }
+table.tv td.tv-t, table.tv thead th.tv-c { border-left: 1px solid var(--rule); }
 .tv-nm { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
 table.tv .tv-sep { color: var(--muted); padding: 0 2px; }
 table.tv .tv-edit { padding: 0 3px; font-size: 12px; opacity: .6; }
@@ -436,7 +438,7 @@ table.tv thead .tv-st { z-index: 3; font: 600 12px var(--font-display); text-tra
 table.tv thead th:not(.tv-st), table.tv td.tv-t { min-width: 92px; }
 table.tv thead th .tv-no { white-space: normal; text-align: center; max-width: 150px; }
 table.tv tfoot td { white-space: normal; vertical-align: top; font-size: 11.5px; line-height: 1.25; width: 92px; min-width: 84px; max-width: 120px; }
-table.tv td.tv-t { font-family: var(--font-mono); font-size: 12.5px; text-align: center; }
+table.tv td.tv-t { font-family: var(--font-mono); font-size: 12.5px; text-align: left; }
 table.tv td.tv-t.pm { font-weight: 600; }
 table.tv tr.tv-div td { padding: 0; height: 3px; background: var(--rule-strong); }
 .tv-no { border: 0; background: none; padding: 0; font: 700 13px var(--font-display); color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
@@ -4110,7 +4112,7 @@ function renderTableView(el, t) {
   const used = new Set();
   const cell = (col, r) => {
     const hits = col.map(tr => cellFor(tr, r)).filter(Boolean);
-    if (!hits.length) return `<td></td>`;
+    if (!hits.length) return `<td class="tv-t"></td>`;
     hits.forEach(s => { if (s.mark) used.add(s.mark); });
     const pm = hits.some(s => !s.pass && Core.isPM(s.dep || s.arr));
     return `<td class="tv-t ${pm ? "pm" : ""}">${hits.map(s => esc(Core.formatCell12(s))).join(" / ")}</td>`;
@@ -4125,7 +4127,7 @@ function renderTableView(el, t) {
     // one frequency for the whole column when they all match; otherwise name the train it belongs to
     const fq = fqs.size === 1 ? [...fqs].filter(f => f !== "Daily") : col.filter(x => (x.frequency || "Daily") !== "Daily").map(x => `${noOf(x)}: ${x.frequency}`);
     const key = (col.main || col)[0].id;
-    return `<th>${names.length || !S.viewOnly ? `<div class="tv-nm">${esc(names.join(" / "))}${S.viewOnly ? "" : ` <button class="ghost tv-edit" data-colname="${esc(key)}" title="Change this column's heading" aria-label="Change the heading">✎</button>`}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
+    return `<th class="tv-c">${names.length || !S.viewOnly ? `<div class="tv-nm">${esc(names.join(" / "))}${S.viewOnly ? "" : ` <button class="ghost tv-edit" data-colname="${esc(key)}" title="Change this column's heading" aria-label="Change the heading">✎</button>`}</div>` : ""}${col.map(tr => `<button class="tv-no" data-trview="${esc(tr.id)}" title="Open on the Trains page">${esc(noOf(tr))}</button>`).join(`<span class="tv-sep">·</span>`)}${fq.map(f => `<span class="tv-fq">${esc(f)}</span>`).join("")}</th>`;
   };
   // miles, as printed, when the table has any
   const hasMiles = rows.some(r => !r.divider && String(r.miles || "").trim());
