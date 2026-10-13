@@ -554,7 +554,7 @@ body.view-only .home table.tbls td.act, body.view-only #trainsPanel, body.view-o
   <div class="main" id="main">
     <aside class="panel trains-panel" id="trainsPanel" aria-label="Trains in this table">
       <button class="collapse-tab" id="btnShowTrains" aria-expanded="false" title="Show the train list"><span>Trains</span><span id="trainCount"></span></button>
-      <div class="panel-h"><div class="row" style="gap:6px;align-items:center"><button class="ghost small-btn" id="btnHideTrains" aria-expanded="true" title="Hide the train list">◂</button><h2>Trains</h2></div><div class="row" style="gap:6px"><button id="btnNewTrain" hidden>New train</button><button id="btnAddSeveral" class="primary" title="Type one or more train numbers to add to this table, in order: new ones become blank columns, ones already entered elsewhere can come in with their stops">＋ Add trains</button><button id="btnAddExisting" class="small-btn" title="Add a train from the roster, or one you entered on another table">Add existing</button></div></div>
+      <div class="panel-h"><div class="row" style="gap:6px;align-items:center"><button class="ghost small-btn" id="btnHideTrains" aria-expanded="true" title="Hide the train list">◂</button><h2>Trains</h2></div><div class="row" style="gap:6px"><button id="btnNewTrain" hidden>New train</button><button id="btnAddSeveral" class="primary" title="Type one or more train numbers to add to this table, in order: new ones become blank columns, ones already entered elsewhere can come in with their stops">＋ Add trains</button></div></div>
       <ul class="trains" id="trainList"></ul>
     </aside>
 
@@ -1510,7 +1510,7 @@ function renderContext() {
   const rec = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted && x.updatedAt && Object.keys(x.tables || {}).some(k => tableById(k))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 10);
   $("selRecent").innerHTML = `<option value="">Recently edited trains…</option>` + rec.map(x => { const k = x.tables?.[S.tableId] ? S.tableId : Object.keys(x.tables).find(k => tableById(k)); return `<option value="${esc(JSON.stringify({ table: k, train: x.id }))}">${esc(trLabel(x))} · ${esc(tblName(k))} · ${esc(ago(x.updatedAt))}</option>`; }).join("");
   $("selRecent").onchange = e => { if (e.target.value) goTo({ ...JSON.parse(e.target.value), mode: "train" }); };
-  $("btnEditTable").hidden = !t; $("btnNewTrain").disabled = $("btnAddExisting").disabled = $("btnAddSeveral").disabled = !t || !S.db;
+  $("btnEditTable").hidden = !t; $("btnNewTrain").disabled = $("btnAddSeveral").disabled = !t || !S.db;
 }
 // a table is always named with its number and its own name, so tables sharing a number (one per part) stay clear: "6 — Buffalo to New York"
 const tno = t => t ? `${t.tableNo || "?"}${t.title ? " — " + t.title : ""}` : "?";
@@ -2555,7 +2555,7 @@ function renderGrid(el, t) {
         <td class="mls"><input data-k="mls" value="${esc(r.miles || "")}" inputmode="decimal" aria-label="Miles" ${r.orphan ? "disabled" : ""}></td>
         ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input class="cell ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
         <td></td></tr>`)).join("")}
-        <tr class="addrow"><td class="st" colspan="${showOrd ? 3 : 2}"><input id="addRow" placeholder="＋ Add a station row…" autocomplete="off"></td><td colspan="${trs.length + 1}" class="small muted"><button type="button" class="small-btn" id="btnCopyRows" style="margin-right:8px">Copy stations from another table…</button><button type="button" class="small-btn" id="btnAddExGrid" style="margin-right:8px">Add existing trains…</button>${rows.length ? "Pick a station with Tab to type its miles next, or Enter to go straight to the next station." : "Add the stations down the side in the order printed, then fill in each train's column."}</td></tr>
+        <tr class="addrow"><td class="st" colspan="${showOrd ? 3 : 2}"><input id="addRow" placeholder="＋ Add a station row…" autocomplete="off"></td><td colspan="${trs.length + 1}" class="small muted"><button type="button" class="small-btn" id="btnAddExGrid" style="margin-right:8px" title="Add train numbers, and the stations and times of any already entered elsewhere">＋ Add trains or stations…</button>${rows.length ? "Pick a station with Tab to type its miles next, or Enter to go straight to the next station." : "Add the stations down the side in the order printed, then fill in each train's column."}</td></tr>
       </tbody>
     </table></div>
     ${symbolBar()}
@@ -2574,9 +2574,8 @@ function renderGrid(el, t) {
   const g = $("grid");
   wireMatch(el);
   $("chkOrd").onchange = e => { LS.set("gridOrderCol", e.target.checked); renderEntry(); };
-  $("btnCopyRows").onclick = copyRowsDialog;
   if ($("btnGridColumns")) $("btnGridColumns").onclick = () => columnDialog((trainsInTable().find(x => x.id === S.trainId) || trs[0]).id, true);
-  $("btnAddExGrid").onclick = addExistingDialog;
+  $("btnAddExGrid").onclick = addSeveralDialog;
   if ($("chkColNums")) $("chkColNums").onchange = e => { LS.set("gridColNums", e.target.checked); renderEntry(); };
   // typed column numbers wait for "Apply"; each typed train goes to its number, the rest keep their order around them
   const colUi = () => { const n = S.colPending.size; const a = $("btnApplyCol"), b = $("btnResetCol"), h = $("colHint"); if (a) a.disabled = !n; if (b) b.disabled = !n; if (h) h.textContent = n ? `${n} column${n > 1 ? "s" : ""} to move` : "Type new column numbers above the train numbers, then apply them together."; };
@@ -3056,7 +3055,7 @@ function marksLine(t, used) {
 $("btnEditTable").onclick = () => tableDialog(curTable());
 $("selSource").onchange = e => { S.sourceId = e.target.value; LS.set("source", S.sourceId); S.tableId = ""; subscribeSource(); };
 $("selTable").onchange = e => { S.tableId = e.target.value; LS.set("table", S.tableId); S.trainId = ""; render(); };
-$("btnAddExisting").onclick = () => addExistingDialog();
+
 function setTrainsHidden(h) { $("main").classList.toggle("collapsed", h); $("btnShowTrains").setAttribute("aria-expanded", !h); $("btnHideTrains").setAttribute("aria-expanded", !h); LS.set("trainsHidden", h); if (pick) updatePicker(); }
 $("btnHideTrains").onclick = () => { setTrainsHidden(true); $("btnShowTrains").focus(); };
 $("btnShowTrains").onclick = () => { setTrainsHidden(false); $("btnHideTrains").focus(); };
@@ -3123,7 +3122,13 @@ function addSeveralDialog() {
   const t = curTable(); if (!t) return;
   dialog(`<h2>Add trains</h2>
     <label class="f"><span>Train numbers, in the order the table prints them</span><textarea id="dNos" rows="5" placeholder="e.g. 71, 73, 75, 77&#10;or one per line"></textarea></label>
-    <p class="small muted">One number or several, separated by commas, spaces or new lines. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>. Leave it blank to start one train whose number you'll fill in later.</p>`, "Next", () => {
+    <p class="small muted">One number or several, separated by commas, spaces or new lines. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>. Leave it blank to start one train whose number you'll fill in later.</p>
+    <details style="margin-top:6px"><summary class="small">Pick numbers from another table</summary>
+      <select id="dNosFrom" style="margin-top:6px"><option value="">Choose a table…</option>${S.tables.filter(x => x.id !== t.id && trainsInTableOf(x.id).length).map(x => `<option value="${esc(x.id)}">${esc(tableName(x))} · ${trainsInTableOf(x.id).length} trains</option>`).join("")}</select>
+      <div id="dNosPick" class="pick-list" style="margin-top:6px"></div>
+      <button type="button" class="small-btn" id="dNosUse" hidden>Use the ticked numbers</button>
+    </details>
+    <p class="small muted" style="margin:8px 0 0">Next you choose whether to bring in the trains with their stations and times, only the train numbers, or only the stations.${(S.tables.some(x => x.id !== t.id && (x.rows || []).length)) ? ` To copy another table's whole station list (with its section lines and miles), use <button type="button" class="linkish" id="dCopyRowsLink">Copy a table's stations</button>.` : ""}</p>`, "Next", () => {
     const raw = $("dNos").value.trim(); if (!raw) { setTimeout(() => $("btnNewTrain").click(), 0); return; }
     const toks = raw.split(/[\n,;]+/).flatMap(part => { const m = part.trim().match(/^([A-Za-z][A-Za-z&.\-]*)\s+(\S+)$/); if (m && S.railroads.some(r => r.abbrev.toLowerCase() === m[1].toLowerCase())) return [{ rr: S.railroads.find(r => r.abbrev.toLowerCase() === m[1].toLowerCase()).abbrev, no: m[2] }]; return part.trim().split(/\s+/).filter(Boolean).map(no => ({ rr: t.rr, no })); });
     const here = trainsInTable(), all = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted);
@@ -3136,58 +3141,133 @@ function addSeveralDialog() {
     }
     setTimeout(() => addSeveralStep2(items), 0);
   });
+  const nosLabel = x => (trRR(x) === t.rr ? "" : trRR(x) + " ") + x.trainNo;
+  $("dNosFrom").onchange = e => { const trs = trainsInTableOf(e.target.value).filter(x => x.trainNo);
+    $("dNosPick").innerHTML = trs.map(x => `<label class="pick-row"><input type="checkbox" value="${esc(nosLabel(x))}" checked><span class="pick-st"><b>${esc(trLabel(x))}</b> ${esc(x.trainName || "")}</span></label>`).join("") || `<p class="small muted">No numbered trains on that table.</p>`;
+    $("dNosUse").hidden = !trs.length; };
+  $("dNosUse").onclick = () => { const v = [...document.querySelectorAll("#dNosPick input:checked")].map(c => c.value); const cur = $("dNos").value.trim(); $("dNos").value = [cur, v.join(", ")].filter(Boolean).join(", "); };
+  if ($("dCopyRowsLink")) $("dCopyRowsLink").onclick = () => setTimeout(copyRowsDialog, 0);
+}
+const trainsInTableOf = T => allTrainDocs().filter(x => x.tables?.[T]).sort((a, b) => (a.tables[T].order ?? 0) - (b.tables[T].order ?? 0));
+// stations of several trains in one overall order, starting from this table's own rows. A train that runs the other way
+// (its shared stations come in reverse) is read backwards first; each new station goes after the one before it on that train.
+function mergedStations(ids, T = S.tableId) {
+  const t = tableById(T), master = [], info = new Map();
+  for (const r of (t?.rows || [])) if (!r.divider && r.stationId && !info.has(r.stationId)) { master.push(r.stationId); info.set(r.stationId, { sid: r.stationId, onTable: true, trains: new Set(), times: [] }); }
+  const seqs = ids.map(id => { const tr = trainDoc(id); return { tr, st: stopsElsewhere(tr) }; }).filter(x => x.st.length);   // in the order typed: the first train sets which way the list reads
+  for (const { tr, st } of seqs) {
+    let list = st;
+    const pos = list.map(s => master.indexOf(s.stationId)).filter(k => k >= 0); let up = 0, down = 0;
+    for (let k = 1; k < pos.length; k++) { if (pos[k] > pos[k - 1]) up++; else if (pos[k] < pos[k - 1]) down++; }
+    if (down > up) list = list.slice().reverse();
+    let last = -1;
+    list.forEach((s, k) => {
+      const sid = s.stationId; let at = master.indexOf(sid);
+      if (at < 0) {
+        if (last >= 0) at = last + 1;
+        else { const nxt = list.slice(k + 1).map(x => master.indexOf(x.stationId)).find(x => x >= 0); at = nxt ?? master.length; }
+        master.splice(at, 0, sid); info.set(sid, { sid, onTable: false, trains: new Set(), times: [] });
+      }
+      last = at; const e = info.get(sid); e.trains.add(trLabel(tr)); const tm = s.dep || s.arr; if (tm) e.times.push(Core.fmt12(tm));
+    });
+  }
+  return master.map(sid => info.get(sid)).filter(e => e.trains.size);
+}
+// put new station rows into a table in the order of `order` (station ids), each after the station before it that's already there
+function insertRowsInOrder(order, add) {
+  let n = 0;
+  mutateTable(tb => {
+    tb.rows = tb.rows || [];
+    const lastIdx = sid => { let k = -1; tb.rows.forEach((r, i) => { if (!r.divider && r.stationId === sid) k = i; }); return k; };
+    const firstIdx = sid => tb.rows.findIndex(r => !r.divider && r.stationId === sid);
+    order.forEach((sid, k) => {
+      if (!add.has(sid) || firstIdx(sid) >= 0) return;
+      let at = -1; for (let j = k - 1; j >= 0 && at < 0; j--) { const i = lastIdx(order[j]); if (i >= 0) at = i + 1; }
+      if (at < 0) { for (let j = k + 1; j < order.length && at < 0; j++) { const i = firstIdx(order[j]); if (i >= 0) at = i; } }
+      if (at < 0) at = tb.rows.length;
+      tb.rows.splice(at, 0, { rid: uid(), stationId: sid }); n++;
+    });
+  });
+  return n;
 }
 function addSeveralStep2(items) {
   const t = curTable(), T = S.tableId;
   const where = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => tableName(tb)).join(", ") || "no table";
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
-  const rowSt = new Set((t.rows || []).filter(r => !r.divider).map(r => r.stationId)), hasRows = rowSt.size > 0;
   if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
   // unnumbered legs of this railroad, entered from another road's condensed table (City of Miami, South Wind): one can become a train being added
   const stubs = allTrainDocs().filter(x => !x.tables?.[T] && stubOf(x, S.tables) && stubRR(x, S.tables) === (t.rr || "")).sort((a, b) => (a.trainName || "").localeCompare(b.trainName || "") || (a.description || "").localeCompare(b.description || ""));
   const numOpts = [...add.map((x, i) => ({ v: "a" + i, label: `${x.rr} ${x.no}` })), ...dupHere.map((x, i) => ({ v: "h" + i, label: `${x.rr} ${x.no} (on this table)` }))];
+  const anyExisting = exist.length > 0 || dupHere.length > 0;
+  const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered on ${esc(x.ex.length === 1 ? where(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
-    <p class="small">${add.length ? `${add.length} train${add.length > 1 ? "s" : ""} to add, in this order: <b>${esc(add.map(x => x.no).join(", "))}</b>` : "Nothing new to add."}${dupHere.length ? `<br><span class="muted">Already on this table: ${esc(dupHere.map(x => x.no).join(", "))}</span> <label class="row small" style="gap:6px;margin-top:4px"><input type="checkbox" id="dSevDup"> Add ${dupHere.length > 1 ? "them" : "it"} again as a second appearance of the same train (its own name, days and stops)</label>` : ""}</p>
-    ${exist.length ? `<p class="small" style="margin-bottom:4px"><b>These numbers already exist.</b> Tick the ones to include; they come in with their stops.</p>
-    <div style="border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${exist.map((x, i) => x.ex.map((e, j) => `<label class="pick-row pick-train"><input type="checkbox" data-sev="${i}" data-exid="${esc(e.id)}" ${j === 0 ? "checked" : ""}><span class="pick-st"><b>${esc(x.rr + " " + x.no)}</b> ${esc(e.trainName || "")}</span><span class="pick-t">${(n => n === 1 ? esc(where(e)) : n + " tables")(Object.keys(e.tables || {}).filter(k => tableById(k)).length)} · ${stopsElsewhere(e).length} stops</span></label><details style="margin:0 0 6px 24px"><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`).join("")).join("")}</div>
-    <label class="row small" style="margin-top:6px;gap:6px">Unticked numbers: <select id="dSevUn"><option value="skip">leave them out</option><option value="new">add as new, separate trains</option></select></label>` : ""}
-    ${stubs.length && numOpts.length ? `<p class="small" style="margin:12px 0 4px"><b>Unnumbered ${esc(t.rr)} legs from condensed tables.</b> If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
-    <div style="border:1px solid var(--rule);border-radius:4px;padding:6px 8px">${stubs.map(e => { const st = stopsElsewhere(e), a = st[0], z = st[st.length - 1]; return `<div class="pick-row pick-train" style="align-items:center"><select data-stubno="${esc(e.id)}" aria-label="Train number for this leg" style="flex:0 0 auto"><option value="">Not one of these</option>${numOpts.map(o => `<option value="${o.v}">${esc(o.label)}</option>`).join("")}</select><span class="pick-st"><b>${esc(e.trainName || "(no name)")}</b>${e.description ? ` <span class="muted">${esc(e.description)}</span>` : ""}</span><span class="pick-t">${a && z ? `${esc(stName(a.stationId))} ${esc(Core.fmt12(a.dep || a.arr || ""))} → ${esc(stName(z.stationId))} ${esc(Core.fmt12(z.arr || z.dep || ""))}` : ""} · ${esc(where(e))}</span></div><details style="margin:0 0 6px 24px" data-stubpick="${esc(e.id)}" hidden><summary class="small">Choose which stops to bring</summary>${stopPicker(e, e.id)}</details>`; }).join("")}</div>` : ""}
-    ${(exist.length || stubs.length) && hasRows ? `<label class="row small" style="margin-top:10px;gap:6px;align-items:flex-start"><input type="checkbox" id="dSevRows"> <span>Also add their stations that aren't rows on this grid yet <span class="muted" id="dSevRowsN"></span><br><span class="muted">Left unticked, they only get times at stations already listed here.</span></span></label>` : ""}
-    ${(exist.length || stubs.length) && !hasRows ? `<p class="small muted" style="margin-top:8px">This grid has no stations yet, so the ticked trains' stations will be added as rows.</p>` : ""}`, "Add trains", () => {
-    const picked = new Map(); document.querySelectorAll("[data-sev]:checked").forEach(c => { const i = +c.dataset.sev; if (!picked.has(i)) picked.set(i, c.dataset.exid); });
-    const addRows = !hasRows || !!$("dSevRows")?.checked;
+    <div class="pick-list" style="margin-bottom:8px">${items.map(x => `<div class="pick-row"><span class="pick-st"><b>${esc(x.rr + " " + x.no)}</b></span><span class="pick-t">${status(x)}</span></div>`).join("")}</div>
+    ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0"><input type="checkbox" id="dSevDup"> Add ${esc(dupHere.map(x => x.no).join(", "))} again as a second appearance (its own name, days and stops)</label>` : ""}
+    ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
+    ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
+    <div class="pick-list">${stubs.map(e => { const st = stopsElsewhere(e), a = st[0], z = st[st.length - 1]; return `<div class="pick-row" style="align-items:center"><select data-stubno="${esc(e.id)}" aria-label="Train number for this leg" style="flex:0 0 auto;width:auto"><option value="">Not one of these</option>${numOpts.map(o => `<option value="${o.v}">${esc(o.label)}</option>`).join("")}</select><span class="pick-st"><b>${esc(e.trainName || "(no name)")}</b>${e.description ? ` <span class="muted">${esc(e.description)}</span>` : ""}</span><span class="pick-t">${a && z ? `${esc(stName(a.stationId))} → ${esc(stName(z.stationId))}` : ""}</span></div>`; }).join("")}</div></details>` : ""}
+    <fieldset style="margin-top:10px"><legend>What to add</legend>
+      <label class="row small" style="gap:6px"><input type="radio" name="dSevMode" value="trains" ${anyExisting ? "checked" : ""}> The trains, with the stations and times of those already entered</label>
+      <label class="row small" style="gap:6px"><input type="radio" name="dSevMode" value="numbers" ${anyExisting ? "" : "checked"}> Only the train numbers (blank columns)</label>
+      <label class="row small" style="gap:6px"><input type="radio" name="dSevMode" value="stations"> Only the stations (as rows; no trains added)</label>
+    </fieldset>
+    <div id="dSevStWrap">
+      <div class="row" style="gap:6px;margin-top:8px;align-items:center"><b class="small">Stations, in order</b><button type="button" class="small-btn" id="dSevAll">Tick all</button><button type="button" class="small-btn" id="dSevNone">Clear</button><span class="small muted" id="dSevCount"></span></div>
+      <div id="dSevSt" class="pick-list" style="max-height:340px;overflow:auto;border:1px solid var(--rule);border-radius:4px;padding:6px 8px;margin-top:4px"></div>
+      <p class="small muted" style="margin:4px 0 0">From the entered trains, merged into one order with this table's own rows. "Tick ↓" / "Clear ↓" ticks or clears a station and everything below it; Shift-click ticks or clears a stretch.</p>
+    </div>`, "Add", () => {
+    const mode = document.querySelector('input[name="dSevMode"]:checked')?.value || "numbers";
+    const P = new Set([...document.querySelectorAll("#dSevSt [data-stpick]:checked")].map(c => c.value));
+    const exIds = chosenExisting();
+    if (mode === "stations") {
+      const order = mergedStations([...exIds, ...stubIds()]).map(e => e.sid);
+      if (!order.length) return "None of these trains has stations entered yet.";
+      const n = insertRowsInOrder(order, P);
+      notice(n ? `Added ${n} station row${n === 1 ? "" : "s"}.` : "Those stations are all on this table already."); if (S.mode !== "grid") setMode("grid"); render(); return;
+    }
+    const withStops = mode === "trains";
     let last = trainsInTable().slice(-1)[0], ord = Math.max(Date.now(), last ? ordT(last) + 1 : 0);
-    const useIds = [], newIds = [], skipped = [], asNew = $("dSevUn")?.value === "new";
+    const useIds = [], newIds = [];
     if ($("dSevDup")?.checked) for (const x of dupHere) { const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (orig) w.setupOf = orig.setupOf || orig.id; }
     const stubFor = new Map(); document.querySelectorAll("[data-stubno]").forEach(sel => { if (sel.value) stubFor.set(sel.value, [...(stubFor.get(sel.value) || []), sel.dataset.stubno]); });
-    const stubPicks = new Map();   // train id -> stations picked across the legs folded into it
-    const foldStubs = (targetId, legIds) => { const only = stubPicks.get(targetId) || new Set(); let any = stubPicks.has(targetId);
-      for (const sid of legIds) { if (document.querySelector(`.stoppick[data-pick="${CSS.escape(sid)}"]`)) { pickedStops(sid).forEach(v => only.add(v)); any = true; } if (sid !== targetId) combineTrains(targetId, sid); }
-      if (any) stubPicks.set(targetId, only); };
+    const fold = (targetId, legIds) => { for (const sid of legIds) if (sid !== targetId) combineTrains(targetId, sid); };
+    const order = withStops ? mergedStations([...exIds, ...stubIds()]).map(e => e.sid) : [];
     for (const [i, x] of add.entries()) {
-      const ei = exist.indexOf(x), exId = ei >= 0 ? picked.get(ei) : null, legs = stubFor.get("a" + i) || [];
-      if (ei >= 0 && !exId && !asNew && !legs.length) { skipped.push(x.no); continue; }
-      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) { stubPicks.set(exId, pickedStops(exId)); foldStubs(exId, legs); } }
-      else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); foldStubs(legs[0], legs); }
+      const ei = exist.indexOf(x), exId = ei >= 0 ? exIds[ei] : null, legs = stubFor.get("a" + i) || [];
+      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); }
+      else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); }
     }
-    for (const [i, x] of dupHere.entries()) { const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; stubPicks.set(tgt.id, new Set()); foldStubs(tgt.id, legs); useIds.push(tgt.id); }
-    const onlyOf = new Map(useIds.map(id => [id, stubPicks.has(id) ? (document.querySelector(`.stoppick[data-pick="${CSS.escape(id)}"]`) ? new Set([...stubPicks.get(id), ...pickedStops(id)]) : stubPicks.get(id)) : pickedStops(id)]));
-    let rowsAdded = 0;
-    if (addRows && useIds.length) rowsAdded = addMissingRows(useIds, onlyOf);
-    let filled = 0, missing = 0; for (const id of useIds) { const r = fillFromRows(id, onlyOf.get(id)); filled += r.added; missing += r.missing; }
-    const nAdd = useIds.length + newIds.length; if (!nAdd) { notice(`Nothing added; left out ${esc(skipped.join(", "))}.`); render(); return; }
-    notice(`Added ${nAdd} train${nAdd > 1 ? "s" : ""}${useIds.length ? ` (${useIds.length} brought in with ${filled} stop${filled === 1 ? "" : "s"})` : ""}${rowsAdded ? `, and ${rowsAdded} station row${rowsAdded === 1 ? "" : "s"}` : ""}${missing && !addRows ? `; ${missing} of their stations ${missing === 1 ? "isn't a row" : "aren't rows"} here` : ""}${skipped.length ? `; left out ${esc(skipped.join(", "))}` : ""}.`);
+    for (const [i, x] of dupHere.entries()) { const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
+    let rowsAdded = 0, filled = 0;
+    if (withStops && useIds.length) { rowsAdded = insertRowsInOrder(order, P); for (const id of useIds) filled += fillFromRows(id, P).added; }
+    const nAdd = useIds.length + newIds.length; if (!nAdd) { notice("Nothing added."); render(); return; }
+    notice(`Added ${nAdd} train${nAdd > 1 ? "s" : ""}${withStops && useIds.length ? ` (${useIds.length} brought in with ${filled} stop${filled === 1 ? "" : "s"})` : ""}${rowsAdded ? `, and ${rowsAdded} station row${rowsAdded === 1 ? "" : "s"}` : ""}.`);
     if (S.mode !== "grid") setMode("grid"); render();
     const first = [...useIds, ...newIds][0]; setTimeout(() => $("grid")?.querySelector(`th input[data-k="no"][data-train="${newIds[0] || first}"]`)?.focus(), 0);
   });
-  const box = $("dSevRowsN");
-  document.querySelectorAll("[data-stubno]").forEach(sel => sel.addEventListener("change", () => { const d = document.querySelector(`[data-stubpick="${CSS.escape(sel.dataset.stubno)}"]`); if (d) d.hidden = !sel.value; upd(); }));
-  const upd = () => { if (!box) return; const ids = [...new Set([...[...document.querySelectorAll("[data-sev]:checked")].map(c => c.dataset.exid), ...[...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno)])]; const miss = new Set(); ids.forEach(id => stopsElsewhere(trainDoc(id)).forEach(s => { if (!rowSt.has(s.stationId)) miss.add(s.stationId); })); box.textContent = `(${miss.size} station${miss.size === 1 ? "" : "s"})`; };
-  // one train per number: ticking one match unticks the others for the same number
-  document.querySelectorAll("[data-sev]").forEach(c => c.addEventListener("change", () => { if (c.checked) document.querySelectorAll(`[data-sev="${c.dataset.sev}"]`).forEach(o => { if (o !== c) o.checked = false; }); upd(); }));
-  upd();
+  // the record used for each existing number (the first match, or the one picked)
+  function chosenExisting() { return exist.map((x, i) => document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id); }
+  const stubIds = () => [...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno);
+  const below = sid => `<span style="margin-left:auto;display:flex;gap:4px;flex:none"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
+  const box = $("dSevSt");
+  const count = () => { const n = box.querySelectorAll("[data-stpick]:checked").length, all = box.querySelectorAll("[data-stpick]").length; $("dSevCount").textContent = all ? `${n} of ${all} ticked` : ""; };
+  const draw = () => {
+    const mode = document.querySelector('input[name="dSevMode"]:checked')?.value;
+    $("dSevStWrap").hidden = mode === "numbers";
+    const keep = new Map([...box.querySelectorAll("[data-stpick]")].map(c => [c.value, c.checked]));
+    const list = mergedStations([...chosenExisting(), ...stubIds(), ...dupHere.map(x => trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no)?.id).filter(Boolean)]);
+    box.innerHTML = list.map(e => `<label class="pick-row" style="align-items:center"><input type="checkbox" data-stpick value="${esc(e.sid)}" ${keep.has(e.sid) ? (keep.get(e.sid) ? "checked" : "") : "checked"}><span class="pick-st">${esc(stName(e.sid))}${e.onTable ? ' <span class="muted small">· on this table</span>' : ""}</span><span class="pick-t">${esc([...e.trains].length > 2 ? [...e.trains].length + " trains" : [...e.trains].join(", "))}${e.times.length === 1 ? " " + esc(e.times[0]) : ""}</span>${below(e.sid)}</label>`).join("") || `<p class="small muted">None of these trains has stations entered yet${mode === "trains" ? "; they'll come in as blank columns" : ""}.</p>`;
+    count();
+  };
+  box.addEventListener("change", count);
+  box.addEventListener("click", e => { const b = e.target.closest("[data-below]"); if (!b) return; e.preventDefault(); const cs = [...box.querySelectorAll("[data-stpick]")], from = cs.findIndex(c => c.value === b.dataset.sid), on = b.dataset.below === "1"; cs.forEach((c, k) => { if (k >= from) c.checked = on; }); count(); });
+  let lastPick = null;
+  box.addEventListener("click", e => { const c = e.target.closest("[data-stpick]"); if (!c) return; const cs = [...box.querySelectorAll("[data-stpick]")], i = cs.indexOf(c); if (e.shiftKey && lastPick != null) { const [a, z] = [Math.min(i, lastPick), Math.max(i, lastPick)]; cs.forEach((x, k) => { if (k >= a && k <= z) x.checked = c.checked; }); count(); } lastPick = i; });
+  $("dSevAll").onclick = () => { box.querySelectorAll("[data-stpick]").forEach(c => c.checked = true); count(); };
+  $("dSevNone").onclick = () => { box.querySelectorAll("[data-stpick]").forEach(c => c.checked = false); count(); };
+  document.querySelectorAll('input[name="dSevMode"], [data-sevpick], [data-stubno]').forEach(x => x.addEventListener("change", draw));
+  draw();
 }
 // add rows for the stations these trains stop at that this grid doesn't list yet: each goes just after the train's previous station that is listed (or at the end)
 function addMissingRows(ids, onlyOf) {
