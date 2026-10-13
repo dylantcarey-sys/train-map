@@ -304,7 +304,8 @@ const Core = (() => {
           const near = (u, v) => Math.abs(toMin(u) - toMin(v)) <= 1;
           if (one(a) && !one(b) && times(a).length === 1 && times(b).some(v => near(v, times(a)[0]))) { a.arr = b.arr; a.dep = b.dep; a.single = false; }
           else if (one(b) && !one(a) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0]))) { /* a already has both */ }
-          const differs = (f) => a[f] && b[f] && a[f] !== b[f];
+          // the same moment printed in two time zones (Chattahoochee: 4:35 Central on one table, 5:35 Eastern on another) agrees
+          const differs = (f) => a[f] && b[f] && a[f] !== b[f] && (((toMin(a[f]) + tzOff(a) - toMin(b[f]) - tzOff(b)) % 1440) + 1440) % 1440 !== 0;
           if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: same.from[0] }, other: { arr: b.arr, dep: b.dep, from: g.key } });
           for (const f of ["arr", "dep", "mark", "miles", "notes", "tz", "days"]) if (!a[f] && b[f]) a[f] = b[f];
           if (b._k != null) (a._ks ||= []).push(b._k);   // remember which entered stops were folded into this one

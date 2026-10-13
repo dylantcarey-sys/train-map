@@ -403,7 +403,7 @@ tr.flash td, tr.flash input { animation: rowflash 2.4s ease-out 1; }
 .mark-btns { display: flex; flex-wrap: nowrap; }
 .mark-btns button { padding: 2px 6px; }
 .mark-row input[data-m="mark"] { flex: none; }
-.mark-row input[data-m="meaning"] { flex: 1 1 auto; }
+.mark-row [data-m="meaning"] { flex: 1 1 auto; font-size: 12.5px; line-height: 1.35; resize: none; overflow: hidden; padding: 4px 6px; font-family: inherit; }
 .newst-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--rule); }
 .newst-row .grow { min-width: 160px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -425,8 +425,10 @@ label.f button.primary { color: var(--accent-ink); }
 .phone-switch { text-align: center; margin: 4px 16px 24px; }
 .phone-switch[hidden] { display: none; }
 /* read-only timetable (phones in viewing mode) */
-.tv-wrap { overflow: auto; max-height: 75vh; border: 1px solid var(--rule); border-radius: 4px; }
-table.tv { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.tv-wrap { overflow: auto; max-height: 75vh; border: 1px solid var(--rule); border-radius: 4px; width: fit-content; max-width: 100%; }
+table.tv td.tv-mid, table.tv th.tv-mid { border-left: 1px solid var(--rule-strong); border-right: 1px solid var(--rule-strong); }
+table.tv tr.tv-dirs th { font-weight: 600; text-align: center; padding: 2px 6px; }
+table.tv { width: auto; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; font-size: 13.5px; }
 table.tv th, table.tv td { padding: 4px 8px; border-bottom: 1px solid var(--rule); background: var(--sheet); white-space: nowrap; }
 table.tv thead th { position: sticky; top: 0; z-index: 2; vertical-align: bottom; text-align: center; border-bottom: 1px solid var(--rule-strong); }
 table.tv .tv-st { position: sticky; left: 0; z-index: 1; text-align: left; min-width: 112px; max-width: 128px; white-space: normal; line-height: 1.25; font-size: 13px; box-shadow: 1px 0 0 var(--rule); }
@@ -885,7 +887,8 @@ const Core = (() => {
           const near = (u, v) => Math.abs(toMin(u) - toMin(v)) <= 1;
           if (one(a) && !one(b) && times(a).length === 1 && times(b).some(v => near(v, times(a)[0]))) { a.arr = b.arr; a.dep = b.dep; a.single = false; }
           else if (one(b) && !one(a) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0]))) { /* a already has both */ }
-          const differs = (f) => a[f] && b[f] && a[f] !== b[f];
+          // the same moment printed in two time zones (Chattahoochee: 4:35 Central on one table, 5:35 Eastern on another) agrees
+          const differs = (f) => a[f] && b[f] && a[f] !== b[f] && (((toMin(a[f]) + tzOff(a) - toMin(b[f]) - tzOff(b)) % 1440) + 1440) % 1440 !== 0;
           if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: same.from[0] }, other: { arr: b.arr, dep: b.dep, from: g.key } });
           for (const f of ["arr", "dep", "mark", "miles", "notes", "tz", "days"]) if (!a[f] && b[f]) a[f] = b[f];
           if (b._k != null) (a._ks ||= []).push(b._k);   // remember which entered stops were folded into this one
@@ -991,7 +994,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
 // a read-only hook for automated checks of the Desk (no effect on the page)
-window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.name, other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.name, other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -2911,11 +2914,14 @@ function tableDialog(existing) {
   drawRosterPick();
   if (!S.railroads.length) { $("dRR").value = "__new"; $("dNewRR").hidden = false; }
   if ($("dMarksCopy")) $("dMarksCopy").onclick = () => { const src = tableById($("dMarksFrom").value); if (!src) return; marks = structuredClone(tableMarks(src)); drawMarks(); };
-  function readMarks() { marks = [...$("dMarks").querySelectorAll(".mark-row")].map(r => ({ mark: r.querySelector('[data-m="mark"]').value, meaning: r.querySelector('[data-m="meaning"]').value })); }
+  function readMarks() { marks = [...$("dMarks").querySelectorAll(".mark-row")].map(r => ({ mark: r.querySelector('[data-m="mark"]').value, meaning: r.querySelector('[data-m="meaning"]').value.replace(/\s*\n\s*/g, " ") })); }
   function drawMarks() {
     const n = marks.length;
-    $("dMarks").innerHTML = marks.map((m, i) => `<div class="mark-row" data-mi="${i}"><span class="mark-no">${i + 1}</span><input data-m="mark" value="${esc(m.mark)}" aria-label="Mark ${i + 1}" maxlength="3"><input data-m="meaning" value="${esc(m.meaning)}" aria-label="Meaning of mark ${i + 1}" placeholder="What the mark means">
+    $("dMarks").innerHTML = marks.map((m, i) => `<div class="mark-row" data-mi="${i}"><span class="mark-no">${i + 1}</span><input data-m="mark" value="${esc(m.mark)}" aria-label="Mark ${i + 1}" maxlength="3"><textarea data-m="meaning" rows="1" aria-label="Meaning of mark ${i + 1}" placeholder="What the mark means">${esc(m.meaning)}</textarea>
       <span class="mark-btns"><button type="button" class="ghost" data-markact="up" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move mark ${i + 1} up">↑</button><button type="button" class="ghost" data-markact="down" ${i === n - 1 ? "disabled" : ""} title="Move down" aria-label="Move mark ${i + 1} down">↓</button><button type="button" class="ghost" data-markact="ins" title="Add a mark above this one" aria-label="Add a mark above mark ${i + 1}">＋</button><button type="button" class="ghost danger" data-markact="del" title="Remove" aria-label="Remove mark ${i + 1}">✕</button></span></div>`).join("") || `<div class="small muted">No marks yet.</div>`;
+    // the meaning box grows with what's typed, so the whole meaning stays in view (Enter moves on rather than starting a new line)
+    const grow = ta => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+    $("dMarks").querySelectorAll('textarea[data-m="meaning"]').forEach(ta => { grow(ta); ta.oninput = () => grow(ta); ta.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); } }; });
     $("dMarks").querySelectorAll("[data-markact]").forEach(b => b.onclick = () => {
       readMarks(); const i = +b.closest(".mark-row").dataset.mi, act = b.dataset.markact; let focus = null;
       if (act === "up" && i > 0) { [marks[i - 1], marks[i]] = [marks[i], marks[i - 1]]; focus = [i - 1, "up"]; }
@@ -3131,7 +3137,6 @@ function addSeveralDialog() {
     <details style="margin-top:6px"><summary class="small">Pick numbers from another table</summary>
       <select id="dNosFrom" style="margin-top:6px"><option value="">Choose a table…</option>${S.tables.filter(x => x.id !== t.id && trainsInTableOf(x.id).length).map(x => `<option value="${esc(x.id)}">${esc(tableName(x))} · ${trainsInTableOf(x.id).length} trains</option>`).join("")}</select>
       <div id="dNosPick" class="pick-list" style="margin-top:6px"></div>
-      <button type="button" class="small-btn" id="dNosUse" hidden>Use the ticked numbers</button>
     </details>
     <p class="small muted" style="margin:8px 0 0">Next you choose whether to bring in the trains with their stations and times, only the train numbers, or only the stations.${(S.tables.some(x => x.id !== t.id && (x.rows || []).length)) ? ` To copy another table's whole station list (with its section lines and miles), use <button type="button" class="linkish" id="dCopyRowsLink">Copy a table's stations</button>.` : ""}</p>`, "Next", () => {
     const raw = $("dNos").value.trim(); if (!raw) { setTimeout(() => $("btnNewTrain").click(), 0); return; }
@@ -3149,8 +3154,15 @@ function addSeveralDialog() {
   const nosLabel = x => (trRR(x) === t.rr ? "" : trRR(x) + " ") + x.trainNo;
   $("dNosFrom").onchange = e => { const trs = trainsInTableOf(e.target.value).filter(x => x.trainNo);
     $("dNosPick").innerHTML = trs.map(x => `<label class="pick-row"><input type="checkbox" value="${esc(nosLabel(x))}" checked><span class="pick-st"><b>${esc(trLabel(x))}</b> ${esc(x.trainName || "")}</span></label>`).join("") || `<p class="small muted">No numbered trains on that table.</p>`;
-    $("dNosUse").hidden = !trs.length; };
-  $("dNosUse").onclick = () => { const v = [...document.querySelectorAll("#dNosPick input:checked")].map(c => c.value); const cur = $("dNos").value.trim(); $("dNos").value = [cur, v.join(", ")].filter(Boolean).join(", "); };
+    syncNos(); };
+  // the ticked trains are the numbers in the box: ticking adds one, unticking takes it out again
+  const toks = () => $("dNos").value.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
+  function syncNos() {
+    const boxes = [...document.querySelectorAll("#dNosPick input")], want = new Set(boxes.filter(c => c.checked).map(c => c.value)), all = new Set(boxes.map(c => c.value));
+    const kept = toks().filter(x => !all.has(x) || want.has(x)); for (const v of want) if (!kept.includes(v)) kept.push(v);
+    $("dNos").value = kept.join(", ");
+  }
+  $("dNosPick").addEventListener("change", syncNos);
   if ($("dCopyRowsLink")) $("dCopyRowsLink").onclick = () => setTimeout(copyRowsDialog, 0);
 }
 const trainsInTableOf = T => allTrainDocs().filter(x => x.tables?.[T]).sort((a, b) => (a.tables[T].order ?? 0) - (b.tables[T].order ?? 0));
@@ -3224,7 +3236,7 @@ function addSeveralStep2(items) {
   const short = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => `${tb.rr} ${tb.tableNo || "?"}`).join(", ") || "no table";
   const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
-    <div class="pick-list" style="margin-bottom:8px;max-height:150px">${items.map(x => `<div class="pick-row" style="grid-template-columns:auto 1fr;padding:3px 8px"><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></div>`).join("")}</div>
+    <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
     ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0"><input type="checkbox" id="dSevDup"> Add ${esc(dupHere.map(x => x.no).join(", "))} again as a second appearance (its own name, days and stops)</label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
@@ -3241,9 +3253,9 @@ function addSeveralStep2(items) {
     </div>`, "Add", () => {
     const mode = document.querySelector('input[name="dSevMode"]:checked')?.value || "numbers";
     const P = new Set([...document.querySelectorAll("#dSevSt [data-stpick]:checked")].map(c => c.value));
-    const exIds = chosenExisting();
+    const exIds = chosenExisting(), exOn = exIds.filter(Boolean);
     if (mode === "stations") {
-      const order = mergedStations([...exIds, ...stubIds()]).map(e => e.sid);
+      const order = mergedStations([...exOn, ...stubIds()]).map(e => e.sid);
       if (!order.length) return "None of these trains has stations entered yet.";
       const n = insertRowsInOrder(order, P);
       notice(n ? `Added ${n} station row${n === 1 ? "" : "s"}.` : "Those stations are all on this table already."); if (S.mode !== "grid") setMode("grid"); render(); return;
@@ -3251,17 +3263,20 @@ function addSeveralStep2(items) {
     const withStops = mode === "trains";
     let last = trainsInTable().slice(-1)[0], ord = Math.max(Date.now(), last ? ordT(last) + 1 : 0);
     const useIds = [], newIds = [];
-    if ($("dSevDup")?.checked) for (const x of dupHere) { const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (orig) w.setupOf = orig.setupOf || orig.id; }
+    if ($("dSevDup")?.checked) for (const x of dupHere.filter(isOn)) { const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (orig) w.setupOf = orig.setupOf || orig.id; }
     const stubFor = new Map(); document.querySelectorAll("[data-stubno]").forEach(sel => { if (sel.value) stubFor.set(sel.value, [...(stubFor.get(sel.value) || []), sel.dataset.stubno]); });
     const fold = (targetId, legIds) => { for (const sid of legIds) if (sid !== targetId) combineTrains(targetId, sid); };
-    const order = withStops ? mergedStations([...exIds, ...stubIds()]).map(e => e.sid) : [];
+    const order = withStops ? mergedStations([...exOn, ...stubIds(), ...hereIds()]).map(e => e.sid) : [];
     for (const [i, x] of add.entries()) {
+      if (!isOn(x)) continue;
       const ei = exist.indexOf(x), exId = ei >= 0 ? exIds[ei] : null, legs = stubFor.get("a" + i) || [];
       if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); }
       else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); }
     }
-    for (const [i, x] of dupHere.entries()) { const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
+    // a train already on this table (added earlier as a number only) gets its times filled in too, unless it's being added again as a second appearance
+    if (withStops && !$("dSevDup")?.checked) for (const id of hereIds()) if (!useIds.includes(id)) useIds.push(id);
+    for (const [i, x] of dupHere.entries()) { if (!isOn(x)) continue; const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
     let rowsAdded = 0, filled = 0;
     if (withStops && useIds.length) { rowsAdded = insertRowsInOrder(order, P); for (const id of useIds) filled += fillFromRows(id, P).added; }
     const nAdd = useIds.length + newIds.length; if (!nAdd) { notice("Nothing added."); render(); return; }
@@ -3269,9 +3284,12 @@ function addSeveralStep2(items) {
     if (S.mode !== "grid") setMode("grid"); render();
     const first = [...useIds, ...newIds][0]; setTimeout(() => $("grid")?.querySelector(`th input[data-k="no"][data-train="${newIds[0] || first}"]`)?.focus(), 0);
   });
-  // the record used for each existing number (the first match, or the one picked)
-  function chosenExisting() { return exist.map((x, i) => document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id); }
+  // a number left unticked at the top isn't added at all
+  const isOn = x => document.querySelector(`[data-sevnum="${items.indexOf(x)}"]`)?.checked !== false;
+  // the record used for each existing number (the first match, or the one picked); null when it's unticked
+  function chosenExisting() { return exist.map((x, i) => isOn(x) ? (document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id) : null); }
   const stubIds = () => [...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno);
+  const hereIds = () => dupHere.filter(isOn).map(x => trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf)?.id).filter(Boolean);
   const below = sid => `<span style="display:flex;gap:4px"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
   const box = $("dSevSt");
   const count = () => { const n = box.querySelectorAll("[data-stpick]:checked").length, all = box.querySelectorAll("[data-stpick]").length; $("dSevCount").textContent = all ? `${n} of ${all} ticked` : ""; };
@@ -3293,7 +3311,7 @@ function addSeveralStep2(items) {
     const mode = document.querySelector('input[name="dSevMode"]:checked')?.value;
     $("dSevStWrap").hidden = mode === "numbers";
     const keep = new Map([...box.querySelectorAll("[data-stpick]")].map(c => [c.value, c.checked]));
-    const list = mergedStations([...chosenExisting(), ...stubIds(), ...dupHere.map(x => trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no)?.id).filter(Boolean)]);
+    const list = mergedStations([...chosenExisting().filter(Boolean), ...stubIds(), ...hereIds()]);
     box.innerHTML = list.map(e => `<label class="pick-row pick4"><input type="checkbox" data-stpick value="${esc(e.sid)}" ${keep.has(e.sid) ? (keep.get(e.sid) ? "checked" : "") : "checked"}><span class="pick-st">${esc(stName(e.sid))}${e.onTable ? ' <span class="muted small">· on this table</span>' : ""}</span><span class="pick-t">${esc([...e.trains].length > 2 ? [...e.trains].length + " trains" : [...e.trains].join(", "))}${e.times.length === 1 ? " " + esc(e.times[0]) : ""}</span>${below(e.sid)}</label>`).join("") || `<p class="small muted">None of these trains has stations entered yet${mode === "trains" ? "; they'll come in as blank columns" : ""}.</p>`;
     shared = sharedRange(list); $("dSevShared").hidden = !shared;
     if (shared) $("dSevShared").textContent = `Only the shared stretch (${stName(list[shared[0]].sid)} – ${stName(list[shared[1]].sid)})`;
@@ -3308,7 +3326,7 @@ function addSeveralStep2(items) {
   box.addEventListener("click", e => { const c = e.target.closest("[data-stpick]"); if (!c) return; const cs = [...box.querySelectorAll("[data-stpick]")], i = cs.indexOf(c); if (e.shiftKey && lastPick != null) { const [a, z] = [Math.min(i, lastPick), Math.max(i, lastPick)]; cs.forEach((x, k) => { if (k >= a && k <= z) x.checked = c.checked; }); count(); } lastPick = i; });
   $("dSevAll").onclick = () => { box.querySelectorAll("[data-stpick]").forEach(c => c.checked = true); count(); };
   $("dSevNone").onclick = () => { box.querySelectorAll("[data-stpick]").forEach(c => c.checked = false); count(); };
-  document.querySelectorAll('input[name="dSevMode"], [data-sevpick], [data-stubno]').forEach(x => x.addEventListener("change", draw));
+  document.querySelectorAll('input[name="dSevMode"], [data-sevpick], [data-stubno], [data-sevnum]').forEach(x => x.addEventListener("change", draw));
   draw();
 }
 // add rows for the stations these trains stop at that this grid doesn't list yet: each goes just after the train's previous station that is listed (or at the end)
@@ -4520,9 +4538,16 @@ function renderTableView(el, t) {
   const mi = rows.filter(r => !r.divider && /^\d+(\.\d+)?$/.test(String(r.miles || "").trim())).map(r => (String(r.miles).trim().split(".")[1] || "").length);
   const dp = (() => { const c = new Map(); mi.forEach(d => c.set(d, (c.get(d) || 0) + 1)); return [...c].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? 0; })();
   const miles = v => { const t = String(v || "").trim(); return /^\d+(\.\d+)?$/.test(t) ? (+t).toFixed(dp) : t; };
-  el.innerHTML = `<div class="tv-wrap"><table class="tv">
-    <thead><tr>${hasMiles ? `<th class="tv-mi">Mls</th>` : ""}<th class="tv-st">Station</th>${cols.map(head).join("")}</tr></thead>
-    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${cols.length + 1 + (hasMiles ? 1 : 0)}"></td></tr>` : `<tr>${hasMiles ? `<td class="tv-mi">${esc(miles(r.miles))}</td>` : ""}<td class="tv-st">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>${cols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
+  // trains in both directions: reading-down columns on the left, the miles and stations in the middle, reading-up columns on the right (as the Guide prints it)
+  const dirOf = col => { const v = (col.main || col).reduce((a, tr) => a + trainDir(tr, tStops(tr), t.rows || []), 0); return v < 0 ? -1 : 1; };
+  const downCols = cols.filter(c => dirOf(c) > 0), upCols = cols.filter(c => dirOf(c) < 0), both = downCols.length > 0 && upCols.length > 0;
+  const leftCols = both ? downCols : [], rightCols = both ? upCols : cols;
+  const stHead = `${hasMiles ? `<th class="tv-mi">Mls</th>` : ""}<th class="tv-st${both ? " tv-mid" : ""}">Station</th>`;
+  const stCells = r => `${hasMiles ? `<td class="tv-mi">${esc(miles(r.miles))}</td>` : ""}<td class="tv-st${both ? " tv-mid" : ""}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></td>`;
+  const span = cols.length + 1 + (hasMiles ? 1 : 0);
+  el.innerHTML = `<div class="tv-wrap"><table class="tv${both ? " tv-both" : ""}">
+    <thead>${both ? `<tr class="tv-dirs"><th colspan="${leftCols.length}" class="small muted">Read down ↓</th><th colspan="${hasMiles ? 2 : 1}"></th><th colspan="${rightCols.length}" class="small muted">Read up ↑</th></tr>` : ""}<tr>${leftCols.map(head).join("")}${stHead}${rightCols.map(head).join("")}</tr></thead>
+    <tbody>${rows.map(r => r.divider ? `<tr class="tv-div"><td colspan="${span}"></td></tr>` : `<tr>${leftCols.map(col => cell(col, r)).join("")}${stCells(r)}${rightCols.map(col => cell(col, r)).join("")}</tr>`).join("")}</tbody>
   </table></div>
   ${marksLine(t, [...used])}
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}

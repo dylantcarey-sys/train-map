@@ -18,7 +18,4 @@ Repeat visits already reuse lines, stations and routes saved in the browser; the
 3. Move the built-in timetable (~4 MB of CSV inside index.html) to a compressed file loaded alongside the page.
 
 ## Desk: changes to make later
-- Reference marks (new table / Edit table): make the meaning text a little smaller, and make its box grow as you type so the whole meaning stays visible (noted 2026-10-12).
-- Table view (read-only): don't stretch to the full screen width; size the table to fit its data.
-- Table view: when a table has trains in both directions, put the miles and station list in the middle, as the Guide prints it (reading-down trains on the left, reading-up trains on the right).
-- Bug: in Add trains, "Pick numbers from another table", unticking trains didn't stop them being added (reported 2026-10-12). Check: the ticked list only feeds the numbers box when "Use the ticked numbers" is clicked, and step 2 has no way to leave a number out; give step 2 a tick box per number and keep the picker in step with the box.
+(done 2026-10-12: marks box, table view width and two-direction layout, Add trains picker/ticks)
