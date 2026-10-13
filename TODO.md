@@ -5,6 +5,7 @@
 - Selecting a train shows its through run (gold), connections (dashed), and links in its details; "Show only this train and the trains it connects with".
 
 ## Still to do
+- Lines layer: add the Callahan Cut-off (the SCL bypass near Callahan, FL); SCL 1 / SCL 2 should be routed over it. It isn't in the ArcGIS lines layer yet. Once it's drawn, give it the SCL "Served by" value; if the map still prefers the old line, type it in those trains' "Rail lines it runs on" box in the Desk.
 - Explore: when the map's date passes the end of one guide's month, switch automatically to the next published guide in the Desk, using each source's date. Fall back to the latest guide on or before the date.
 - Daylight (advance) time generally: guide times are standard time; only the PC Table 3 note is applied so far.
 - Lines layer: the only route gap for entered trains (notebook run 2026-10-12) is Henderson -> Evansville (L&N 4): the L&N Henderson Subdivision doesn't connect to the L&N St. Louis-Evansville Line across the Ohio River. Four stations are >250 m from a line (St. Joseph, Tulsa, Orillia, Havelock), none used yet. "Served by" needed no changes.
