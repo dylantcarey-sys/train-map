@@ -4493,20 +4493,39 @@ function tableColumns(T, trs) {
   const colOf = x => x.tables?.[T]?.col || "";
   const ends = x => { const st = (x.stops || []).filter(s => s.tableId === T && s.stationId && !s.pass); return st.length ? [st[0].stationId, st[st.length - 1].stationId] : null; };
   const byNo = new Map(trs.filter(x => x.trainNo && !x.copyOf).map(x => [`${trRR(x)}|${x.trainNo}`, x]));   // a repeat column only joins another column by hand
-  for (const x of trs) {
-    const c = colOf(x); if (c && c !== "own" && ids.has(c)) { join(c, x.id); joinC(c, x.id); continue; }
-    if (c === "own") continue;
+  // each column is one of the table's own railroad's trains (RF&P 9, RF&P 75 …), with the trains it runs through to or connects with:
+  // another road's train never pulls two of them into one column (PC 147 runs through to both RF&P 9 and RF&P 75); a repeat column of it goes with the second instead
+  const home = tableById(T)?.rr || "", isHome = x => !!home && trRR(x) === home;
+  const homeIn = new Map(trs.map(x => [x.id, isHome(x) ? 1 : 0]));
+  const homeOf = id => homeIn.get(find(id)) || 0;
+  const join2 = (a, b, core, force) => {
+    const ra = find(a), rb = find(b); if (ra === rb) { if (core) joinC(a, b); return true; }
+    if (!force && homeOf(a) && homeOf(b)) return false;
+    const n = homeOf(a) + homeOf(b); join(a, b); homeIn.set(find(a), n); if (core) joinC(a, b); return true;
+  };
+  for (const x of trs) { const c = colOf(x); if (c && c !== "own" && ids.has(c)) { const n = homeOf(c) + homeOf(x.id); join(c, x.id); joinC(c, x.id); homeIn.set(find(c), n); } }
+  for (const pass of [0, 1, 2]) for (const x of trs) {   // (pass 2 again: a train listed before its column's own train had joined)
+    const c = colOf(x); if (c) continue;
     const ex = ends(x); if (!ex) continue;
     for (const l of links(x, "to")) {
       const o = (l.trainId && ids.has(l.trainId) && trs.find(y => y.id === l.trainId)) || (l.phId && trs.find(y => y.id === l.phId)) || byNo.get(`${l.rr}|${l.trainNo}`);
       if (!o || o.id === x.id || colOf(o)) continue;
+      // home trains joined to each other first (SCL 12 · 5 on an SCL table), then everything else
+      if ((isHome(x) && isHome(o)) !== !pass) continue;
       const eo = ends(o); if (!eo) continue;
+      let ok = false, core = false;
       if (linkKind(l) !== "conn") {
         // through cars: a train that splits off or joins partway (SCL 21 -> 23 at Jacksonville) shares the column too
         const at = l.stationId, stopsAt = y => (y.stops || []).some(s => s.tableId === T && s.stationId === at);
         // (one of the two stopping there is enough: RF&P 9-75 is printed only as far as Fredericksburg on SCL Table 2, and SCL 9 takes over at Richmond)
-        if (!at || stopsAt(x) || stopsAt(o)) { join(x.id, o.id); joinC(x.id, o.id); }
-      } else if (ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1])) join(x.id, o.id);
+        // …or another road's train with no column of its own goes with the one train of this road it runs through with (SCL 97 with RF&P 91 on RF&P Table 1)
+        ok = !at || stopsAt(x) || stopsAt(o) || (!!pass && !homeOf(x.id) !== !homeOf(o.id)); core = true;
+      } else ok = ex[1] === eo[0] && (!l.stationId || l.stationId === ex[1]);
+      if (!ok || join2(x.id, o.id, core, !pass)) continue;
+      // both already sit in a column of their own railroad's train: a repeat column of the other road's train goes with this one instead
+      const fx = isHome(x) ? o : x, hx = fx === x ? o : x;
+      const cp = trs.find(y => y.copyOf === fx.id && !colOf(y) && !homeOf(y.id) && find(y.id) === y.id);
+      if (cp) join2(cp.id, hx.id, core);
     }
   }
   const groups = new Map(); for (const x of trs) { const r = find(x.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x); }
