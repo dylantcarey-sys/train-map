@@ -18,4 +18,5 @@ Repeat visits already reuse lines, stations and routes saved in the browser; the
 3. Move the built-in timetable (~4 MB of CSV inside index.html) to a compressed file loaded alongside the page.
 
 ## Desk: changes to make later
+- Tables the Guide prints without a number or letter (the Little Rock condensed table, both RF&P tables): Dylan gave them numbers so the Desk works. Let a table have no number (named by railroad and title instead) and keep Guide order by page.
 (done 2026-10-12: marks box, table view width and two-direction layout, Add trains picker/ticks)
