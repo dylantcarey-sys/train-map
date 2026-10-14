@@ -59,3 +59,4 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - A mark that changes a time on certain days ("On Sundays operates 7 minutes earlier") means a separate run on those days, entered as its own train, not a change to this one.
 - Trains of railroads with no tables yet are "Future railroad" placeholders and aren't flagged as problems.
 - Mixed trains (passengers and freight) get the "Mixed service" tag.
+- Condensed tables often print no date; a missing date on a condensed table isn't a problem.
