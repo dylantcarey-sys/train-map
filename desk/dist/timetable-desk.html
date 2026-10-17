@@ -2856,7 +2856,9 @@ document.addEventListener("input", e => {
 document.addEventListener("change", e => { if (e.target.id === "dKind") e.target.dispatchEvent(new Event("input", { bubbles: true })); });
 
 function tableDialog(existing) {
-  const src = curSource(); const t = existing || { rr: LS.get("rr", ""), tz: "ET", basis: src?.basis || "Standard time" };
+  // a new table's time zone starts as the zone of the table added most recently (any railroad)
+  const lastTz = () => { const byNew = S.tables.filter(x => x.createdAt && x.tz).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]; return byNew?.tz || LS.get("lastTz", "") || curTable()?.tz || "ET"; };
+  const src = curSource(); const t = existing || { rr: LS.get("rr", ""), tz: lastTz(), basis: src?.basis || "Standard time" };
   // a new table starts with the marks of the table before it: the one you're on if it's the same railroad, else that railroad's latest
   const cur0 = curTable(), sameRR = S.tables.filter(x => (x.rr || "") === (t.rr || "")).sort(guideOrder);
   const seedTbl = existing ? null : (cur0 && (cur0.rr || "") === (t.rr || "") ? cur0 : sameRR[sameRR.length - 1] || cur0 || null);
@@ -2906,6 +2908,7 @@ function tableDialog(existing) {
     const body = { ...(existing || { rows: [] }), hosted: $("dHosted").checked, condensed: $("dCondensed").checked, marks: cleanMarks, rr, tableNo: no, page: $("dPage").value.trim(), title: $("dTitle").value.trim(), tableDateText: dt, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: $("dTz").value, basis: $("dBasis").value, notes: $("dTNotes").value };
     const id = existing?.id || `${rr.replace(/[^A-Za-z0-9]/g, "")}-${no.replace(/[^A-Za-z0-9]/g, "")}-${uid().slice(0, 4)}`;
     delete body.id; delete body.part; LS.set("rr", rr);
+    if (!existing) { body.createdAt = new Date().toISOString(); LS.set("lastTz", body.tz); }
     remember(`${tablesPath()}/${id}`, existing || null);
     try { await S.db.doc(`${tablesPath()}/${id}`).set(body); } catch { return "Couldn't save the table."; }
     const picked = [...document.querySelectorAll("#dRosterList [data-rpick]:checked")].map(c => c.dataset.rpick);
@@ -3140,19 +3143,21 @@ document.addEventListener("change", e => { const c = e.target.closest?.("[data-p
 function addSeveralDialog() {
   const t = curTable(); if (!t) return;
   dialog(`<h2>Add trains</h2>
-    <label class="f"><span>Train numbers, in the order the table prints them</span><textarea id="dNos" rows="5" placeholder="e.g. 71, 73, 75, 77&#10;or one per line"></textarea></label>
-    <p class="small muted">One number or several, separated by commas, spaces or new lines. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>. Leave it blank to start one train whose number you'll fill in later.</p>
+    <label class="f"><span>Train numbers, in the order the table prints them</span><textarea id="dNos" rows="5" placeholder="e.g. 71, 73, 75, 77&#10;or one per line; add a name with a dash: 17 - The Missouri River Eagle"></textarea></label>
+    <p class="small muted">One number or several, separated by commas, spaces or new lines. To give a train its name as you add it, follow the number with a dash and the name: <b>17 - The Missouri River Eagle</b>. They're added to ${esc(tableName(t))} after the trains already there. Put a railroad first for another road's train, e.g. <b>D&amp;H 35</b>. Leave it blank to start one train whose number you'll fill in later.</p>
     <details style="margin-top:6px"><summary class="small">Pick numbers from another table</summary>
       <select id="dNosFrom" style="margin-top:6px"><option value="">Choose a table…</option>${S.tables.filter(x => x.id !== t.id && trainsInTableOf(x.id).length).map(x => `<option value="${esc(x.id)}">${esc(tableName(x))} · ${trainsInTableOf(x.id).length} trains</option>`).join("")}</select>
       <div id="dNosPick" class="pick-list" style="margin-top:6px"></div>
     </details>
     <p class="small muted" style="margin:8px 0 0">Next you choose whether to bring in the trains with their stations and times, only the train numbers, or only the stations.${(S.tables.some(x => x.id !== t.id && (x.rows || []).length)) ? ` To copy another table's whole station list (with its section lines and miles), use <button type="button" class="linkish" id="dCopyRowsLink">Copy a table's stations</button>.` : ""}</p>`, "Next", () => {
     const raw = $("dNos").value.trim(); if (!raw) { setTimeout(() => $("btnNewTrain").click(), 0); return; }
-    const toks = raw.split(/[\n,;]+/).flatMap(part => { const m = part.trim().match(/^([A-Za-z][A-Za-z&.\-]*)\s+(\S+)$/); if (m && S.railroads.some(r => r.abbrev.toLowerCase() === m[1].toLowerCase())) return [{ rr: S.railroads.find(r => r.abbrev.toLowerCase() === m[1].toLowerCase()).abbrev, no: m[2] }]; return part.trim().split(/\s+/).filter(Boolean).map(no => ({ rr: t.rr, no })); });
+    // "17 - The Missouri River Eagle": a name after a spaced dash (or colon) goes with the number(s) before it
+    const toks = raw.split(/[\n,;]+/).flatMap(part0 => { const [part, ...nm] = part0.trim().split(/\s*:\s+|\s+[-–—]\s+/); const name = nm.join(" - ").trim(); const withName = x => name ? { ...x, name } : x;
+      const m = part.trim().match(/^([A-Za-z][A-Za-z&.\-]*)\s+(\S+)$/); if (m && S.railroads.some(r => r.abbrev.toLowerCase() === m[1].toLowerCase())) return [withName({ rr: S.railroads.find(r => r.abbrev.toLowerCase() === m[1].toLowerCase()).abbrev, no: m[2] })]; return part.trim().split(/\s+/).filter(Boolean).map(no => withName({ rr: t.rr, no })); });
     const here = trainsInTable(), all = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted);
     const seen = new Set(); const items = [];
     for (const k of toks) {
-      const key = k.rr + " " + k.no; if (seen.has(key)) continue; seen.add(key);
+      const key = k.rr + " " + k.no; if (seen.has(key)) { const it = items.find(x => x.rr === k.rr && x.no === k.no); if (it && k.name && !it.name) it.name = k.name; continue; } seen.add(key);
       if (here.some(x => trRR(x) === k.rr && x.trainNo === k.no)) { items.push({ ...k, kind: "here" }); continue; }
       const ex = all.filter(x => !mem(x) && trRR(x) === k.rr && x.trainNo === k.no);
       items.push(ex.length ? { ...k, kind: "exists", ex } : { ...k, kind: "new" });
@@ -3244,7 +3249,7 @@ function addSeveralStep2(items) {
   const short = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => `${tb.rr} ${tb.tableNo || "?"}`).join(", ") || "no table";
   const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
-    <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
+    <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}${x.name ? ` <span style="font-weight:400">${esc(x.name)}</span>` : ""}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
     ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="app">add again as a second appearance (its own name, days and stops)</option></select></label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
@@ -3293,6 +3298,8 @@ function addSeveralStep2(items) {
     for (const [i, x] of dupHere.entries()) { if (!isOn(x)) continue; const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
     let rowsAdded = 0, filled = 0;
     if (withStops && useIds.length) { rowsAdded = insertRowsInOrder(order, P); for (const id of useIds) filled += fillFromRows(id, P).added; }
+    // names typed with the numbers ("17 - The Missouri River Eagle") fill in trains that don't have one yet
+    for (const x of items) { if (!x.name || !isOn(x)) continue; for (const tr of trainsInTable()) if (trRR(tr) === x.rr && tr.trainNo === x.no && !(tr.trainName || "").trim()) edit(tr.id).trainName = x.name; }
     const nAdd = useIds.length + newIds.length; if (!nAdd) { notice("Nothing added."); render(); return; }
     notice(`Added ${nAdd} train${nAdd > 1 ? "s" : ""}${withStops && useIds.length ? ` (${useIds.length} brought in with ${filled} stop${filled === 1 ? "" : "s"})` : ""}${rowsAdded ? `, and ${rowsAdded} station row${rowsAdded === 1 ? "" : "s"}` : ""}.`);
     if (S.mode !== "grid") setMode("grid"); render();
