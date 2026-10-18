@@ -155,6 +155,8 @@ table.grid th.tr { text-align: center; min-width: 124px; padding: 3px 3px; }
 table.grid th.tr input { width: 64px; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 14px; padding: 2px 4px; }
 table.grid th.tr input.tname, table.grid th.tr select.tfreq { display: block; width: 116px; margin: 2px auto 0; font-family: var(--font-body, inherit); font-weight: 400; font-size: 11.5px; padding: 1px 3px; text-transform: none; letter-spacing: 0; color: var(--ink); text-align: center; }
 table.grid th.tr input.tname { font-style: italic; }
+table.grid th.tr button.eqchip { display: block; width: 116px; margin: 2px auto 0; font-size: 10.5px; font-weight: 400; padding: 1px 3px; text-transform: none; letter-spacing: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px dashed var(--rule); border-radius: 3px; }
+table.grid th.tr button.eqchip.set { color: var(--ink); border-style: solid; }
 table.grid th.tr .parts { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 4px; margin: 1px 0 2px; }
 table.grid th.tr .partno { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; border: 1px solid var(--rule-strong); border-radius: 3px; background: color-mix(in srgb, var(--accent, #4f7cac) 10%, var(--sheet)); }
 table.grid th.tr .partno button { padding: 0 3px; font-size: 11.5px; font-weight: 700; }
@@ -1562,7 +1564,7 @@ function renderTrainList() {
   if (!trs.length) { list.innerHTML = `<li class="empty">No trains in this table yet. Use <b>New train</b>, or switch to <b>Timetable grid</b> and add train columns.</li>`; return; }
   list.innerHTML = trs.map(tr => `<li><button data-id="${esc(tr.id)}" aria-current="${tr.id === S.trainId}"><span class="no">${esc(trLabel(tr))}</span><span class="nm">${esc(tr.trainName || "")} ${tagChips(tr)} <span class="muted small">${tStops(tr).filter(s => !s.pass && s.stationId).length} stops</span></span><span class="chip st-${tStatus(tr)}">${statusShort[tStatus(tr)]}</span></button></li>`).join("");
 }
-$("trainList").addEventListener("click", e => { const b = e.target.closest("button[data-id]"); if (!b) return; openTrainRecord(b.dataset.id, S.tableId); return; S.trainId = b.dataset.id; LS.set("train", S.trainId); setMode("train"); });
+$("trainList").addEventListener("click", e => { const b = e.target.closest("button[data-id]"); if (!b) return; openTrainRecord(b.dataset.id, S.tableId, true); return; S.trainId = b.dataset.id; LS.set("train", S.trainId); setMode("train"); });
 
 // ---------- entry: tabs ----------
 function setMode(m, stay) {
@@ -2517,6 +2519,38 @@ function copyRowsDialog() {
 }
 
 // ---------- grid view ----------
+// one consist row for several trains on this table at once ("Reclining seat coaches · Coaches only"), each from its first to its last station
+function consistBulkDialog(onlyId) {
+  const trs = trainsInTable().filter(x => !x.copyOf); if (!trs.length) return;
+  const ends = tr => { const st = Core.mergeStops(groupsFor(tr), tzOffFn()).stops.filter(x => x.stationId && !x.pass); return st.length ? [st[0].stationId, st[st.length - 1].stationId] : ["", ""]; };
+  const last = LS.get("bulkEq", { type: "Coaches", desc: "Coaches only" });
+  dialog(`<h2>Consist for ${onlyId ? esc(trLabel(trainDoc(onlyId))) : "several trains"}</h2>
+    <div class="fields">
+      <label class="f"><span>Car type</span><input id="dBqType" list="carTypesB" value="${esc(last.type || "")}" autocomplete="off"><datalist id="carTypesB">${CAR_TYPES.map(c => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      <label class="f"><span>Description</span><input id="dBqDesc" value="${esc(last.desc || "")}" placeholder="e.g. Coaches only" autocomplete="off"></label>
+    </div>
+    <label class="row small" style="gap:6px;margin:6px 0"><input type="checkbox" id="dBqEnds" checked> From / To: each train's first and last station (across all its tables)</label>
+    <fieldset style="margin-top:4px"><legend>For each train</legend>
+      <label class="row small" style="gap:6px"><input type="radio" name="dBqMode" value="replace" checked> Replace its consist with this row</label>
+      <label class="row small" style="gap:6px"><input type="radio" name="dBqMode" value="add"> Add this row to what it has</label>
+    </fieldset>
+    <div class="row" style="gap:6px;margin-top:8px;align-items:center"><b class="small">Trains</b><button type="button" class="small-btn" id="dBqAll">Tick all</button><button type="button" class="small-btn" id="dBqNone">Clear</button></div>
+    <div class="pick-list" style="max-height:300px;overflow:auto">${trs.map(x => { const c = consistText(x); return `<label class="pick-row"><input type="checkbox" data-bq="${esc(x.id)}" ${!onlyId || x.id === onlyId ? "checked" : ""}><span class="pick-st"><b>${esc(trLabel(x))}</b> ${esc(x.trainName || "")}</span><span class="pick-t small muted">${esc(c || "no consist yet")}</span></label>`; }).join("")}</div>`, "Apply", () => {
+    const type = $("dBqType").value.trim(), desc = $("dBqDesc").value.trim(); if (!type && !desc) return "Enter a car type or a description.";
+    const ids = [...document.querySelectorAll("[data-bq]:checked")].map(c => c.dataset.bq); if (!ids.length) return "Tick at least one train.";
+    const mode = document.querySelector('input[name="dBqMode"]:checked')?.value || "replace", withEnds = $("dBqEnds").checked;
+    LS.set("bulkEq", { type, desc });
+    for (const id of ids) {
+      const w = edit(id), [from, to] = withEnds ? ends(trainDoc(id)) : ["", ""];
+      const row = { type, ...(desc ? { desc } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) };
+      if (mode === "replace") { w.equipment = [row]; if (w.consist) delete w.consist; }
+      else if (!(w.equipment || []).some(e => (e.type || "") === type && (e.desc || "") === desc)) w.equipment = [...(w.equipment || []), row];
+    }
+    notice(`Consist ${mode === "replace" ? "set" : "added"} on ${ids.length} train${ids.length === 1 ? "" : "s"}.`); render();
+  });
+  $("dBqAll").onclick = () => document.querySelectorAll("[data-bq]").forEach(c => c.checked = true);
+  $("dBqNone").onclick = () => document.querySelectorAll("[data-bq]").forEach(c => c.checked = false);
+}
 function renderGrid(el, t) {
   $("entryHint").textContent = "Enter moves down; Tab moves right.";
   // a train that splits off from, or joins, another can be shown in that train's column ("part" of the column), like 31 / 31-77 in the Guide
@@ -2557,6 +2591,7 @@ function renderGrid(el, t) {
         ${partsOf(tr).length ? `<div class="parts">${partsOf(tr).map(x => `<span class="partno" title="${esc(`No. ${x.trainNo || "?"}${x.trainName ? " " + x.trainName : ""} — shown in this column. Click to open it.`)}"><button class="ghost" data-openpart="${esc(x.id)}">${esc((trRR(x) !== trRR(tr) ? trRR(x) + " " : "") + (x.trainNo || "?"))}</button><button class="ghost partx" data-detach="${esc(x.id)}" title="Give No. ${esc(x.trainNo || "")} its own column again" aria-label="Separate No. ${esc(x.trainNo || "")}">×</button></span>`).join("")}</div>` : mem(tr)?.printedAs ? `<span class="tn">${esc("printed " + mem(tr).printedAs)}</span>` : ""}
         ${tr.copyOf ? `<span class="tn" title="A second column showing the same train and times. Its times are edited in the train's own column.">repeat column</span>` : ""}
         <input class="tname" data-train="${esc(tr.id)}" data-k="tname" value="${esc(tr.trainName || "")}" placeholder="Name" autocomplete="off" aria-label="Train name" title="${esc(tr.trainName || "Train name")}">
+        ${(() => { const c = consistText(tr); return `<button type="button" class="ghost eqchip ${c ? "set" : ""}" data-eqtrain="${esc(tr.id)}" title="${esc(c ? "Consist: " + c + " (click to add or replace)" : "No consist entered: click to add")}">${esc(c || "＋ consist")}</button>`; })()}
         ${freqSelect(tr.frequency || "Daily", false, `class="tfreq" data-train="${esc(tr.id)}" data-k="tfreq" aria-label="Days the train runs" title="${esc(tr.frequency || "Daily")}${tr.freqAuto ? " (set by the first stop's mark)" : ""}"`)}
         <button class="chip st-${tStatus(tr)}" data-train="${esc(tr.id)}" data-k="status" title="Click to advance this train's status">${statusShort[tStatus(tr)]}</button>${tr.tags?.length ? `<div>${tagChips(tr)}</div>` : ""}
         <button class="ghost danger delcol" data-delcol="${esc(tr.id)}" title="Remove this train from the table" aria-label="Remove column">✕</button>
@@ -2585,12 +2620,14 @@ function renderGrid(el, t) {
       <label class="row small" style="gap:6px;align-items:center;margin:0"><input type="checkbox" id="chkColNums" ${showCol ? "checked" : ""}> Show column numbers</label>
       ${showCol ? `<button id="btnApplyCol" class="primary small-btn" ${S.colPending.size ? "" : "disabled"}>Apply column numbers</button><button id="btnResetCol" class="small-btn" ${S.colPending.size ? "" : "disabled"}>Reset</button><span class="small muted" id="colHint">${S.colPending.size ? `${S.colPending.size} column${S.colPending.size > 1 ? "s" : ""} to move` : "Type new column numbers above the train numbers, then apply them together."}</span>` : ""}
     </div>` : ""}
-    ${trs.length > 1 ? `<div class="row" style="gap:8px;align-items:center"><button id="btnGridColumns" class="small-btn" title="Which trains share a column in the read-only table view, and the column headings">Columns in the table view…</button></div>` : ""}
+    <div class="row" style="gap:8px;align-items:center">${trs.length > 1 ? `<button id="btnGridColumns" class="small-btn" title="Which trains share a column in the read-only table view, and the column headings">Columns in the table view…</button>` : ""}${trs.length ? `<button id="btnGridConsist" class="small-btn" title="Give several trains on this table the same consist row at once (e.g. Reclining seat coaches, Coaches only)">Consist for several trains…</button>` : ""}</div>
     <p class="small muted" style="margin:0">Moving rows only changes this grid; each train keeps its own stop order (see One train). The ↓/↑ beside a train number shows whether it reads down or up the table, which decides where a new time you type here goes in its stops. Columns stay in the order you add them; use ‹ › to rearrange. A train already entered on another table can be added with <b>Add existing train</b> on the left.</p>`;
   const g = $("grid");
   wireMatch(el);
   $("chkOrd").onchange = e => { LS.set("gridOrderCol", e.target.checked); renderEntry(); };
   if ($("btnGridColumns")) $("btnGridColumns").onclick = () => columnDialog((trainsInTable().find(x => x.id === S.trainId) || trs[0]).id, true);
+  if ($("btnGridConsist")) $("btnGridConsist").onclick = () => consistBulkDialog(null);
+  g.querySelectorAll("[data-eqtrain]").forEach(b => b.onclick = () => consistBulkDialog(b.dataset.eqtrain));
   $("btnAddExGrid").onclick = addSeveralDialog;
   if ($("chkColNums")) $("chkColNums").onchange = e => { LS.set("gridColNums", e.target.checked); renderEntry(); };
   // typed column numbers wait for "Apply"; each typed train goes to its number, the rest keep their order around them
@@ -4484,7 +4521,7 @@ function applyPhoneMode() {
   $("btnPhoneEdit").onclick = () => { LS.set("phoneEdit", S.viewOnly); applyPhoneMode(); showPage(S.page || "home"); scrollTo(0, 0); };
 }
 phoneMQ.addEventListener?.("change", () => { applyPhoneMode(); showPage(S.page || "home"); });
-function openTrainRecord(id, tableId) { mtSel = id; if (tableId && trainDoc(id)?.tables?.[tableId]) { S.tableId = tableId; LS.set("table", tableId); } mtFilter = "all"; LS.set("mtAll", false); showPage("trains"); scrollTo(0, 0); setTimeout(() => document.querySelector(".mt-head")?.scrollIntoView({ block: "start" }), 50); }
+function openTrainRecord(id, tableId, filterTable) { mtSel = id; if (tableId && trainDoc(id)?.tables?.[tableId]) { S.tableId = tableId; LS.set("table", tableId); } if (filterTable && tableId && tableById(tableId)) { mtFilter = "table"; mtTable = tableId; mtAllPicked = false; } else mtFilter = "all"; LS.set("mtAll", false); showPage("trains"); scrollTo(0, 0); setTimeout(() => document.querySelector(".mt-head")?.scrollIntoView({ block: "start" }), 50); }
 // a table as printed: stations down the side, one column per train, times as text
 // columns for the read-only table view: trains that run on from one another on this table share a column.
 // Automatic: a through-car link or a connection where one train ends at the station where the other starts (on this table).
@@ -4592,7 +4629,7 @@ function renderTableView(el, t) {
   ${marksLine(t, [...used])}
   ${t.notes ? `<p class="small muted" style="margin:0;white-space:pre-line">${esc(t.notes)}</p>` : ""}
   <p class="small muted" style="margin:0">Times are as printed (${esc(t.tz || "ET")}, ${esc(t.basis || "time basis not stated")}). <b>Bold</b> times are p.m.</p>`;
-  el.querySelectorAll("[data-trview]").forEach(b => b.onclick = () => openTrainRecord(b.dataset.trview, t.id));
+  el.querySelectorAll("[data-trview]").forEach(b => b.onclick = () => openTrainRecord(b.dataset.trview, t.id, true));
   el.querySelectorAll("[data-colname]").forEach(b => b.onclick = () => colHeadingDialog(t.id, b.dataset.colname));
 }
 // type a heading for one table-view column (kept on the column's main train for this table)
