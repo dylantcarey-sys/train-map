@@ -519,7 +519,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     const q = $("trainSearch").value.trim().toLowerCase(), onlyRun = $("onlyRunning").checked, onlyView = $("onlyInView").checked;
     const ext = onlyView ? view.extent : null;
     const inView = t => { const o = S.graphics.get(t.key); if (o?.pos) return ext.contains(new Point({ x: o.pos.x, y: o.pos.y, spatialReference: WM })); return !onlyRun && t.stops.some(s => ext.contains(new Point({ x: s.p[0], y: s.p[1], spatialReference: WM }))); };
-    const keep = t => !S.rrOff.has(t.rr) && usesLine(t) && (!q || (t.id + " " + t.name + " " + t.alsoCalled).toLowerCase().includes(q)) && (!onlyRun || S.graphics.get(t.key)?.pos) && (!ext || inView(t));
+    const keep = t => !S.rrOff.has(t.rr) && usesLine(t) && (!q || (t.id + " " + t.name + " " + t.alsoCalled + " " + (t.names || "")).toLowerCase().includes(q)) && (!onlyRun || S.graphics.get(t.key)?.pos) && (!ext || inView(t));
     // one line per train; a train in sections is listed once, with its sections under it
     const groups = new Map();
     for (const t of S.trips) { const g = t.section ? t.base : t.key; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(t); }
@@ -589,7 +589,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     else line = `Between ${esc(t.stops[p.leg].name)} and <b>${esc(t.stops[p.leg + 1].name)}</b>`;
     const rows = t.stops.map((s, i) => `<tr class="${cur !== null && i === cur ? "here" : cur !== null && i < cur ? "done" : ""}"><td>${esc(s.name)}${s.mark ? ` <b title="${esc(s.markMeaning)}">${esc(s.mark)}</b>` : ""}<div class="hint" style="margin:0">${esc([s.town, s.state].filter(Boolean).join(", "))}${s.tz !== "ET" ? " · " + esc(s.tz) : ""}</div>${s.mark ? `<div class="hint mk" style="margin:0"><b>${esc(s.mark)}</b> ${esc(s.markMeaning || "(meaning not entered)")}</div>` : ""}${s.via?.length ? `<div class="hint" style="margin:0">by way of ${esc(s.via.map(v => S.stations.get(v)?.name || v).join(", "))}</div>` : ""}</td><td class="t">${t12(s.arr)}${s.arr && s.dep ? "<br>" : ""}${t12(s.dep)}</td></tr>`).join("");
     $("infoBody").innerHTML = `<h3 style="color:${o.color}">${esc(t.id)}${t.name ? " · " + esc(t.name) : ""}</h3>
-      <div class="hint" style="margin:0">${esc(t.rrName)}${t.alsoCalled ? " · also " + esc(t.alsoCalled) : ""}</div>
+      <div class="hint" style="margin:0">${esc(t.rrName)}${t.alsoCalled ? " · also " + esc(t.alsoCalled) : ""}</div>${t.names && /\(/.test(t.names) ? `<div class="hint" style="margin:0">Names: ${esc(t.names)}</div>` : ""}
       <div class="hint" style="margin:2px 0 0">${esc(t.freq || "Daily")} · Table ${esc(t.tables.join(", "))}${back ? ` · left ${back === 1 ? "yesterday" : back + " days ago"}` : ""}</div>
       <div style="margin-top:6px">${line}</div>
       ${t.tags?.length ? `<div class="hint">${t.tags.map(x => `<span class="tag">${esc(x)}</span>`).join(" ")}</div>` : ""}${t.shiftNote ? `<div class="hint" style="color:var(--warn)">${esc(t.shiftNote)} The map uses the changed times.</div>` : ""}

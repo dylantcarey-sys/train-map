@@ -641,6 +641,41 @@ function endCheckFor(tr, T, tables) {
   return "";
 }
 const CAR_TYPES = ["Coaches", "Reclining seat coaches", "Sleeping car", "Parlor car", "Dining car", "Lounge car", "Club car", "Observation car", "Dome car", "Buffet car", "Snack bar coach", "Tavern car", "Grill car", "Café car", "Dormitory car", "Baggage car", "Mail car", "Express car"];
+// a train that carries several names at once (UP 103/104: City of Los Angeles / City of San Francisco / City of Denver …),
+// each with where it applies. The train name becomes all of them, "A / B / C", so every list and the export show them.
+const namesText = tr => (tr.names || []).filter(n => (n.name || "").trim()).map(n => n.name.trim() + (n.from && n.to ? ` (${stName(n.from)}–${stName(n.to)})` : "")).join("; ");
+const syncNames = w => { const ns = (w.names || []).map(n => (n.name || "").trim()).filter(Boolean); if ((w.names || []).length) w.trainName = ns.join(" / "); };
+function namesFieldHTML(tr) {
+  const L = tr.names || [];
+  return `<div class="f" style="grid-column: 1 / -1"><span>Shared names <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">(when the train carries several names at once; From / To is where each applies, blank = the whole train)</span></span>
+    ${L.length ? `<div class="scroll"><table class="sheet" id="nmTable" style="font-size:12.5px"><thead><tr><th>Name</th><th>From</th><th>To</th><th></th></tr></thead><tbody>${L.map((n, i) => `<tr data-n="${i}">
+      <td><input data-nq="name" value="${esc(n.name || "")}" placeholder="e.g. City of Denver" autocomplete="off" aria-label="Name"></td>
+      <td><input data-nst="from" class="${n.from ? "set" : ""}" value="${esc(n.from ? stLabel(n.from) : "")}" placeholder="End A (blank = whole train)" autocomplete="off" aria-label="Name applies from"></td>
+      <td><input data-nst="to" class="${n.to ? "set" : ""}" value="${esc(n.to ? stLabel(n.to) : "")}" placeholder="End B" autocomplete="off" aria-label="Name applies to"></td>
+      <td class="rowbtns"><button class="ghost" data-nmove="${i}" data-by="-1" title="Move up" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-nmove="${i}" data-by="1" title="Move down" aria-label="Move down" ${i < L.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-ndel="${i}" title="Remove name" aria-label="Remove name">✕</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+    <div class="row" style="gap:6px;margin-top:4px"><button type="button" class="small-btn" id="btnAddName">＋ ${L.length ? "Add a name" : "Give this train several names"}</button></div></div>`;
+}
+function wireNames(id) {
+  const list = w => (w.names ||= []);
+  const after = () => { renderTrainList(); renderEntry(); };
+  const add = () => { const w = edit(id); const L = list(w); if (!L.length && (w.trainName || "").trim()) w.trainName.split(/\s+\/\s+/).forEach(nm => L.push({ name: nm.trim() })); L.push({ name: "" }); syncNames(w); after(); const n = trainDoc(id).names.length - 1; setTimeout(() => $("nmTable")?.querySelector(`tr[data-n="${n}"] [data-nq="name"]`)?.focus(), 0); };
+  $("btnAddName").onclick = add;
+  const tb = $("nmTable"); if (!tb) return;
+  tb.addEventListener("input", e => { const inp = e.target, r = inp.closest("tr[data-n]"); if (!r || !inp.dataset.nq) return; const w = edit(id); list(w)[+r.dataset.n].name = inp.value; syncNames(w); const f = $("fName"); if (f) f.value = w.trainName || ""; renderTrainList(); });
+  tb.querySelectorAll("[data-nst]").forEach(inp => {
+    const k = inp.dataset.nst, row = () => +inp.closest("tr[data-n]").dataset.n;
+    inp.addEventListener("input", () => { if (!inp.value.trim()) { delete list(edit(id))[row()][k]; inp.classList.remove("set"); return; } openPicker(inp, st => { list(edit(id))[row()][k] = st.id; inp.value = st.label; inp.classList.add("set"); }); });
+    inp.addEventListener("keydown", e => { if (pickerKeys(e)) return; if (e.key === "Tab" && !e.shiftKey && k === "to" && !inp.closest("tr").nextElementSibling) { e.preventDefault(); add(); } });
+    inp.addEventListener("blur", () => setTimeout(() => { if (pick?.input === inp) closePicker(); inp.value = stLabel(trainDoc(id)?.names?.[row()]?.[k]); }, 150));
+  });
+  tb.addEventListener("keydown", e => { if (e.key !== "Enter" || !e.target.dataset.nq) return; e.preventDefault(); const r = e.target.closest("tr[data-n]"); const next = r.nextElementSibling; if (next) next.querySelector("[data-nq]")?.focus(); else add(); });
+  tb.addEventListener("click", e => {
+    const mv = e.target.closest("[data-nmove]"), del = e.target.closest("[data-ndel]"); if (!mv && !del) return; const w = edit(id), L = list(w);
+    if (del) { L.splice(+del.dataset.ndel, 1); if (!L.length) delete w.names; else syncNames(w); }
+    else { const i = +mv.dataset.nmove, j = i + +mv.dataset.by; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; syncNames(w); }
+    after();
+  });
+}
 function wireEquipment(id) {
   const tb = $("eqTable"); if (!tb) return;
   const list = w => (w.equipment ||= []);
@@ -1336,10 +1371,12 @@ function combineTrains(keepId, dropId) {
   const keep = edit(keepId), drop = trainDoc(dropId);
   for (const [tid, m] of Object.entries(drop.tables || {})) if (!keep.tables[tid]) keep.tables[tid] = m;
   keep.stops = joinLegStops(keep.stops || [], drop.stops || []);
+  if ((drop.names || []).length) { keep.names = [...(keep.names || []), ...drop.names.filter(n => !(keep.names || []).some(k => k.name === n.name))]; }
   for (const f of ["trainName", "alsoCalled", "consist", "notes", "throughName"]) {
     if (!keep[f]) keep[f] = drop[f] || ""; else if (drop[f] && drop[f] !== keep[f] && f !== "trainName") keep[f] = keep[f] + (f === "alsoCalled" ? ", " : "\n") + drop[f];
   }
-  if (drop.trainName && keep.trainName && drop.trainName !== keep.trainName) keep.alsoCalled = [keep.alsoCalled, drop.trainName].filter(Boolean).join(", ");
+  if ((keep.names || []).length) syncNames(keep);
+  else if (drop.trainName && keep.trainName && drop.trainName !== keep.trainName) keep.alsoCalled = [keep.alsoCalled, drop.trainName].filter(Boolean).join(", ");
   keep.equipment = [...(keep.equipment || []), ...(drop.equipment || [])];
   if (keep.tags || drop.tags) keep.tags = [...new Set([...(keep.tags || []), ...(drop.tags || [])])];
   // links from both records come over; links that pointed at the dropped record now point at the kept one
@@ -1454,9 +1491,10 @@ function renderTrain(el, t, tr) {
     <div class="fields">
       <label class="f"><span>Railroad</span><select id="fRR">${rrOptions(trRR(tr))}</select></label>
       <label class="f"><span>Train number</span><input id="fNo" value="${esc(tr.trainNo || "")}" placeholder="e.g. 4" autocomplete="off"></label>
-      <label class="f" style="grid-column: span 2"><span>Train name</span><input id="fName" value="${esc(tr.trainName || "")}" placeholder="e.g. Spirit of St. Louis" autocomplete="off"></label>
+      <label class="f" style="grid-column: span 2"><span>Train name</span><input id="fName" value="${esc(tr.trainName || "")}" placeholder="e.g. Spirit of St. Louis" autocomplete="off" ${(tr.names || []).length ? `readonly title="Set from the shared names below"` : ""}></label>
       <label class="f"><span>Frequency</span>${freqSelect(tr.frequency || "Daily", false, `id="fFreq"`)}</label>
       <label class="f" style="grid-column: span 2"><span>Also called</span><input id="fAka" value="${esc(tr.alsoCalled || "")}" placeholder="Other names, e.g. Cincinnati Limited" autocomplete="off"></label>
+      ${namesFieldHTML(tr)}
       <div class="f" style="grid-column: span 2"><span>Type of service</span><div class="tagbox">${TRAIN_TAGS.map(([k, l, d]) => `<label class="row small" style="gap:6px" title="${esc(d)}"><input type="checkbox" data-tag="${k}" ${(tr.tags || []).includes(k) ? "checked" : ""}> ${esc(l)} <span class="muted">(passengers and freight)</span></label>`).join("")}</div></div>
     </div>
     ${otherTablesLine(tr)}
@@ -1535,7 +1573,8 @@ function renderTrain(el, t, tr) {
   // only redraw the "same train?" box, so the click that moved focus away isn't lost
   $("fNo").addEventListener("change", () => { const box = $("matchBox"); if (box) { box.innerHTML = matchBanner(trainDoc(tr.id)); wireMatch(box); } });
   $("fRR").onchange = e => { upd(w => w.rr = e.target.value); renderTrainList(); renderEntry(); };
-  bindText("fName", (w, v) => w.trainName = v);
+  bindText("fName", (w, v) => { if (!(w.names || []).length) w.trainName = v; });
+  wireNames(tr.id);
   bindText("fAka", (w, v) => w.alsoCalled = v);
   el.querySelectorAll("[data-tag]").forEach(cb => cb.onchange = () => { upd(w => { const t = new Set(w.tags || []); cb.checked ? t.add(cb.dataset.tag) : t.delete(cb.dataset.tag); if (t.size) w.tags = [...t]; else delete w.tags; }); renderTrainList(); });
   if ($("fConsist")) bindText("fConsist", (w, v) => w.consist = v);
@@ -2241,7 +2280,7 @@ function renderGrid(el, t) {
         <div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:center"><input data-train="${esc(tr.id)}" data-k="no" value="${esc(tr.trainNo || "")}" placeholder="No." aria-label="Train number"><button class="ghost dirbtn ${mem(tr)?.dir ? "set" : ""}" data-dir="${esc(tr.id)}" title="${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "Reads down the table" : "Reads up the table"}${mem(tr)?.dir ? "" : " (worked out from its times)"}. Click to switch. This only decides where new stops go; it doesn't reorder anything.">${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "↓" : "↑"}</button></div>
         ${partsOf(tr).length ? `<div class="parts">${partsOf(tr).map(x => `<span class="partno" title="${esc(`No. ${x.trainNo || "?"}${x.trainName ? " " + x.trainName : ""} — shown in this column. Click to open it.`)}"><button class="ghost" data-openpart="${esc(x.id)}">${esc((trRR(x) !== trRR(tr) ? trRR(x) + " " : "") + (x.trainNo || "?"))}</button><button class="ghost partx" data-detach="${esc(x.id)}" title="Give No. ${esc(x.trainNo || "")} its own column again" aria-label="Separate No. ${esc(x.trainNo || "")}">×</button></span>`).join("")}</div>` : mem(tr)?.printedAs ? `<span class="tn">${esc("printed " + mem(tr).printedAs)}</span>` : ""}
         ${tr.copyOf ? `<span class="tn" title="A second column showing the same train and times. Its times are edited in the train's own column.">repeat column</span>` : ""}
-        <input class="tname" data-train="${esc(tr.id)}" data-k="tname" value="${esc(tr.trainName || "")}" placeholder="Name" autocomplete="off" aria-label="Train name" title="${esc(tr.trainName || "Train name")}">
+        <input class="tname" data-train="${esc(tr.id)}" data-k="tname" value="${esc(tr.trainName || "")}" placeholder="Name" autocomplete="off" aria-label="Train name" title="${esc((tr.names || []).length ? namesText(tr) + " (set on the train's page)" : tr.trainName || "Train name")}" ${(tr.names || []).length ? "readonly" : ""}>
         ${freqSelect(tr.frequency || "Daily", false, `class="tfreq" data-train="${esc(tr.id)}" data-k="tfreq" aria-label="Days the train runs" title="${esc(tr.frequency || "Daily")}${tr.freqAuto ? " (set by the first stop's mark)" : ""}"`)}
         <button class="chip st-${tStatus(tr)}" data-train="${esc(tr.id)}" data-k="status" title="Click to advance this train's status">${statusShort[tStatus(tr)]}</button>${tr.tags?.length ? `<div>${tagChips(tr)}</div>` : ""}
         <button class="ghost danger delcol" data-delcol="${esc(tr.id)}" title="Remove this train from the table" aria-label="Remove column">✕</button>
@@ -3079,7 +3118,7 @@ async function allTrainsForExport() {
   }
   return out;
 }
-const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via"];
+const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via", "names"];
 async function exportCSV() {
   if (!S.dl) { notice("Downloads aren't available in this view."); return; }
   const csv = await buildCSV();
@@ -3145,7 +3184,7 @@ async function buildCSV() {
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
       const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}Table ${tno(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
-      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere]);
+      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr)]);
     });
     }
   }
@@ -3754,7 +3793,7 @@ function splitPairAt(id, pt, merged, o = {}) {
   const oldRR = trRR(A), oldNo = A.trainNo, oldTo = links(A, "to").map(l => (l.trainId && trainDoc(l.trainId)) || allTrainDocs().find(x => trRR(x) === l.rr && String(x.trainNo) === String(l.trainNo))).filter(Boolean).map(x => x.id);
   const idB = uid(); remember(`${trainsPath()}/${idB}`, null);
   const tablesOf = list => Object.fromEntries(Object.entries(A.tables || {}).filter(([k]) => !pt || list.some(s => s.tableId === k)).map(([k, v]) => [k, { ...v, order: (v.order ?? 0) + (list === stopsB ? 0.5 : 0) }]));
-  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB };
+  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.names ? { names: structuredClone(A.names) } : {}), ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB };
   if (old) B.throughTo = old;
   const link = (rr, trainNo, trainId) => [{ kind: "cars", rr, trainNo, ...(trainId ? { trainId } : {}), ...(at ? { stationId: at } : {}) }];
   S.work.set(idB, B); edit(idB); B.throughFrom = link(rrA, na, A.id);
@@ -3816,7 +3855,7 @@ function splitSectionAt(id, i, j, merged, o) {
   }
   const idB = uid(); remember(`${trainsPath()}/${idB}`, null);
   const tablesOf = list => Object.fromEntries(Object.entries(A.tables || {}).filter(([k]) => list.some(s => s.tableId === k)).map(([k, v]) => [k, { ...v, order: (v.order ?? 0) + (list === stopsB ? 0.5 : 0) }]));
-  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB, equipment: eqB };
+  const B = { id: idB, rr: rrB, trainNo: nb, trainName: A.trainName || "", alsoCalled: A.alsoCalled || "", ...(A.names ? { names: structuredClone(A.names) } : {}), ...(A.tags ? { tags: [...A.tags] } : {}), frequency: A.frequency || "Daily", lines: A.lines || "", createdAt: new Date().toISOString(), tables: tablesOf(stopsB), stops: stopsB, equipment: eqB };
   S.work.set(idB, B); edit(idB);
   const first = stopsB[0].stationId, last = stopsB[stopsB.length - 1].stationId;
   const link = (rr, trainNo, trainId, at) => ({ kind: "cars", rr, trainNo, trainId, stationId: at });
