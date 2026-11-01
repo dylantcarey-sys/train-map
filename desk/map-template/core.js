@@ -91,7 +91,7 @@ const MapCore = (() => {
       const k = (r.source || "") + "|" + r.train_id;
       if (!by.has(k)) by.set(k, { key: k, id: r.train_id, section: r.section || "", base: r.section ? String(r.train_id).replace(/\s*\([^)]*\)\s*$/, "") : r.train_id, color: /^#[0-9a-f]{6}$/i.test(r.rr_color || "") ? r.rr_color : "", lineNames: String(r.lines || "").split(/[;\n]+/).map(x => x.trim()).filter(Boolean), source: r.source || "", sourceDate: r.source_date || "", rr: r.rr || "", rrName: r.railroad || "", no: r.train_no || "", name: r.train_name || "", alsoCalled: r.also_called || "", names: r.names || "", freq: r.frequency || "", consist: r.consist || "", notes: r.train_notes || "", tables: new Set(), status: r.status || "", from: r.continues_from || "", to: r.continues_as || "", stops: [] });
       const t = by.get(k); (r.tables || "").split(/;\s*/).filter(Boolean).forEach(x => t.tables.add(x));
-      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "", via: String(r.via || "").split(/;\s*/).filter(Boolean), tables: (r.tables || "").split(/;\s*/).filter(Boolean) });
+      t.stops.push({ seq: +r.stop_sequence || t.stops.length + 1, sid: r.station_id, name: r.station || r.station_id, town: r.city || "", state: r.state || "", arr: r.arrival || "", dep: r.departure || "", tz: r.tz || "ET", arrTz: r.arrival_tz || r.tz || "ET", depTz: r.departure_tz || r.tz || "ET", mark: r.mark || "", markMeaning: r.mark_meaning || "", notes: r.stop_notes || "", shared: r.stop_section === "shared", sdays: r.stop_days || "", via: String(r.via || "").split(/;\s*/).filter(Boolean), tables: (r.tables || "").split(/;\s*/).filter(Boolean) });
       if (!t.links) { const lk = (txt, dir, kind) => String(txt || "").split(/;\s*/).map(x => x.match(/^(.+?)(?: at (.+?) \((\S+)\))?$/)).filter(m => m && m[1].trim()).map(m => ({ id: m[1].trim(), sid: m[3] || "", at: m[2] || "", dir, kind }));
         t.links = [...lk(r.continues_from, "from", "cars"), ...lk(r.continues_as, "to", "cars"), ...lk(r.connects_from, "from", "conn"), ...lk(r.connects_to, "to", "conn")]; t.tags = String(r.tags || "").split(/;\s*/).filter(Boolean); }
     }
@@ -101,7 +101,7 @@ const MapCore = (() => {
       t.stops = t.stops.filter(s => toMin(s.arr) != null || toMin(s.dep) != null);
       if (t.stops.length < 2) continue;
       // stations entered top-to-bottom for a train that reads upward: times run backwards, so flip
-      const seq = t.stops.flatMap(s => [s.arr, s.dep].filter(x => toMin(x) != null).map(x => toMin(x) + (TZ_OFF[s.tz] ?? 0)));
+      const seq = t.stops.flatMap(s => [[s.arr, s.arrTz], [s.dep, s.depTz]].filter(x => toMin(x[0]) != null).map(([x, z]) => toMin(x) + (TZ_OFF[z || s.tz] ?? 0)));
       // (a drop of more than 12 hours is the train passing midnight, e.g. Princeton Junction 11:56 pm -> Princeton 12:02 am)
       let up = 0, down = 0; for (let i = 1; i < seq.length; i++) { const d = seq[i] - seq[i - 1]; if (d > 0 && d < 720 || d < -720) up++; else if (d < 0 || d >= 720) down++; }
       t.reversed = down > up;
@@ -124,7 +124,7 @@ const MapCore = (() => {
   function unroll(t) {
     let prev = null, add = 0;
     const step = (hhmm, tz, shift = 0) => { const m = toMin(hhmm); if (m == null) return null; let et = m + shift + (TZ_OFF[tz] ?? 0) + add; if (prev != null && et < prev - 5) { add += 1440; et += 1440; } prev = et; return et; };
-    for (const s of t.stops) { s.arrAbs = step(s.arr, s.tz, s.shift); s.depAbs = step(s.dep, s.tz, s.shift); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
+    for (const s of t.stops) { s.arrAbs = step(s.arr, s.arrTz || s.tz, s.shift); s.depAbs = step(s.dep, s.depTz || s.tz, s.shift); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
     // a minute's stop at every regular station given one time, so trains visibly pause (not at "on signal" / "on notice" stops)
     const flag = s => /on signal|on notice|notice to (the )?(agent|conductor)/i.test(s.markMeaning || "");
     for (let i = 1; i < t.stops.length - 1; i++) {

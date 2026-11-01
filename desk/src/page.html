@@ -973,7 +973,7 @@ const CAR_BLANKS = { type: "", desc: "", pts: "" };
 const blankish = v => v === "" || v === false || v == null || (Array.isArray(v) && !v.length);
 function compactTrain(body) {
   const out = { ...body };
-  if (Array.isArray(out.stops)) out.stops = out.stops.map(s => { const o = {}; for (const [k, v] of Object.entries(s)) if (!blankish(v) || k === "stationId" || k === "tableId") o[k] = v; return o; });
+  if (Array.isArray(out.stops)) out.stops = out.stops.map(s => { const o = {}; for (const [k, v] of Object.entries(s)) if (k[0] !== "_" && (!blankish(v) || k === "stationId" || k === "tableId")) o[k] = v; return o; });   // _fields are working values (merge bookkeeping), never stored
   if (Array.isArray(out.equipment)) out.equipment = out.equipment.map(e => { const o = {}; for (const [k, v] of Object.entries(e)) if (!blankish(v)) o[k] = v; return o; });
   for (const k of ["throughFrom", "throughTo", "linkTodos", "notSame"]) if (Array.isArray(out[k]) && !out[k].length) delete out[k];
   for (const k of ["notes", "trainName", "alsoCalled", "consist", "throughName", "description"]) if (out[k] === "") delete out[k];
@@ -1289,7 +1289,9 @@ const dupKeys = () => { const now = Date.now(); if (now - _dupAt > 400) { _dupAt
 const trLabel = tr => { if (tr.placeholder && !tr.trainNo) return `${trRR(tr)} ${tr.unnumbered ? "connection" : "placeholder"}${tr.description ? " · " + tr.description : ""}`; const base = `${trRR(tr)} ${tr.trainNo || "?"}`.trim(); return tr.trainNo && tr.trainName && dupKeys().has(`${trRR(tr)}|${tr.trainNo}`) ? `${base} (${tr.trainName})` : base; };
 const tableById = id => S.tables.find(x => x.id === id);
 const stopTz = (s, tables) => s.tz || S.stById.get(s.stationId)?.tz || (tables ? tables.get(s.tableId) : tableById(s.tableId))?.tz || "ET";
-const tzOffFn = tables => s => Core.TZ_OFF[stopTz(s, tables)] ?? 0;
+const tzOffFn = tables => Object.assign(s => Core.TZ_OFF[stopTz(s, tables)] ?? 0, { zone: s => stopTz(s, tables) });
+// the zone of one time at a stop: a merged stop can arrive in one zone and leave in another (North Platte, Huntington)
+const timeTz = (s, f, tables) => s["_" + f + "Tz"] || stopTz(s, tables);
 const groupsFor = tr => { const keys = Object.keys(tr.tables || {}); const order = new Map(S.tables.map((t, i) => [t.id, i])); keys.sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999)); return keys.map(k => ({ key: k, stops: (tr.stops || []).filter(s => s.tableId === k) })); };
 // replace the stops of table T inside w.stops, keeping other tables' stops where they are
 function setTableStops(w, list, T = S.tableId) {
@@ -3120,7 +3122,7 @@ async function allTrainsForExport() {
   }
   return out;
 }
-const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via", "names"];
+const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via", "names", "arrival_tz", "departure_tz"];
 async function exportCSV() {
   if (!S.dl) { notice("Downloads aren't available in this view."); return; }
   const csv = await buildCSV();
@@ -3167,7 +3169,7 @@ async function buildCSV() {
     const groups = keys.map(k => ({ key: k, stops: (tr.stops || []).filter(s => s.tableId === k && (!sec || !s.section || s.section === sec)) }));
     const { stops, conflicts } = Core.mergeStops(groups, tzOffFn(tables));
     const eff = Core.effectiveTimes(stops);
-    const clock = Core.dayClock(eff, i => stopTz(stops[i], tables));
+    const clock = Core.dayClock(eff, (i, f) => timeTz(stops[i], f, tables));
     const tl = keys.map(k => tables.get(k));
     const rr = tr.rr || tl[0]?.rr || "";
     const lowest = statusIdx(tStatus(tr));
@@ -3186,7 +3188,7 @@ async function buildCSV() {
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
       const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}Table ${tno(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
-      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr)]);
+      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
     });
     }
   }
@@ -3414,7 +3416,7 @@ function focusInTrain(o) {
 const allTrainsHere = () => [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && Object.keys(t.tables || {}).some(k => tableById(k)));
 const stName = id => S.stById.get(id)?.name || id || "?";
 const tblName = k => { const t = tableById(k); return t ? `${t.rr} Table ${t.tableNo || "?"}` : "another table"; };
-const toMinE = (v, s) => v ? ((Core.toMin(v) + (Core.TZ_OFF[stopTz(s)] ?? 0)) % 1440 + 1440) % 1440 : null;
+const toMinE = (s, f) => s[f] ? ((Core.toMin(s[f]) + (Core.TZ_OFF[timeTz(s, f)] ?? 0)) % 1440 + 1440) % 1440 : null;
 // everything that looks wrong about one train; each item says where to go to fix it
 const PROG = [["", "Not started"], ["working", "In progress"], ["check", "Needs checking"], ["done", "Done"], ["future", "Future railroad"]];
 const progOf = tr => futureRR(tr) ? "future" : tr.progress || ((tr.stops || []).some(s => s.stationId && (s.arr || s.dep)) ? "working" : "");
@@ -3455,7 +3457,8 @@ function masterProblems(tr, byNo) {
     const fx = [fix(`Open ${trLabel(tr)}'s links`, tables0[0], { focus: "links" })];
     if (!c.stationId) out.push({ kind: "link", warn: true, text: `The ${what} ${dir === "to" ? "to" : "from"} ${other} has no station filled in.`, fixes: fx });
     if (!c.phId && !c.trainId && c.rr && futureRR({ rr: c.rr })) continue;   // a link to a railroad not entered yet
-    if (c.stationId && !tr.unnumbered && !myStops.some(s => s.stationId === c.stationId)) out.push({ kind: "link", warn: true, text: `Its ${what} ${dir === "to" ? "to" : "from"} ${other} is${at}, but ${trLabel(tr)} doesn't stop there on any of its tables.`, fixes: fx });
+    // (a train with no stops yet is already flagged for that, so its links aren't)
+    if (c.stationId && !tr.unnumbered && myStops.some(s => s.stationId) && !myStops.some(s => s.stationId === c.stationId)) out.push({ kind: "link", warn: true, text: `Its ${what} ${dir === "to" ? "to" : "from"} ${other} is${at}, but ${trLabel(tr)} doesn't stop there on any of its tables.`, fixes: fx });
     const o = c.phId ? trainDoc(c.phId) : (c.trainId && trainDoc(c.trainId)) || byNo.get(`${c.rr}|${c.trainNo}`);
     if (c.phId && o && !o._deleted && !o.unnumbered) continue;   // waiting on its number: not a problem
     if (o && futureRR(o)) continue;
@@ -3477,7 +3480,7 @@ function masterProblems(tr, byNo) {
       const mine = at(myStops)[0], theirs = at(oStops)[0];
       if (mine && theirs) {
         const [inS, outS] = dir === "to" ? [arrRow(myStops), depRow(oStops)] : [arrRow(oStops), depRow(myStops)];
-        const arr = toMinE(inS.arr || inS.dep, inS), dep = toMinE(outS.dep || outS.arr, outS);
+        const arr = toMinE(inS, inS.arr ? "arr" : "dep"), dep = toMinE(outS, outS.dep ? "dep" : "arr");
         if (arr != null && dep != null && (dep - arr + 1440) % 1440 > 12 * 60) {
           const [inT, outT] = dir === "to" ? [tr, o] : [o, tr];
           out.push({ kind: "link", text: `At ${stName(c.stationId)}, ${trLabel(outT)} leaves at ${Core.fmt12(outS.dep || outS.arr)} before ${trLabel(inT)} gets in at ${Core.fmt12(inS.arr || inS.dep)}, so the ${what} can't work as entered.`,
@@ -3990,8 +3993,7 @@ function outOfOrder(list, tables) {
   const ks = [];
   for (const x of list) {
     if (!x.stationId || x.pass) continue;
-    const off = Core.TZ_OFF[stopTz(x, tables || undefined)] ?? 0;
-    for (const v of [x.arr, x.dep]) if (v) ks.push(((Core.toMin(v) + off) % 1440 + 1440) % 1440);
+    for (const f of ["arr", "dep"]) if (x[f]) ks.push(((Core.toMin(x[f]) + (Core.TZ_OFF[timeTz(x, f, tables || undefined)] ?? 0)) % 1440 + 1440) % 1440);
   }
   if (ks.length < 2) return false;
   for (let i = 1; i < ks.length; i++) if ((ks[i] - ks[i - 1] + 1440) % 1440 >= 16 * 60) return true;
@@ -4005,7 +4007,7 @@ function timeOrder(list) {
     const startT = r => { const x = r.find(s => !s.pass && (s.arr || s.dep)); return x ? Core.toMin(x.arr || x.dep) : 1e9; };
     runs.sort((a, b) => startT(a) - startT(b));
     return [...runs.flat(), ...blank]; }
-  const key = s => { const v = s.arr || s.dep; return v ? ((Core.toMin(v) + (Core.TZ_OFF[stopTz(s)] ?? 0)) % 1440 + 1440) % 1440 : null; };
+  const key = s => { const f = s.arr ? "arr" : "dep"; return s[f] ? ((Core.toMin(s[f]) + (Core.TZ_OFF[timeTz(s, f)] ?? 0)) % 1440 + 1440) % 1440 : null; };
   const timed = list.filter(s => !s.pass && key(s) != null).sort((a, b) => key(a) - key(b) || (Core.toMin(a.dep || a.arr) - Core.toMin(b.dep || b.arr)));
   if (timed.length < 2) return list;
   // Sorting by clock time puts the stops in a circle; where the run starts is the one place a train
