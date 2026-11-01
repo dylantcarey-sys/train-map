@@ -260,6 +260,10 @@ const Core = (() => {
   // tzOff(stop) -> minutes to add to local time to get Eastern time (CT +60, MT +120, PT +180, AT -60)
   function mergeStops(groups, tzOff = () => 0) {
     let merged = []; const conflicts = [];
+    // tzOff.zone(stop) names a stop's zone; each merged time keeps the zone of the stop it came from (_arrTz/_depTz),
+    // so a station where the zone changes (North Platte: in on Central time, out on Mountain) reads both right
+    const zone = tzOff.zone || (() => "");
+    const zoned = s => ({ ...s, ...(s.arr ? { _arrTz: s._arrTz || zone(s) } : {}), ...(s.dep ? { _depTz: s._depTz || zone(s) } : {}) });
     for (const g of groups) {
       // unroll this table's times past midnight, comparing on one clock so a time-zone change isn't read as midnight
       let add = 0, prev = null;
@@ -302,11 +306,13 @@ const Core = (() => {
           // (e.g. 3:15 on one table, 3:15 arr / 3:30 dep on another): keep the fuller entry
           const one = s => !!s.single || !!(s.arr) !== !!(s.dep), times = s => [s.arr, s.dep].filter(Boolean);
           const near = (u, v) => Math.abs(toMin(u) - toMin(v)) <= 1;
-          if (one(a) && !one(b) && times(a).length === 1 && times(b).some(v => near(v, times(a)[0]))) { a.arr = b.arr; a.dep = b.dep; a.single = false; }
+          if (one(a) && !one(b) && times(a).length === 1 && times(b).some(v => near(v, times(a)[0]))) { a.arr = b.arr; a.dep = b.dep; a.single = false; a._arrTz = b.arr ? zone(b) : undefined; a._depTz = b.dep ? zone(b) : undefined; }
           else if (one(b) && !one(a) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0]))) { /* a already has both */ }
           // the same moment printed in two time zones (Chattahoochee: 4:35 Central on one table, 5:35 Eastern on another) agrees
           const differs = (f) => a[f] && b[f] && a[f] !== b[f] && (((toMin(a[f]) + tzOff(a) - toMin(b[f]) - tzOff(b)) % 1440) + 1440) % 1440 !== 0;
           if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: same.from[0] }, other: { arr: b.arr, dep: b.dep, from: g.key } });
+          if (!a.arr && b.arr) a._arrTz = zone(b);
+          if (!a.dep && b.dep) a._depTz = zone(b);
           for (const f of ["arr", "dep", "mark", "miles", "notes", "tz", "days"]) if (!a[f] && b[f]) a[f] = b[f];
           if (b._k != null) (a._ks ||= []).push(b._k);   // remember which entered stops were folded into this one
           if (a.single && (b.arr && b.dep || a.arr && a.dep && a.arr !== a.dep)) a.single = false;
@@ -317,7 +323,7 @@ const Core = (() => {
         }
         const near = merged.find(m => m.gi !== gi && m.s.stationId === x.s.stationId);
         if (near && t != null && near.t != null && Math.abs(near.t - t) < 360) { if (x.s._k != null) (near.s._ks ||= []).push(x.s._k); conflicts.push({ stationId: x.s.stationId, keep: { arr: near.s.arr, dep: near.s.dep, from: near.from[0] }, other: { arr: x.s.arr, dep: x.s.dep, from: g.key } }); continue; }
-        merged.push({ s: { ...x.s }, t, from: [g.key], gi: groups.indexOf(g), i: x.i });
+        merged.push({ s: zoned(x.s), t, from: [g.key], gi: groups.indexOf(g), i: x.i });
       }
     }
     // order: by time; stops without a time stay after the stop entered before them on the same table
@@ -336,6 +342,7 @@ const Core = (() => {
   // and minutes since the train left its first stop. Uses Eastern time internally so zone changes don't
   // look like midnight; a time earlier than the one before it means the train ran past midnight.
   const TZ_OFF = { AT: -60, ET: 0, CT: 60, MT: 120, PT: 180 };
+  // tzOf(i, "arr" | "dep"): the zone of that one time (a stop's arrival and departure can be in different zones)
   function dayClock(times, tzOf) {
     let prev = null, add = 0, start = null; const out = [];
     const step = (hhmm, tz) => {
@@ -346,7 +353,7 @@ const Core = (() => {
       const localAbs = et - (TZ_OFF[tz] ?? 0);
       return { day: Math.floor(localAbs / 1440) + 1, elapsed: et - start };
     };
-    times.forEach((t, i) => { const tz = tzOf(i); const a = step(t.arr, tz), d = step(t.dep, tz); out.push({ arrDay: a?.day ?? "", depDay: d?.day ?? "", arrElapsed: a?.elapsed ?? "", depElapsed: d?.elapsed ?? "" }); });
+    times.forEach((t, i) => { const a = step(t.arr, tzOf(i, "arr")), d = step(t.dep, tzOf(i, "dep")); out.push({ arrDay: a?.day ?? "", depDay: d?.day ?? "", arrElapsed: a?.elapsed ?? "", depElapsed: d?.elapsed ?? "" }); });
     // days are counted from the first time's own day
     const first = out.find(x => x.depDay !== "" || x.arrDay !== ""); const base = first ? (first.depDay || first.arrDay) - 1 : 0;
     return out.map(x => ({ ...x, arrDay: x.arrDay === "" ? "" : x.arrDay - base, depDay: x.depDay === "" ? "" : x.depDay - base }));
