@@ -1404,7 +1404,7 @@ function normTrain(d) {
 const trainsInTable = () => [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && t.tables?.[S.tableId]).map(withCopy).sort((a, b) => ordT(a) - ordT(b));
 // a repeat column (PC 147 printed twice on RF&P Table 1, once for each connection): a record with no stops of its own that shows its train's times on the tables it's on.
 // It's display only: the export and the problem checks skip it, and its times are edited in the train's own column.
-const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId]) } : t; };
+const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId] && (!t.tables[s.tableId].onlyRows || t.tables[s.tableId].onlyRows.includes(s.rid))) } : t; };   // onlyRows: a repeat column that shows only part of the run
 
 function subscribeSource() {
   S.unsubTables?.(); S.unsubTrains?.();
@@ -4228,13 +4228,22 @@ function columnDialog(id, pick) {
     <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="own" ${cur === "own" ? "checked" : ""}> Always its own column</label>
     <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="with" ${cur && cur !== "own" ? "checked" : ""}> In the same column as <select id="dColWith">${others.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? "selected" : ""}>${esc(trLabel(x))}${x.trainName ? " " + esc(x.trainName) : ""}</option>`).join("")}</select></label>
     <label class="f" style="margin-top:10px"><span>Column heading (optional)</span><input id="dColName" value="${esc(tr.tables[T].colName || "")}" placeholder="${esc(tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)).main.map(x => x.trainName).filter(Boolean)[0] || "e.g. Florida Special")}" autocomplete="off"></label>
-    <p class="small muted" style="margin:2px 0 0">Leave blank to use the main train's name. Trains that only connect into the column don't add their names.</p>`, "Save", () => {
+    <p class="small muted" style="margin:2px 0 0">Leave blank to use the main train's name. Trains that only connect into the column don't add their names.</p>
+    ${tr.copyOf ? (() => { const rowsT = (t.rows || []).filter(r => !r.divider), only = tr.tables[T].onlyRows; return `<label class="f" style="margin-top:10px"><span>Number printed over this repeat column (optional)</span><input id="dColPrinted" value="${esc(tr.tables[T].printedAs || "")}" placeholder="${esc(tr.trainNo || "")}" autocomplete="off"></label>
+    <div class="f" style="margin-top:10px"><span>Rows this repeat column shows</span><div style="max-height:220px;overflow:auto;border:1px solid var(--rule);border-radius:6px;padding:4px 6px">${rowsT.map(r => `<label class="row small" style="gap:6px;margin:2px 0;flex-wrap:nowrap"><input type="checkbox" data-onlyrow="${esc(r.rid)}" ${!only || only.includes(r.rid) ? "checked" : ""}> ${esc(S.stById.get(r.stationId)?.name || r.stationId)} <span class="muted">${esc(r.miles || "")}</span></label>`).join("")}</div>
+    <p class="small muted" style="margin:2px 0 0">Untick the rows the Guide leaves blank in this column, for a column that shows only part of the train's run.</p></div>`; })() : ""}`, "Save", () => {
     const v = document.querySelector('input[name="dCol"]:checked')?.value || "", w = edit(id);
     if (v === "with") { const o = $("dColWith").value; if (!o) return "Pick a train."; w.tables[T].col = o; } else if (v === "own") w.tables[T].col = "own"; else delete w.tables[T].col;
     // one heading per column: set it here and clear it on the others in the same column
     const nm = $("dColName").value.trim(), col = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)) || [];
     for (const x of col) if (x.id !== id && x.tables?.[T]?.colName) delete edit(x.id).tables[T].colName;
     if (nm) w.tables[T].colName = nm; else delete w.tables[T].colName;
+    if (tr.copyOf) {
+      const pa = $("dColPrinted").value.trim(); if (pa) w.tables[T].printedAs = pa; else delete w.tables[T].printedAs;
+      const boxes = [...document.querySelectorAll("[data-onlyrow]")], on = boxes.filter(c => c.checked).map(c => c.dataset.onlyrow);
+      if (!on.length) return "Tick at least one row.";
+      if (on.length === boxes.length) delete w.tables[T].onlyRows; else w.tables[T].onlyRows = on;
+    }
     renderEntry();
   });
   if (pick) $("dColTrain").onchange = e => columnDialog(e.target.value, true);
@@ -4694,7 +4703,7 @@ function renderTableView(el, t) {
     return `<td class="tv-t ${pm ? "pm" : ""}">${hits.map(s => esc(Core.formatCell12(s))).join(" / ")}</td>`;
   };
   // the column heading: the train name(s) once, then each train's number (with its railroad when it isn't this table's)
-  const noOf = tr => tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `${trRR(tr) !== t.rr ? trRR(tr) + " " : ""}No. ${tr.trainNo || "?"}`;
+  const noOf = tr => tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `${trRR(tr) !== t.rr ? trRR(tr) + " " : ""}No. ${(tr.copyOf && tr.tables?.[t.id]?.printedAs) || tr.trainNo || "?"}`;
   const head = col => {
     // the heading: a typed one, else the name most of the column's main trains share (Silver Meteor over The Senator)
     const tally = new Map(); for (const x of col.main || col) if (x.trainName) tally.set(x.trainName, (tally.get(x.trainName) || 0) + 1);
