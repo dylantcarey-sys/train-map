@@ -2588,13 +2588,17 @@ const mainTables = () => mainTablesCache ||= (() => { const set = new Set(); for
 // a reference train's time at one row of table T, read from its other tables
 function refCell(tr, T, r, rows, cache) {
   if (!r.stationId) return null;
+  const only = tr.tables?.[T]?.onlyRows; if (only && !only.includes(r.rid)) return null;   // limited to its own section of the table
   if (!cache.has(tr.id)) {
     const keys = Object.keys(tr.tables || {}).filter(k => k !== T && (tr.stops || []).some(s => s.tableId === k));
     cache.set(tr.id, keys.length ? Core.mergeStops(keys.map(k => ({ key: k, stops: (tr.stops || []).filter(s => s.tableId === k) })), tzOffFn()).stops : []);
   }
   const at = cache.get(tr.id).filter(s => s.stationId === r.stationId && !s.pass && (s.arr || s.dep)); if (!at.length) return null;
-  const same = rows.filter(x => !x.divider && x.stationId === r.stationId), occ = Math.max(0, same.indexOf(r));
-  let x = at[Math.min(occ, at.length - 1)];
+  // the same station printed again in this row's section (arr. and lve. rows); other sections don't count
+  const ri = rows.indexOf(r); let lo = ri, hi = ri; while (lo > 0 && !rows[lo - 1].divider) lo--; while (hi < rows.length - 1 && !rows[hi + 1].divider) hi++;
+  const same = rows.slice(lo, hi + 1).filter(x => !x.divider && x.stationId === r.stationId), occ = Math.max(0, same.indexOf(r));
+  // one row here but arrival and departure entered as two stops there (arr. and lve. rows): show both on the one row
+  let x = same.length === 1 && at.length > 1 ? { ...at[0], arr: at.find(y => y.arr)?.arr || "", dep: [...at].reverse().find(y => y.dep)?.dep || "", single: false } : at[Math.min(occ, at.length - 1)];
   // a station printed on two rows (arr. and lve.): its arrival on the first, its departure on the second
   if (same.length === 2 && at.length === 1 && x.arr && x.dep) x = occ === 0 ? { ...x, dep: "", single: false } : { ...x, arr: "", single: true };
   const tb = tableById(x.from?.[0]);
@@ -3936,7 +3940,7 @@ function masterProblems(tr, byNo) {
   // problems marked as known inconsistencies in the source itself are kept, but set apart
   const seen = new Set(), known = tr.knownIssues || {};
   return out.filter(p => { const k = p.text; if (seen.has(k)) return false; seen.add(k); return true; })
-    .map(p => { const key = p.key || `${p.kind}|${p.text}`; return { ...p, key, known: !!known[key], note: known[key]?.note || "" }; });
+    .map(p => { const key = p.key || `${p.kind}|${p.text}`; return { ...p, key, known: !!known[key], sched: known[key]?.kind === "schedule", note: known[key]?.note || "" }; });
 }
 function renderTrainsPage() {
   if (S.page !== "trains") return;   // a delayed redraw must not pull the editor back from the desk
@@ -3985,8 +3989,8 @@ function renderTrainsPage() {
   if (mtSort === "guide" && mtFilter !== "table") shown = shown.slice().sort(byGuide);
   if (mtStat !== "any") shown = shown.filter(t => progOf(t) === (mtStat === "none" ? "" : mtStat));
   const progTag = t => progOf(t) ? `<span class="prog prog-${progOf(t)}" title="${esc(PROG.find(p => p[0] === progOf(t))[1])}">${progOf(t) === "done" ? "✓" : progOf(t) === "working" ? "…" : "?"}</span>` : "";
-  const probList = (ps, trId) => `<ul class="probs">${ps.map((p, i) => `<li class="${p.warn ? "warn" : ""}"><div>${esc(p.text)}</div><div class="fixes">${p.fixes.filter(f => f.ph || f.go.table).map(f => f.ph ? `<button class="small-btn" data-phmark="${esc(f.ph)}">${esc(f.label)}</button>` : `<button class="small-btn" data-mtgo='${esc(JSON.stringify(f.go))}'>${esc(f.label)}</button>`).join("")}<button class="small-btn" data-known='${esc(JSON.stringify({ id: trId, key: p.key }))}' title="The printed source itself disagrees: keep it as entered and stop listing it here">Known inconsistency in the source</button></div></li>`).join("")}</ul>`;
-  const knownList = (ps, trId) => ps.length ? `<details class="knownbox"><summary class="small muted">${ps.length} known inconsistenc${ps.length === 1 ? "y" : "ies"} in the source</summary><ul class="probs">${ps.map(p => `<li class="known"><div>${esc(p.text)}</div><div class="fixes">${S.viewOnly ? (p.note ? `<span class="small">${esc(p.note)}</span>` : "") : `<input class="knownnote" data-knownnote='${esc(JSON.stringify({ id: trId, key: p.key }))}' value="${esc(p.note)}" placeholder="Note, e.g. Table 14 is 10 minutes later than Table 12 in the Guide" aria-label="Note">`}<button class="small-btn" data-unknown='${esc(JSON.stringify({ id: trId, key: p.key }))}'>Show it as a problem again</button></div></li>`).join("")}</ul></details>` : "";
+  const probList = (ps, trId) => `<ul class="probs">${ps.map((p, i) => `<li class="${p.warn ? "warn" : ""}"><div>${esc(p.text)}</div><div class="fixes">${p.fixes.filter(f => f.ph || f.go.table).map(f => f.ph ? `<button class="small-btn" data-phmark="${esc(f.ph)}">${esc(f.label)}</button>` : `<button class="small-btn" data-mtgo='${esc(JSON.stringify(f.go))}'>${esc(f.label)}</button>`).join("")}<button class="small-btn" data-known='${esc(JSON.stringify({ id: trId, key: p.key }))}' title="The printed source itself disagrees: keep it as entered and stop listing it here">Known inconsistency in the source</button><button class="small-btn" data-known='${esc(JSON.stringify({ id: trId, key: p.key, kind: "schedule" }))}' title="Nothing is wrong: this is how the trains were scheduled (an overnight layover, a next-day connection). Stop listing it here">This is the schedule</button></div></li>`).join("")}</ul>`;
+  const knownList = (ps0, trId) => [ps0.filter(p => !p.sched), ps0.filter(p => p.sched)].map((ps, g) => ps.length ? `<details class="knownbox"><summary class="small muted">${g ? `${ps.length} marked as the schedule (not a problem)` : `${ps.length} known inconsistenc${ps.length === 1 ? "y" : "ies"} in the source`}</summary><ul class="probs">${ps.map(p => `<li class="known"><div>${esc(p.text)}</div><div class="fixes">${S.viewOnly ? (p.note ? `<span class="small">${esc(p.note)}</span>` : "") : `<input class="knownnote" data-knownnote='${esc(JSON.stringify({ id: trId, key: p.key }))}' value="${esc(p.note)}" placeholder="Note, e.g. Table 14 is 10 minutes later than Table 12 in the Guide" aria-label="Note">`}<button class="small-btn" data-unknown='${esc(JSON.stringify({ id: trId, key: p.key }))}'>Show it as a problem again</button></div></li>`).join("")}</ul></details>` : "").join("");
   let right = "";
   if (!mtSel && !(mtFilter === "problems" && LS.get("mtAll", false))) {
     // landing: summary and every train by railroad
@@ -4011,7 +4015,7 @@ function renderTrainsPage() {
     right = `<div class="card"><h2 style="margin:0 0 4px">Everything that doesn't agree</h2><p class="small muted" style="margin:0 0 6px">${nProb} item${nProb === 1 ? "" : "s"} on ${nTr} train${nTr === 1 ? "" : "s"} in ${esc(src?.name || "")}. Each button opens the table and stop to fix.</p>
       <button class="linkish small" data-mtsel="" style="margin-bottom:4px">← All trains</button>
       ${trs.filter(t => probs.get(t.id).length).map(t => `<h3 style="margin:12px 0 0"><button class="linkish" data-mtsel="${esc(t.id)}">${esc(trLabel(t))}${t.trainName ? " " + esc(t.trainName) : ""}</button></h3>${probList(probs.get(t.id), t.id)}`).join("") || `<p>Nothing to fix.</p>`}
-      ${(() => { const ks = trs.filter(t => knownOf(t.id).length); return ks.length ? `<h3 style="margin:16px 0 0">Known inconsistencies in the source</h3><p class="small muted" style="margin:2px 0">Kept as printed and left out of the count above.</p>` + ks.map(t => `<div style="margin-top:6px"><button class="linkish" data-mtsel="${esc(t.id)}">${esc(trLabel(t))}</button>${knownList(knownOf(t.id), t.id)}</div>`).join("") : ""; })()}</div>`;
+      ${(() => { const ks = trs.filter(t => knownOf(t.id).length); return ks.length ? `<h3 style="margin:16px 0 0">Known inconsistencies and schedule notes</h3><p class="small muted" style="margin:2px 0">Kept as printed and left out of the count above.</p>` + ks.map(t => `<div style="margin-top:6px"><button class="linkish" data-mtsel="${esc(t.id)}">${esc(trLabel(t))}</button>${knownList(knownOf(t.id), t.id)}</div>`).join("") : ""; })()}</div>`;
   } else {
     const tr = trainDoc(mtSel), ps = probs.get(mtSel) || [];
     const keys = groupsFor(tr).map(g => g.key).filter(k => tableById(k));
@@ -4100,7 +4104,7 @@ function renderTrainsPage() {
   el.querySelectorAll("[data-mtsel]").forEach(b => b.onclick = () => { mtSel = b.dataset.mtsel; LS.set("mtAll", false); if (!mtSel) { mtFilter = "all"; mtAllPicked = false; } renderTrainsPage(); window.scrollTo({ top: 0 }); });
   el.querySelectorAll("[data-mtgo]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.mtgo)));
   const setKnown = (id, key, val) => { const w = edit(id); w.knownIssues = { ...(w.knownIssues || {}) }; if (val) w.knownIssues[key] = { ...(w.knownIssues[key] || {}), ...val }; else delete w.knownIssues[key]; };
-  el.querySelectorAll("[data-known]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.known); setKnown(o.id, o.key, { note: "", at: new Date().toISOString() }); renderTrainsPage(); });
+  el.querySelectorAll("[data-known]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.known); setKnown(o.id, o.key, { note: "", at: new Date().toISOString(), ...(o.kind ? { kind: o.kind } : {}) }); renderTrainsPage(); });
   el.querySelectorAll("[data-unknown]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.unknown); setKnown(o.id, o.key, null); renderTrainsPage(); });
   const setTodos = (id, fn) => { const w = edit(id); w.linkTodos = fn([...(w.linkTodos || [])]); };
   if ($("linkTodoAdd")) { const add = () => { const v = $("linkTodoText").value.trim(); if (!v) return; const rr = $("linkTodoRR").value, no = $("linkTodoNo").value.trim(); setTodos($("linkTodoAdd").dataset.trid, l => [...l, { id: uid(), text: v, at: new Date().toISOString(), ...(rr ? { rr } : {}), ...(rr && no ? { trainNo: no } : {}) }]); renderTrainsPage(); }; $("linkTodoAdd").onclick = add; $("linkTodoText").onkeydown = e => { if (e.key === "Enter") add(); }; }
@@ -4270,8 +4274,8 @@ function columnDialog(id, pick) {
     <label class="row small" style="gap:6px;margin:6px 0"><input type="radio" name="dCol" value="with" ${cur && cur !== "own" ? "checked" : ""}> In the same column as <select id="dColWith">${others.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? "selected" : ""}>${esc(trLabel(x))}${x.trainName ? " " + esc(x.trainName) : ""}</option>`).join("")}</select></label>
     <label class="f" style="margin-top:10px"><span>Column heading (optional)</span><input id="dColName" value="${esc(tr.tables[T].colName || "")}" placeholder="${esc(tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)).main.map(x => x.trainName).filter(Boolean)[0] || "e.g. Florida Special")}" autocomplete="off"></label>
     <p class="small muted" style="margin:2px 0 0">Leave blank to use the main train's name. Trains that only connect into the column don't add their names.</p>
-    ${tr.copyOf ? (() => { const rowsT = (t.rows || []).filter(r => !r.divider), only = tr.tables[T].onlyRows; return `<label class="f" style="margin-top:10px"><span>Number printed over this repeat column (optional)</span><input id="dColPrinted" value="${esc(tr.tables[T].printedAs || "")}" placeholder="${esc(tr.trainNo || "")}" autocomplete="off"></label>
-    <div class="f" style="margin-top:10px"><span>Rows this repeat column shows</span><div style="max-height:220px;overflow:auto;border:1px solid var(--rule);border-radius:6px;padding:4px 6px">${rowsT.map(r => `<label class="row small" style="gap:6px;margin:2px 0;flex-wrap:nowrap"><input type="checkbox" data-onlyrow="${esc(r.rid)}" ${!only || only.includes(r.rid) ? "checked" : ""}> ${esc(S.stById.get(r.stationId)?.name || r.stationId)} <span class="muted">${esc(r.miles || "")}</span></label>`).join("")}</div>
+    ${tr.copyOf || isRefIn(tr, T, trainsInTable()) ? (() => { const rowsT = (t.rows || []).filter(r => !r.divider), only = tr.tables[T].onlyRows; return `<label class="f" style="margin-top:10px"><span>Number printed over this ${tr.copyOf ? "repeat" : "reference"} column (optional)</span><input id="dColPrinted" value="${esc(tr.tables[T].printedAs || "")}" placeholder="${esc(tr.trainNo || "")}" autocomplete="off"></label>
+    <div class="f" style="margin-top:10px"><span>Rows this ${tr.copyOf ? "repeat" : "reference"} column shows</span><div style="max-height:220px;overflow:auto;border:1px solid var(--rule);border-radius:6px;padding:4px 6px">${rowsT.map(r => `<label class="row small" style="gap:6px;margin:2px 0;flex-wrap:nowrap"><input type="checkbox" data-onlyrow="${esc(r.rid)}" ${!only || only.includes(r.rid) ? "checked" : ""}> ${esc(S.stById.get(r.stationId)?.name || r.stationId)} <span class="muted">${esc(r.miles || "")}</span></label>`).join("")}</div>
     <p class="small muted" style="margin:2px 0 0">Untick the rows the Guide leaves blank in this column, for a column that shows only part of the train's run.</p></div>`; })() : ""}`, "Save", () => {
     const v = document.querySelector('input[name="dCol"]:checked')?.value || "", w = edit(id);
     if (v === "with") { const o = $("dColWith").value; if (!o) return "Pick a train."; w.tables[T].col = o; } else if (v === "own") w.tables[T].col = "own"; else delete w.tables[T].col;
@@ -4279,7 +4283,7 @@ function columnDialog(id, pick) {
     const nm = $("dColName").value.trim(), col = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)) || [];
     for (const x of col) if (x.id !== id && x.tables?.[T]?.colName) delete edit(x.id).tables[T].colName;
     if (nm) w.tables[T].colName = nm; else delete w.tables[T].colName;
-    if (tr.copyOf) {
+    if ($("dColPrinted")) {
       const pa = $("dColPrinted").value.trim(); if (pa) w.tables[T].printedAs = pa; else delete w.tables[T].printedAs;
       const boxes = [...document.querySelectorAll("[data-onlyrow]")], on = boxes.filter(c => c.checked).map(c => c.dataset.onlyrow);
       if (!on.length) return "Tick at least one row.";
