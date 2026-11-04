@@ -338,6 +338,7 @@ input.hasmoon::placeholder, textarea.hasmoon::placeholder { color: var(--muted);
 .home .trs button { padding: 2px 8px; font-size: 13px; }
 .home .attn li { margin: 4px 0; }
 .rrwrap.mtcollapsed { grid-template-columns: minmax(0, 1fr); }
+.rrconsist { margin-top: 12px; } .rrconsist summary { cursor: pointer; } table.rrcons td { vertical-align: top; } table.rrcons td:first-child { white-space: nowrap; }
 .rrwrap { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 14px; align-items: start; }
 .rrlist ul { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; }
 .rrlist li button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--rule); background: none; padding: 7px 8px; font: inherit; color: var(--ink); cursor: pointer; }
@@ -3368,6 +3369,7 @@ async function exportServedBy() {
 const RR_FIELDS = [
   ["name", "Full name", "e.g. Penn Central Transportation Company", 1],
   ["otherNames", "Other names and marks", "Names it appears under, one per line, e.g. Penn Central, PC. These also help match stations' “served by” listings.", 3],
+  ["kind", "Service", "", 1],
   ["color", "Map colour", "e.g. #7C3030", 1],
   ["colorNote", "Colour based on", "e.g. Tuscan red passenger cars", 1],
   ["from", "In operation from", "e.g. February 1, 1968", 1],
@@ -3377,10 +3379,21 @@ const RR_FIELDS = [
   ["offices", "General offices", "As listed in the Guide, e.g. Six Penn Center Plaza, Philadelphia, Pa.", 2],
   ["miles", "Route miles", "e.g. 19,600", 1],
   ["passenger", "Passenger service notes", "e.g. Main routes, named trains, when passenger service ended", 3],
+  ["lines", "Lines served", "One line or route per line, e.g. Chicago–Omaha main line; Savanna–Dubuque branch. Worth filling in for freight railroads, and for lines that lost passenger service", 4],
   ["notes", "Other notes", "", 3],
   ["refs", "Sources", "Where this came from, e.g. Official Guide Apr 1971, p. 62", 2],
 ];
-let rrSel = "", rrTimer = null, rrStats = null;
+const RR_KINDS = [["", "Passenger and freight"], ["passenger", "Passenger only"], ["freight", "Freight only (no passenger trains)"]];
+const kindLabel = v => (RR_KINDS.find(k => k[0] === (v || "")) || RR_KINDS[0])[1];
+// a railroad's pages for one guide: general equipment, notes common to its schedules, page numbers (sources/<guide>/rrpages/<railroad id>)
+const RRG_FIELDS = [
+  ["pages", "Guide pages", "e.g. 392–399", 1],
+  ["equipment", "General equipment and consist notes", "The railroad's own equipment section, when it isn't tied to one table (e.g. the B&O's): trains, cars and where they run", 6],
+  ["footnotes", "Notes common to all its schedules", "e.g. baggage rules, reservations, children's fares", 3],
+  ["notes", "Other notes for this guide", "", 3],
+];
+const rrGuide = new Map();   // "<source>|<railroad id>" -> its doc for that guide ({} once read and empty)
+let rrSel = "", rrTimer = null, rrStats = null, rrgTimer = null;
 async function renderRailroads() {
   const el = $("rrPage"); if (!S.db) { el.innerHTML = `<div class="card">Saving isn't available in this view.</div>`; return; }
   const list = [...S.railroads].sort((a, b) => (a.name || a.abbrev).localeCompare(b.name || b.abbrev));
@@ -3395,14 +3408,15 @@ async function renderRailroads() {
   el.innerHTML = `
     <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">Railroads</h2><div class="row" style="gap:6px"><input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
     <div class="rrwrap">
-      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(x.name || x.abbrev)}</b><span class="muted small">${esc(x.abbrev)}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
+      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(x.name || x.abbrev)}</b><span class="muted small">${esc(x.abbrev)}${x.kind === "freight" ? " · freight only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(r.name || r.abbrev)}</h2><span class="small muted" id="rrSaved"></span></div>
         ${inUse(r.abbrev) ? `<div class="small muted" style="margin:2px 0 10px">Short name (reporting mark) <b>${esc(r.abbrev)}</b>. It's already used on tables or trains, so it can't be changed here.</div>`
           : `<div class="row small" style="gap:6px;align-items:center;margin:2px 0 10px"><span class="muted">Short name (reporting mark)</span><input id="rrAbbrev" value="${esc(r.abbrev)}" autocomplete="off" style="width:110px"><button class="small-btn" id="rrAbbrevSave">Change</button><span class="muted">Not used on any table or train yet, so it can still be changed.</span></div>`}
-        ${S.viewOnly ? `<dl class="rrview">${RR_FIELDS.filter(([k]) => k !== "name" && r[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd>${k === "color" ? `<span class="rrsw" style="background:${esc(r.color)}"></span>` : ""}${esc(r[k])}</dd>`).join("") || `<dd class="muted">No details entered yet.</dd>`}</dl>` : ""}<div class="fields edit-only">${RR_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 || k === "name" ? "1/-1" : "auto"}"><span>${esc(label)}</span>${k === "color" ? `<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="color" data-rrcolor value="${esc(/^#[0-9a-f]{6}$/i.test(r.color || "") ? r.color : "#888888")}" aria-label="Pick the map colour" style="width:44px;height:32px;padding:2px"><input data-rrf="color" value="${esc(r.color || "")}" placeholder="${esc(ph)}" autocomplete="off" style="flex:1" title="The colour this railroad's trains and routes get on the map"></span>` : rows > 1 ? `<textarea data-rrf="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(r[k] || "")}</textarea>` : `<input data-rrf="${k}" value="${esc(r[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>
+        ${S.viewOnly ? `<dl class="rrview">${RR_FIELDS.filter(([k]) => k !== "name" && r[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd>${k === "color" ? `<span class="rrsw" style="background:${esc(r.color)}"></span>` : ""}${esc(k === "kind" ? kindLabel(r[k]) : r[k])}</dd>`).join("") || `<dd class="muted">No details entered yet.</dd>`}</dl>` : ""}<div class="fields edit-only">${RR_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 || k === "name" ? "1/-1" : "auto"}"><span>${esc(label)}</span>${k === "kind" ? `<select data-rrf="kind">${RR_KINDS.map(([v, l]) => `<option value="${v}" ${(r.kind || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : k === "color" ? `<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="color" data-rrcolor value="${esc(/^#[0-9a-f]{6}$/i.test(r.color || "") ? r.color : "#888888")}" aria-label="Pick the map colour" style="width:44px;height:32px;padding:2px"><input data-rrf="color" value="${esc(r.color || "")}" placeholder="${esc(ph)}" autocomplete="off" style="flex:1" title="The colour this railroad's trains and routes get on the map"></span>` : rows > 1 ? `<textarea data-rrf="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(r[k] || "")}</textarea>` : `<input data-rrf="${k}" value="${esc(r[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>
         <h2 style="margin-top:16px">In your timetables</h2>
-        ${u.length ? `<ul class="attn">${u.map(x => `<li><b>${esc(x.src.name)}</b>: ${x.ts.map(t => `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: x.src.id, table: t.id, train: "", mode: "grid" }))}'>Table ${esc(tno(t))}</button>`).join(", ") || "no tables of its own"} · ${x.trs.length} train${x.trs.length === 1 ? "" : "s"}</li>`).join("")}</ul>` : `<p class="small muted">Not used on any table or train yet.</p>`}` : `<p>No railroads yet.</p>`}
+        ${u.length ? `<ul class="attn">${u.map(x => `<li><b>${esc(x.src.name)}</b>: ${x.ts.map(t => `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: x.src.id, table: t.id, train: "", mode: "grid" }))}'>Table ${esc(tno(t))}</button>`).join(", ") || "no tables of its own"} · ${x.trs.length} train${x.trs.length === 1 ? "" : "s"}</li>`).join("")}</ul>` : `<p class="small muted">Not used on any table or train yet.</p>`}
+        ${rrGuideHTML(r)}` : `<p>No railroads yet.</p>`}
       </div>
     </div>`;
   el.querySelectorAll("[data-rr]").forEach(b => b.onclick = () => { rrSel = b.dataset.rr; LS.set("rrSel", rrSel); renderRailroads(); });
@@ -3416,6 +3430,7 @@ async function renderRailroads() {
     try { await S.db.doc(`railroads/${id}`).set(body); S.rrByAbbrev = new Map(S.railroads.map(r => [r.abbrev, r])); notice(`Short name changed to ${esc(v)}.`); renderRailroads(); } catch { notice("Couldn't save the new short name."); }
   };
   el.querySelectorAll("[data-gotbl]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.gotbl)));
+  wireRRGuide(r);
   $("rrFind").oninput = e => { const q = e.target.value.toLowerCase(); el.querySelectorAll("#rrList li").forEach(li => li.hidden = q && !li.textContent.toLowerCase().includes(q)); };
   $("rrAdd").onclick = () => dialog(`<h2>Add a railroad</h2><div class="fields"><label class="f" style="grid-column:1/-1"><span>Full name</span><input id="dRRName2" placeholder="e.g. Napierville Junction Railway"></label><label class="f"><span>Short name (as on tables)</span><input id="dRRAb2" placeholder="e.g. NJ"></label></div>`, "Add", async () => {
     const name = $("dRRName2").value.trim(), ab = $("dRRAb2").value.trim(); if (!name || !ab) return "Give it a full name and a short name.";
@@ -3436,6 +3451,33 @@ async function renderRailroads() {
   }));
 }
 
+// the railroad in the guide open now: its general pages (stored per guide) and every train's consist in one list
+function rrGuideHTML(r) {
+  const src = S.sources.find(x => x.id === S.sourceId); if (!src) return "";
+  const key = `${src.id}|${r.id}`;
+  if (!rrGuide.has(key)) { rrGuide.set(key, null); S.db.doc(`sources/${src.id}/rrpages/${r.id}`).get().then(d => { rrGuide.set(key, d.exists ? d.data() : {}); if (S.page === "railroads" && rrSel === r.id) renderRailroads(); }).catch(() => rrGuide.set(key, {})); }
+  const g = rrGuide.get(key);
+  const trs = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && !t.copyOf && !t.setupOf && trRR(t) === r.abbrev).sort((a, b) => Core.trainNoSort(a.trainNo, b.trainNo));
+  const eqLine = e => [e.type, e.desc].filter(Boolean).join(" — ") + (e.from || e.to ? ` (${[e.from, e.to].filter(Boolean).map(stName).join("–")})` : "") + (e.days ? ` [${e.days}]` : "");
+  const firstTable = t => Object.keys(t.tables || {}).find(k => tableById(k)) || "";
+  return `<h2 style="margin-top:16px">In ${esc(src.name)}</h2>
+    ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
+      : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
+    ${r.kind === "freight" && !trs.length ? "" : `<details class="rrconsist" ${trs.length && trs.length <= 40 ? "open" : ""}><summary><b>Consist by train</b> <span class="small muted">${trs.length} train${trs.length === 1 ? "" : "s"} in this guide, whichever table they were entered from. Edit a train's cars on its own page.</span></summary>
+      ${trs.length ? `<table class="sheet small rrcons"><thead><tr><th>Train</th><th>Days</th><th>Cars and services</th></tr></thead><tbody>${trs.map(t => `<tr><td><button class="linkish" data-gotbl='${esc(JSON.stringify({ source: src.id, table: firstTable(t), train: t.id, mode: "train" }))}'>${esc(trLabel(t))}</button>${t.trainName ? `<div class="muted">${esc(t.trainName)}</div>` : ""}</td><td>${esc(t.frequency || "Daily")}</td><td>${(t.equipment || []).filter(e => e.type || e.desc).map(e => `<div>${esc(eqLine(e))}</div>`).join("") || `<span class="muted">none entered</span>`}</td></tr>`).join("")}</tbody></table>` : `<p class="small muted">No trains of this railroad in ${esc(src.name)}.</p>`}
+    </details>`}`;
+}
+function wireRRGuide(r) {
+  const el = $("rrPage"); if (!r) return;
+  const key = `${S.sourceId}|${r.id}`;
+  el.querySelectorAll("[data-rrg]").forEach(inp => inp.addEventListener("input", () => {
+    const g = { ...(rrGuide.get(key) || {}) }; g[inp.dataset.rrg] = inp.value; rrGuide.set(key, g); $("rrSaved").textContent = "Saving…";
+    clearTimeout(rrgTimer); rrgTimer = setTimeout(async () => {
+      const body = Object.fromEntries(Object.entries(rrGuide.get(key) || {}).filter(([, v]) => String(v || "").trim()));
+      try { await S.db.doc(`sources/${S.sourceId}/rrpages/${r.id}`).set(body); $("rrSaved").textContent = "Saved"; } catch { $("rrSaved").textContent = "Couldn't save"; }
+    }, 600);
+  }));
+}
 
 // ---------- trains page: one train's full record from all its tables, and everything that doesn't agree ----------
 // Built fresh from the tables every time (nothing is stored here): fix things in the table they came from.

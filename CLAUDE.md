@@ -40,7 +40,7 @@ Map behaviour to keep: the date (first of the guide's month by default) drives t
 ## The Desk's data
 
 Stored in the artifact's database (edit with the ArtifactData tool, same URL). One source (guide) per Desk:
-- `sources/og-1971-04/tables` and `sources/og-1971-04/trains`; `railroads`; `newstations` (stations added in the Desk with temporary NEW-#### ids); `stationlists/current` (an imported station CSV).
+- `sources/og-1971-04/tables` and `sources/og-1971-04/trains`; `railroads` (global identity: names, service kind incl. freight only, lines served); `sources/og-1971-04/rrpages/<railroad id>` (a railroad's pages for that guide: general equipment, common notes, page numbers); `newstations` (stations added in the Desk with temporary NEW-#### ids); `stationlists/current` (an imported station CSV).
 - Train documents are stored compact: blank stop fields are left out, so scripts must tolerate missing fields.
 - Batches: up to 50 writes, each pinned with `if_version`. Dylan wants few approval prompts: one batch per table where possible.
 
