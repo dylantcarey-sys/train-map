@@ -450,6 +450,8 @@ table.tv td.tv-t { font-family: var(--font-mono); font-size: 12.5px; text-align:
 table.tv td.tv-t.pm { font-weight: 600; }
 table.tv td.tv-t.tv-ref { color: var(--muted); font-style: italic; }
 table.grid input.cell::placeholder { color: var(--muted); font-style: italic; opacity: .8; }
+/* compact headings: only the train number and name */
+#grid.compact th.tr :is(.colmove, .trr, .dirbtn, .parts, .tn, .mainbtn, .tfreq, .chip, .tagbtn, .delcol, .colord) { display: none !important; }
 th.tr .mainbtn { font-size: 11px; padding: 0 4px; display: block; margin: 2px auto; color: var(--muted); }
 th.tr .mainbtn.set { color: var(--accent, inherit); font-weight: 600; }
 th.tr .tagbtn { font-size: 11px; padding: 0 6px; display: block; margin: 2px auto; color: var(--muted); opacity: .7; }
@@ -2788,8 +2790,8 @@ function renderGrid(el, t) {
   const hasMain = hasMainIn(t.id, allTrs), refCache = new Map();
   el.innerHTML = `
     <div id="matchBox">${allTrs.map(matchBanner).join("")}</div>
-    <div class="scroll gridwrap"><table class="sheet grid" id="grid">
-      <thead><tr><th class="stth">Station</th>${showOrd ? `<th title="Row order: type a number to move the row">Row</th>` : ""}<th>Mls</th>${trs.map((tr, ci) => `<th class="tr">
+    <div class="scroll gridwrap"><table class="sheet grid ${LS.get("colCompact", false) ? "compact" : ""}" id="grid">
+      <thead><tr><th class="stth">Station<button type="button" class="ghost small-btn" id="btnColCompact" style="display:block;margin-top:6px;font-weight:400" title="${LS.get("colCompact", false) ? "Show everything in the train headings again: column order, direction, main, days, status, mixed, remove" : "Show only each train's number and name in the headings (shorter header)"}">${LS.get("colCompact", false) ? "▸ Show all" : "▾ Number and name only"}</button></th>${showOrd ? `<th title="Row order: type a number to move the row">Row</th>` : ""}<th>Mls</th>${trs.map((tr, ci) => `<th class="tr">
         <div class="colmove">${ci > 0 ? `<button class="ghost" data-move="-1" data-train="${esc(tr.id)}" title="Move column left" aria-label="Move column left">‹</button>` : `<span></span>`}${showCol ? `<input data-k="colord" data-train="${esc(tr.id)}" class="colord ${S.colPending.has(tr.id) ? "pending" : ""}" value="${esc(S.colPending.get(tr.id) ?? ci + 1)}" inputmode="numeric" autocomplete="off" aria-label="Column number for train ${esc(tr.trainNo || "")}" title="Type the column number this train should be, then press Apply column numbers">` : ""}${ci < trs.length - 1 ? `<button class="ghost" data-move="1" data-train="${esc(tr.id)}" title="Move column right" aria-label="Move column right">›</button>` : `<span></span>`}</div>
         ${t.hosted ? `<select class="trr" data-train="${esc(tr.id)}" data-k="trr" aria-label="Railroad running train ${esc(tr.trainNo || "")}" title="Railroad that runs this train">${S.railroads.map(r => `<option value="${esc(r.abbrev)}" ${r.abbrev === trRR(tr) ? "selected" : ""}>${esc(r.abbrev)}</option>`).join("")}</select>` : trRR(tr) !== t.rr ? `<span class="tn">${esc(trRR(tr))}</span>` : ""}
         <div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:center"><input data-train="${esc(tr.id)}" data-k="no" value="${esc(tr.trainNo || "")}" placeholder="No." aria-label="Train number"><button class="ghost dirbtn ${mem(tr)?.dir ? "set" : ""}" data-dir="${esc(tr.id)}" title="${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "Reads down the table" : "Reads up the table"}${mem(tr)?.dir ? "" : " (worked out from its times)"}. Click to switch. This only decides where new stops go; it doesn't reorder anything.">${trainDir(tr, tStops(tr), t.rows || []) > 0 ? "↓" : "↑"}</button></div>
@@ -2883,6 +2885,7 @@ function renderGrid(el, t) {
   $("btnApplyOrd") && ($("btnApplyOrd").onclick = applyOrder);
   $("btnResetOrd") && ($("btnResetOrd").onclick = () => { S.ordPending.clear(); renderEntry(); });
   $("btnAddNums").onclick = () => addSeveralDialog();
+  $("btnColCompact").onclick = () => { LS.set("colCompact", !LS.get("colCompact", false)); renderEntry(); };
   $("btnAddCols").onclick = () => dialog(`<h2>Add several trains</h2>
     <label class="f"><span>How many train columns?</span><input id="dNCols" type="number" min="1" max="60" value="5" inputmode="numeric" style="width:90px"></label>
     <p class="small muted">Adds that many empty columns at the right, ready for their numbers. To type the numbers up front instead, use <b>Add several</b> in the Trains list.</p>`, "Add columns", () => {
