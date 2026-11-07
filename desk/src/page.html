@@ -1640,23 +1640,25 @@ function lkMirror(id, dir, c) {
   c.trainId = o.id;
   const back = dir === "to" ? "from" : "to", list = linkList(edit(o.id), back);
   const isMe = x => x.trainId === id || x.phId === id || (me.trainNo && x.rr === trRR(me) && String(x.trainNo) === String(me.trainNo));
-  const hit = list.find(x => isMe(x) && (!x.stationId || x.stationId === c.stationId));
-  if (hit) { if (!hit.stationId) hit.stationId = c.stationId; if (!hit.trainId && me.trainNo) hit.trainId = id; return ""; }
-  list.push({ rr: trRR(me), ...(me.trainNo ? { trainNo: me.trainNo, trainId: id } : { phId: id }), stationId: c.stationId, ...(linkKind(c) === "conn" ? { kind: "conn" } : {}), ...(c.days ? { days: c.days } : {}) });
+  const oSt = c.otherStationId || c.stationId;
+  const hit = list.find(x => isMe(x) && (!x.stationId || x.stationId === oSt));
+  if (hit) { if (!hit.stationId) hit.stationId = oSt; if (!hit.trainId && me.trainNo) hit.trainId = id; return ""; }
+  list.push({ rr: trRR(me), ...(me.trainNo ? { trainNo: me.trainNo, trainId: id } : { phId: id }), stationId: oSt, ...(c.otherStationId ? { otherStationId: c.stationId } : {}), ...(linkKind(c) === "conn" ? { kind: "conn" } : {}), ...(c.days ? { days: c.days } : {}) });
   return o.trainNo ? `${trRR(o)} ${o.trainNo}` : trLabel(o);
 }
 const lkFinish = (id, dir, i) => { const c = linkList(edit(id), dir)[i]; if (!lkDone(c)) return false; lkEditing.delete(lkKey(id, dir, i)); const who = lkMirror(id, dir, c); if (who) notice(`Also added on ${esc(who)}, so the link shows on both trains.`); return true; };
 function lkSaved(c, i, dir, id) {
   // the other train's time there: its departure for a train this one runs into, its arrival for one it comes from
   // (a station can be printed on two rows, arrival and departure, so look across all of them)
-  const o = lkTarget(c), at = (o?.stops || []).filter(x => x.stationId === c.stationId && !x.pass);
+  // otherStationId: passengers change stations (e.g. the San Francisco - Oakland bus), so the other train is at a different station
+  const oSt = c.otherStationId || c.stationId, o = lkTarget(c), at = (o?.stops || []).filter(x => x.stationId === oSt && !x.pass);
   const want = dir === "from" ? "arr" : "dep", other = want === "arr" ? "dep" : "arr";
   const hit = at.find(x => x[want]) || at.find(x => x[other]);
   const field = hit ? (hit[want] ? want : other) : "", tm = hit ? hit[field] : "";
   const name = o ? (o.trainNo ? `${trRR(o)} ${o.trainNo}` : trLabel(o)) : `${c.rr} ${c.trainNo || ""}`;
   return `<div class="link-row link-saved">
     ${o ? `<button class="linkish" data-lkopen="${esc(o.id)}" title="Open ${esc(name)}"><b>${esc(name)}</b></button>` : `<b>${esc(name)}</b> <span class="small muted" title="No train with this number has been entered yet">(not entered yet)</span>`}${o?.trainName ? ` <span class="small muted">${esc(o.trainName)}</span>` : ""}
-    <span class="small">at ${esc(stName(c.stationId))}${tm ? ` · ${field === "arr" ? "arrives" : "leaves"} ${esc(Core.fmt12(tm))}` : ""}${c.days ? ` · ${esc(c.days)}` : ""}</span>
+    <span class="small">at ${esc(stName(c.stationId))}${c.otherStationId ? ` · ${esc(name)} at ${esc(stName(c.otherStationId))}` : ""}${tm ? ` · ${field === "arr" ? "arrives" : "leaves"} ${esc(Core.fmt12(tm))}` : ""}${c.days ? ` · ${esc(c.days)}` : ""}</span>
     <span class="grow"></span>
     <button class="ghost small-btn" data-lkedit="${dir}" data-li="${i}" title="Change this link">✎ Edit</button>
     <button class="ghost danger" data-dellink="${dir}" data-li="${i}" aria-label="Remove">✕</button></div>`;
@@ -3548,17 +3550,17 @@ function masterProblems(tr, byNo) {
     if (!back.length) { out.push({ kind: "link", warn: true, text: `${trLabel(tr)} lists ${what} ${dir === "to" ? "to" : "from"} ${other}${at}, but ${other} doesn't list ${trLabel(tr)}.`, fixes: fxBoth }); }
     else {
       if (!back.some(x => linkKind(x) === kind)) out.push({ kind: "link", text: `${trLabel(tr)} calls ${other}${at} ${what}; ${other} calls it ${kind === "conn" ? "through cars" : "a connection"}.`, fixes: fxBoth });
-      if (c.stationId && back.every(x => x.stationId && x.stationId !== c.stationId)) out.push({ kind: "link", text: `${trLabel(tr)} links to ${other} at ${stName(c.stationId)}, but ${other} gives ${stName(back[0].stationId)}.`, fixes: fxBoth });
+      if (c.stationId && back.every(x => x.stationId && x.stationId !== (c.otherStationId || c.stationId))) out.push({ kind: "link", text: `${trLabel(tr)} links to ${other} at ${stName(c.stationId)}, but ${other} gives ${stName(back[0].stationId)}.`, fixes: fxBoth });
     }
     // timing: the train cars or passengers come from must arrive before the other one leaves
     if (c.stationId) {
       const oStops = Core.mergeStops(groupsFor(o), tzOffFn()).stops;
       // at a station printed twice (Ar. and Lv. rows), the train arriving uses its arrival row and the one leaving its departure row
-      const at = list => list.filter(s => s.stationId === c.stationId);
-      const arrRow = list => { const xs = at(list); return xs.find(s => s.arr) || xs[0]; }, depRow = list => { const xs = at(list); return [...xs].reverse().find(s => s.dep) || xs[xs.length - 1]; };
-      const mine = at(myStops)[0], theirs = at(oStops)[0];
+      const oSt = c.otherStationId || c.stationId, atSt = st => list => list.filter(s => s.stationId === st);
+      const arrRow = (list, at) => { const xs = at(list); return xs.find(s => s.arr) || xs[0]; }, depRow = (list, at) => { const xs = at(list); return [...xs].reverse().find(s => s.dep) || xs[xs.length - 1]; };
+      const mineAt = atSt(c.stationId), theirsAt = atSt(oSt), mine = mineAt(myStops)[0], theirs = theirsAt(oStops)[0];
       if (mine && theirs) {
-        const [inS, outS] = dir === "to" ? [arrRow(myStops), depRow(oStops)] : [arrRow(oStops), depRow(myStops)];
+        const [inS, outS] = dir === "to" ? [arrRow(myStops, mineAt), depRow(oStops, theirsAt)] : [arrRow(oStops, theirsAt), depRow(myStops, mineAt)];
         const arr = toMinE(inS, inS.arr ? "arr" : "dep"), dep = toMinE(outS, outS.dep ? "dep" : "arr");
         if (arr != null && dep != null && (dep - arr + 1440) % 1440 > 12 * 60) {
           const [inT, outT] = dir === "to" ? [tr, o] : [o, tr];
