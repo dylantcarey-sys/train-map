@@ -4003,7 +4003,7 @@ function rrLinesHTML(r, g) {
       <td style="white-space:nowrap">${t ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: t.id, train: "", mode: "grid" }))}'>Table ${esc(tno(t))}</button>` : `<span class="muted">${l.tableNo ? "no table entered" : "no passenger table"}</span>`} · <button class="linkish" data-lnst="${i}">${open ? "Hide stations" : `Stations${(l.stations || []).length ? ` (${l.stations.length})` : ""}`}</button></td>
       <td class="rowbtns"><button class="ghost" data-lnmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-lnmove="${i}" data-by="1" aria-label="Move down" ${i < lines.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-lndel="${i}" aria-label="Remove line">✕</button></td></tr>
       ${open ? `<tr class="lnst"><td colspan="6">${rrStationsHTML(l, i, t)}</td></tr>` : ""}`; }).join("")}</tbody></table>` : ""}
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
 }
 function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
@@ -4028,6 +4028,7 @@ function wireRRGuide(r) {
   el.querySelectorAll("[data-ln]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.ln][inp.dataset.lk] = inp.value; put(x); }));
   el.querySelectorAll("[data-ln][data-lk=tableNo]").forEach(inp => inp.addEventListener("change", () => renderRailroads()));
   el.querySelectorAll("[data-sn]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.sn].stations[+inp.dataset.sj][inp.dataset.sk] = inp.value; put(x); }));
+  if ($("lnNewTable")) $("lnNewTable").onclick = () => { LS.set("rr", r.abbrev); goTo({ then: () => tableDialog(null) }); };
   if ($("lnAdd")) $("lnAdd").onclick = () => { const x = g(); x.lines.push({ tableNo: "", miles: "", from: "", to: "" }); put(x, true); };
   const ends = t => { const rows = (t.rows || []).filter(q => !q.divider && q.stationId); const nm = q => q ? stName(q.stationId) : ""; const mi = Math.max(0, ...rows.map(q => parseFloat(String(q.miles || "").replace(/,/g, "")) || 0)); return { from: nm(rows[0]), to: nm(rows[rows.length - 1]), miles: mi ? String(mi) : "" }; };
   if ($("lnFill")) $("lnFill").onclick = () => {
@@ -4783,12 +4784,21 @@ async function renderHome() {
   const tLabel = t => `${esc(t.rr)} Table ${esc(tno(t))}`;
   const trL = tr => `${esc(trRR(tr))} ${esc(tr.trainNo || "(no number)")}${tr.trainName ? " " + esc(tr.trainName) : ""}`;
   const resume = [];
-  if (lastSrc && lastTbl) resume.push(`<div class="item"><span class="small muted">Last open</span><b>${lastTr ? trL(lastTr) : tLabel(lastTbl)}</b><span class="small">${esc(lastSrc.name)} · ${tLabel(lastTbl)} · ${lastMode === "grid" ? "Timetable grid" : "One train"}</span><div><button class="primary" data-go='${esc(JSON.stringify({ source: lastSrc.id, table: lastTbl.id, train: lastTr?.id || "", mode: lastMode }))}'>Continue</button></div></div>`);
-  if (edited) { const k = Object.keys(edited.tr.tables || {})[0]; const tb = edited.tables.find(t => t.id === k);
-    if (tb && !(lastTr && edited.tr.id === lastTr.id)) resume.push(`<div class="item"><span class="small muted">Last edited ${esc(ago(edited.tr.updatedAt))}</span><b>${trL(edited.tr)}</b><span class="small">${esc(edited.src.name)} · ${tLabel(tb)}</span><div><button data-go='${esc(JSON.stringify({ source: edited.src.id, table: k, train: edited.tr.id, mode: "train" }))}'>Open this train</button></div></div>`); }
-  if (lastSrc && lastTbl) { const nx = nextTableAfter(dLast.tables, lastTbl.id);
-    resume.push(nx ? `<div class="item"><span class="small muted">Next table in the Guide</span><b>${tLabel(nx)}</b><span class="small">${nx.page ? "page " + esc(nx.page) : "no page entered"} · after ${tLabel(lastTbl)}</span><div><button data-go='${esc(JSON.stringify({ source: lastSrc.id, table: nx.id, train: "", mode: "grid" }))}'>Open next table</button></div></div>`
-      : `<div class="item"><span class="small muted">Next table in the Guide</span><b>None after ${tLabel(lastTbl)}</b><span class="small">That's the last table entered so far. The next one can be any railroad: pick it in the new table.</span><div><button data-newtable="${esc(lastSrc.id)}" data-nrr="${esc(lastTbl.rr || "")}">＋ New table</button></div></div>`); }
+  // pick up by railroad: continue the railroad you were on, or move to the next one; its tables are reached from its own section
+  const rrOf = ab => S.railroads.find(r => r.abbrev === ab);
+  const rrGo = (src, ab) => esc(JSON.stringify({ source: src.id, rr: rrOf(ab)?.id || "" }));
+  if (lastSrc && lastTbl) {
+    const ab = lastTbl.rr || "", mine = dLast.tables.filter(t => (t.rr || "") === ab).sort(guideOrder);
+    const nTr = dLast.trains.filter(tr => trRR(tr) === ab && !tr.copyOf && !tr.setupOf).length;
+    resume.push(`<div class="item"><span class="small muted">Continue this railroad</span><b>${esc(rrLabel(rrOf(ab) || { abbrev: ab }))}</b><span class="small">${esc(lastSrc.name)} · ${mine.length} table${mine.length === 1 ? "" : "s"}, ${nTr} train${nTr === 1 ? "" : "s"} · last open: ${lastTr ? trL(lastTr) + " on " : ""}${tLabel(lastTbl)}</span><div class="row" style="gap:6px;flex-wrap:wrap">${rrOf(ab) ? `<button class="primary" data-gorr='${rrGo(lastSrc, ab)}'>Open ${esc(rrLabel(rrOf(ab)))}</button>` : ""}<button ${rrOf(ab) ? "" : 'class="primary"'} data-go='${esc(JSON.stringify({ source: lastSrc.id, table: lastTbl.id, train: lastTr?.id || "", mode: lastMode }))}'>Back to ${tLabel(lastTbl)}</button></div></div>`);
+    // the next railroad: the one whose tables come next in the Guide, else one not started yet
+    const order = dLast.tables.slice().sort(guideOrder), lastMine = order.map(t => t.rr || "").lastIndexOf(ab);
+    const nxt = order.slice(lastMine + 1).find(t => (t.rr || "") !== ab);
+    const started = new Set(dLast.tables.map(t => t.rr || "")), when = lastSrc.date || "";
+    const fresh = S.railroads.filter(r => !started.has(r.abbrev) && r.kind !== "freight" && rrActiveOn(r, when)).sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+    resume.push(nxt ? `<div class="item"><span class="small muted">Next railroad in the Guide</span><b>${esc(rrLabel(rrOf(nxt.rr) || { abbrev: nxt.rr }))}</b><span class="small">from page ${esc(nxt.page || "?")} · ${dLast.tables.filter(t => t.rr === nxt.rr).length} tables entered</span><div>${rrOf(nxt.rr) ? `<button data-gorr='${rrGo(lastSrc, nxt.rr)}'>Open ${esc(rrLabel(rrOf(nxt.rr)))}</button>` : ""}</div></div>`
+      : `<div class="item"><span class="small muted">Next railroad</span><b>Start a new railroad</b><span class="small">${esc(rrLabel(rrOf(ab) || { abbrev: ab }))} is the last railroad entered so far.</span><div class="row" style="gap:6px;flex-wrap:nowrap"><select id="hNextRR" aria-label="Railroad to start" style="min-width:0;flex:1">${fresh.map(r => `<option value="${esc(r.id)}">${esc(rrLabel(r))}</option>`).join("")}</select><button data-startrr="${esc(lastSrc.id)}">Start</button></div></div>`);
+  }
   const recent = all.filter(x => x.tr.updatedAt && Object.keys(x.tr.tables || {}).length).sort((a, b) => b.tr.updatedAt.localeCompare(a.tr.updatedAt)).slice(0, 8);
   const recentHtml = recent.length ? `<h3 style="margin:12px 0 0">Recently edited</h3><ul class="recentlist">${recent.map(x => { const k = Object.keys(x.tr.tables).find(k => x.tables.some(t => t.id === k)) || ""; const tb = x.tables.find(t => t.id === k); return tb ? `<li><button class="linkish" data-go='${esc(JSON.stringify({ source: x.src.id, table: k, train: x.tr.id, mode: "train" }))}'>${trL(x.tr)}</button><span class="small muted">${tLabel(tb)} · ${esc(ago(x.tr.updatedAt))}</span></li>` : ""; }).join("")}</ul>` : "";
   if (!resume.length) resume.push(`<div class="item"><b>Nothing open yet</b><span class="small">Pick a source below and add its first table.</span></div>`);
@@ -4852,6 +4862,9 @@ async function renderHome() {
     <div class="card"><h2>Other tools</h2><div class="row" style="gap:8px;flex-wrap:wrap">
       <button id="hRailroads">Railroads</button><button id="hStations">Station list and new stations</button><a id="hMap" class="btn primary" href="https://dylantcarey-sys.github.io/train-map/" target="_blank" rel="noopener">Open the train map</a><button id="hMapDl" ${S.dl ? "" : "disabled"} title="A copy of the map with everything entered up to this minute">Download map with today's entries</button><button id="hExport" ${S.dl ? "" : "disabled"}>Export CSV</button><button id="hBackup" class="ghost" ${S.dl ? "" : "disabled"}>Backup (JSON)</button><button id="hAddSource" class="ghost">Add a source</button><button id="hRefresh" class="ghost">Refresh this summary</button><button id="hTidy" class="ghost" title="Rewrites this guide's trains without blank fields, so they take less room and load faster. Nothing you see changes.">Tidy storage</button></div></div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.go)));
+  const openRR = (source, id) => { const show = () => { rrSel = id; LS.set("rrSel", id); rrStats = null; showPage("railroads"); }; if (source !== S.sourceId) goTo({ source, then: show }); else show(); };
+  el.querySelectorAll("[data-gorr]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.gorr); openRR(o.source, o.rr); });
+  el.querySelectorAll("[data-startrr]").forEach(b => b.onclick = () => { const id = $("hNextRR")?.value; if (id) openRR(b.dataset.startrr, id); });
   el.querySelectorAll("[data-rrfold]").forEach(b => b.onclick = () => {
     const gk = b.dataset.rrfold, f = new Set(LS.get("homeOpen", [])), shut = f.has(gk);
     shut ? f.delete(gk) : f.add(gk); LS.set("homeOpen", [...f]);
