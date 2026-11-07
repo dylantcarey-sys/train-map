@@ -1016,6 +1016,16 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
 // a read-only hook for automated checks of the Desk (no effect on the page)
+// station names, train names and car types are proper nouns: no spell-check underlines or phone autocorrect in single-line boxes
+// (notes boxes keep spell-check)
+(() => {
+  const quiet = root => root.querySelectorAll?.('input:not([type]), input[type="text"], input[type="search"]').forEach(el => {
+    if (!el.hasAttribute("spellcheck")) el.setAttribute("spellcheck", "false");
+    if (!el.hasAttribute("autocorrect")) el.setAttribute("autocorrect", "off");
+  });
+  quiet(document);
+  new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.("input")) quiet(n.parentNode || n); else quiet(n); } }).observe(document.documentElement, { childList: true, subtree: true });
+})();
 window.__deskHook = () => ({ allTrainDocs, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.name, other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
