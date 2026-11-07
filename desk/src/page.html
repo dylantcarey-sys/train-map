@@ -461,6 +461,9 @@ table.tv tr.tv-div td { padding: 0; height: 3px; background: var(--rule-strong);
 .tv-x:hover, .tv-link:hover { opacity: 1; }
 .tv-nm, .tv-fq { display: block; font-size: 11px; font-weight: 400; color: var(--muted); max-width: 110px; margin: 0 auto; white-space: normal; line-height: 1.2; }
 .tv-nm { font-style: italic; color: var(--ink); }
+.rrtabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); margin: 4px 0 12px; }
+.rrtabs button { border: 1px solid var(--rule); border-bottom: 0; background: none; padding: 5px 12px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit; }
+.rrtabs button[aria-selected="true"] { background: var(--accent-soft); font-weight: 600; }
 dl.rrview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 8px 0 0; }
 dl.rrview dt { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
 dl.rrview dd { margin: 0; white-space: pre-line; }
@@ -1194,7 +1197,7 @@ function renderContext() {
   $("selTable").innerHTML = S.tables.length ? [...byRR].map(([k, ts]) => `<optgroup label="${esc(rrLabel(S.railroads.find(r => r.abbrev === k) || { abbrev: k || "No railroad" }))}">${ts.map(t => `<option value="${esc(t.id)}" ${t.id === S.tableId ? "selected" : ""}>${esc(tableName(t))}</option>`).join("")}</optgroup>`).join("") : `<option value="">${S.sourceId ? "No tables yet: start one" : "Pick a source first"}</option>`;
   const t = curTable();
   $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table"].filter(Boolean).join(" · ") : "";
-  if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); showPage("railroads"); };
+  if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); LS.set("rrTab", "g:" + S.sourceId); showPage("railroads"); };
   $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') : "";
   if ($("selTStatus")) { $("selTStatus").disabled = !S.db; $("selTStatus").onchange = e => { setTableStatus(t.id, e.target.value); renderContext(); }; }
   const nx = t && nextTableAfter(S.tables, t.id), pv = t && prevTableBefore(S.tables, t.id);
@@ -3525,6 +3528,8 @@ async function renderRailroads() {
   const hiddenN = all.length - list.length;
   if (!rrSel || !list.some(r => r.id === rrSel)) rrSel = LS.get("rrSel", "") && list.some(r => r.id === LS.get("rrSel", "")) ? LS.get("rrSel", "") : (list[0]?.id || "");
   const r = list.find(x => x.id === rrSel);
+  // the railroad's own page, or its page for one guide (a sub-page per guide); defaults to the guide open now
+  let rrTabNow = LS.get("rrTab", "") || "g:" + S.sourceId; if (rrTabNow.startsWith("g:") && rrTabNow !== "g:" + S.sourceId) rrTabNow = "g:" + S.sourceId;
   const used = ab => { const out = []; for (const d of rrStats) { const ts = d.tables.filter(t => t.rr === ab); const trs = d.trains.filter(tr => trRR(tr) === ab); if (ts.length || trs.length) out.push({ src: d.src, ts, trs }); } return out; };
   const u = r ? used(r.abbrev) : [];
   const nUsed = ab => used(ab).reduce((a, x) => a + x.trs.length, 0);
@@ -3536,17 +3541,20 @@ async function renderRailroads() {
       <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}${x.nickname ? `<span class="muted small">“${esc(x.nickname)}”</span>` : ""}<span class="muted small">${esc(x.abbrev)}${pgOf(x) ? ` · p. ${pgOf(x)[0]}${pgOf(x)[1] !== pgOf(x)[0] ? "–" + pgOf(x)[1] : ""}` : ""}${rrFreightOn(x, onDate) ? " · freight only" : ""}${rrGuide.get(`${S.sourceId}|${x.id}`)?.noTimes ? " · no timetables in this guide" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2>${onDate && rrNameOn(r, onDate) && rrNameOn(r, onDate) !== r.common ? `<span class="small muted" title="Its formal name on the guide's date">${esc(src0.dateText || onDate)}: ${esc(rrNameOn(r, onDate))}</span>` : ""}<span class="small muted" id="rrSaved"></span></div>
+        <div class="rrtabs" role="tablist">${[["rr", "Railroad"], ...S.sources.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(x => ["g:" + x.id, x.name])].map(([k, l]) => `<button role="tab" data-rrtab="${esc(k)}" aria-selected="${rrTabNow === k}">${esc(l)}${k.startsWith("g:") && u.some(y => "g:" + y.src.id === k) ? ` <span class="muted small">· ${(n => n + (n === 1 ? " table" : " tables"))(u.find(y => "g:" + y.src.id === k).ts.length)}</span>` : ""}</button>`).join("")}</div>
+        <div ${rrTabNow === "rr" ? "" : "hidden"}>
         ${inUse(r.abbrev) ? `<div class="small muted" style="margin:2px 0 10px">Code on tables <b>${esc(r.abbrev)}</b>. It's already used on tables or trains, so it can't be changed here.</div>`
           : `<div class="row small" style="gap:6px;align-items:center;margin:2px 0 10px"><span class="muted">Code on tables</span><input id="rrAbbrev" value="${esc(r.abbrev)}" autocomplete="off" style="width:110px"><button class="small-btn" id="rrAbbrevSave">Change</button><span class="muted">Not used on any table or train yet, so it can still be changed.</span></div>`}
         ${S.viewOnly ? `<dl class="rrview">${RR_FIELDS.filter(([k]) => k !== "name" && r[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd>${k === "color" ? `<span class="rrsw" style="background:${esc(r.color)}"></span>` : ""}${esc(k === "kind" ? kindLabel(r[k]) : r[k])}</dd>`).join("") || `<dd class="muted">No details entered yet.</dd>`}</dl>` : ""}<div class="fields edit-only">${RR_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 || k === "name" || k === "common" || k === "nickname" ? "1/-1" : "auto"}"><span>${esc(label)}</span>${k === "kind" ? `<select data-rrf="kind">${RR_KINDS.map(([v, l]) => `<option value="${v}" ${(r.kind || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : k === "color" ? `<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="color" data-rrcolor value="${esc(/^#[0-9a-f]{6}$/i.test(r.color || "") ? r.color : "#888888")}" aria-label="Pick the map color" style="width:44px;height:32px;padding:2px"><input data-rrf="color" value="${esc(r.color || "")}" placeholder="${esc(ph)}" autocomplete="off" style="flex:1" title="The color this railroad's trains and routes get on the map"></span>` : rows > 1 ? `<textarea data-rrf="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(r[k] || "")}</textarea>` : `<input data-rrf="${k}" value="${esc(r[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>
         ${rrPeriodsHTML(r, onDate)}
         ${r.offices || r.miles ? `<p class="small muted">Older entries kept on the railroad itself (they belong to a guide now): ${esc([r.offices && "offices: " + r.offices.replace(/\n/g, "; "), r.miles && "route miles: " + r.miles].filter(Boolean).join(" · "))}</p>` : ""}
-        <h2 style="margin-top:16px">In your timetables</h2>
+        <h2 style="margin-top:16px">In your timetables (all guides)</h2>
         ${u.length ? `<ul class="attn">${u.map(x => `<li><b>${esc(x.src.name)}</b>: ${x.ts.map(t => `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: x.src.id, table: t.id, train: "", mode: "grid" }))}'>${esc(tlab(t))}</button>`).join(", ") || "no tables of its own"} · ${x.trs.length} train${x.trs.length === 1 ? "" : "s"}</li>`).join("")}</ul>` : `<p class="small muted">Not used on any table or train yet.</p>`}
-        ${rrGuideHTML(r)}` : `<p>No railroads yet.</p>`}
+        </div><div ${rrTabNow.startsWith("g:") ? "" : "hidden"}>${rrTabNow === "g:" + S.sourceId ? rrGuideHTML(r) : ""}</div>` : `<p>No railroads yet.</p>`}
       </div>
     </div>`;
   el.querySelectorAll("[data-rr]").forEach(b => b.onclick = () => { rrSel = b.dataset.rr; LS.set("rrSel", rrSel); renderRailroads(); });
+  el.querySelectorAll("[data-rrtab]").forEach(b => b.onclick = () => { const k = b.dataset.rrtab; LS.set("rrTab", k); if (k.startsWith("g:") && k.slice(2) !== S.sourceId) { S.sourceId = k.slice(2); LS.set("source", S.sourceId); S.tableId = ""; rrStats = null; subscribeSource(); } renderRailroads(); });
   if ($("rrActive")) $("rrActive").onchange = e => { LS.set("rrActive", e.target.checked); renderRailroads(); };
   $("rrHideMixed").onchange = e => { LS.set("rrHideMixed", e.target.checked); renderRailroads(); };
   $("rrByPage").onchange = e => { LS.set("rrByPage", e.target.checked); renderRailroads(); };
@@ -3609,7 +3617,7 @@ function rrGuideHTML(r) {
   const trs = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && !t.copyOf && !t.setupOf && trRR(t) === r.abbrev).sort((a, b) => Core.trainNoSort(a.trainNo, b.trainNo));
   const eqLine = e => [e.type, e.desc].filter(Boolean).join(" — ") + (e.from || e.to ? ` (${[e.from, e.to].filter(Boolean).map(stName).join("–")})` : "") + (e.days ? ` [${e.days}]` : "");
   const firstTable = t => Object.keys(t.tables || {}).find(k => tableById(k)) || "";
-  return `<h2 style="margin-top:16px">In ${esc(src.name)}</h2>
+  return `<h2 style="margin-top:8px">${esc(rrNameOn(r, src.date) || rrLabel(r))} in ${esc(src.name)}</h2>
     ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
       : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
     ${g === null || S.viewOnly ? "" : `<label class="row small" style="gap:6px;margin:8px 0 0"><input type="checkbox" id="rrNoTimes" ${g.noTimes ? "checked" : ""}> Has passenger service, but prints no timetables in this guide <span class="muted">(its trains won't show as waiting to be entered)</span></label>`}
@@ -4501,7 +4509,7 @@ async function renderHome() {
     <div class="card"><h2>Other tools</h2><div class="row" style="gap:8px;flex-wrap:wrap">
       <button id="hRailroads">Railroads</button><button id="hStations">Station list and new stations</button><a id="hMap" class="btn primary" href="https://dylantcarey-sys.github.io/train-map/" target="_blank" rel="noopener">Open the train map</a><button id="hMapDl" ${S.dl ? "" : "disabled"} title="A copy of the map with everything entered up to this minute">Download map with today's entries</button><button id="hExport" ${S.dl ? "" : "disabled"}>Export CSV</button><button id="hBackup" class="ghost" ${S.dl ? "" : "disabled"}>Backup (JSON)</button><button id="hAddSource" class="ghost">Add a source</button><button id="hRefresh" class="ghost">Refresh this summary</button><button id="hTidy" class="ghost" title="Rewrites this guide's trains without blank fields, so they take less room and load faster. Nothing you see changes.">Tidy storage</button></div></div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.go)));
-  const openRR = (source, id) => { const show = () => { rrSel = id; LS.set("rrSel", id); rrStats = null; showPage("railroads"); }; if (source !== S.sourceId) goTo({ source, then: show }); else show(); };
+  const openRR = (source, id) => { const show = () => { rrSel = id; LS.set("rrSel", id); LS.set("rrTab", "g:" + source); rrStats = null; showPage("railroads"); }; if (source !== S.sourceId) goTo({ source, then: show }); else show(); };
   el.querySelectorAll("[data-gorr]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.gorr); openRR(o.source, o.rr); });
   el.querySelectorAll("[data-startrr]").forEach(b => b.onclick = () => { const id = $("hNextRR")?.value; if (id) openRR(b.dataset.startrr, id); });
   el.querySelectorAll("[data-rrfold]").forEach(b => b.onclick = () => {
