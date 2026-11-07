@@ -4319,8 +4319,8 @@ function columnDialog(id, pick) {
     <label class="f" style="margin-top:10px"><span>Column heading (optional)</span><input id="dColName" value="${esc(tr.tables[T].colName || "")}" placeholder="${esc(tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)).main.map(x => x.trainName).filter(Boolean)[0] || "e.g. Florida Special")}" autocomplete="off"></label>
     <p class="small muted" style="margin:2px 0 0">Leave blank to use the main train's name. Trains that only connect into the column don't add their names.</p>
     ${tr.copyOf || isRefIn(tr, T, trainsInTable()) ? (() => { const rowsT = (t.rows || []).filter(r => !r.divider), only = tr.tables[T].onlyRows; return `<label class="f" style="margin-top:10px"><span>Number printed over this ${tr.copyOf ? "repeat" : "reference"} column (optional)</span><input id="dColPrinted" value="${esc(tr.tables[T].printedAs || "")}" placeholder="${esc(tr.trainNo || "")}" autocomplete="off"></label>
-    <div class="f" style="margin-top:10px"><span>Rows this ${tr.copyOf ? "repeat" : "reference"} column shows</span><div style="max-height:220px;overflow:auto;border:1px solid var(--rule);border-radius:6px;padding:4px 6px">${rowsT.map(r => `<label class="row small" style="gap:6px;margin:2px 0;flex-wrap:nowrap"><input type="checkbox" data-onlyrow="${esc(r.rid)}" ${!only || only.includes(r.rid) ? "checked" : ""}> ${esc(S.stById.get(r.stationId)?.name || r.stationId)} <span class="muted">${esc(r.miles || "")}</span></label>`).join("")}</div>
-    <p class="small muted" style="margin:2px 0 0">Untick the rows the Guide leaves blank in this column, for a column that shows only part of the train's run.</p></div>`; })() : ""}`, "Save", () => {
+    <div class="f" style="margin-top:10px"><span>Rows this ${tr.copyOf ? "repeat" : "reference"} column shows</span><div class="row" style="gap:6px;margin:2px 0 4px"><button type="button" class="small-btn" id="dOnlyAll">Tick all</button><button type="button" class="small-btn" id="dOnlyNone">Clear</button><span class="small muted" id="dOnlyCount"></span></div><div id="dOnlyList" style="max-height:260px;overflow:auto;border:1px solid var(--rule);border-radius:6px;padding:4px 6px">${rowsT.map((r, i) => `<label class="row small" style="gap:6px;margin:2px 0;flex-wrap:nowrap"><input type="checkbox" data-onlyrow="${esc(r.rid)}" data-oi="${i}" ${!only || only.includes(r.rid) ? "checked" : ""}> ${esc(S.stById.get(r.stationId)?.name || r.stationId)} <span class="muted">${esc(r.miles || "")}</span><span style="margin-left:auto;display:flex;gap:4px;flex:none"><button type="button" class="ghost small-btn" data-obelow="1" data-i="${i}" title="Tick this row and every row below it">Tick ↓</button><button type="button" class="ghost small-btn" data-obelow="0" data-i="${i}" title="Clear this row and every row below it">Clear ↓</button></span></label>`).join("")}</div>
+    <p class="small muted" style="margin:2px 0 0">Untick the rows the Guide leaves blank in this column, for a column that shows only part of the train's run. "Tick ↓" or "Clear ↓" ticks or clears a row and everything below it; Shift-click ticks or clears a stretch.</p></div>`; })() : ""}`, "Save", () => {
     const v = document.querySelector('input[name="dCol"]:checked')?.value || "", w = edit(id);
     if (v === "with") { const o = $("dColWith").value; if (!o) return "Pick a train."; w.tables[T].col = o; } else if (v === "own") w.tables[T].col = "own"; else delete w.tables[T].col;
     // one heading per column: set it here and clear it on the others in the same column
@@ -4336,6 +4336,21 @@ function columnDialog(id, pick) {
     renderEntry();
   });
   if (pick) $("dColTrain").onchange = e => columnDialog(e.target.value, true);
+  if ($("dOnlyList")) {   // tick all / clear / tick ↓ / clear ↓ / shift-click, as in Copy stations
+    const boxes = () => [...document.querySelectorAll("#dOnlyList [data-onlyrow]")];
+    const count = () => { const b = boxes(); $("dOnlyCount").textContent = `${b.filter(c => c.checked).length} of ${b.length} ticked`; };
+    $("dOnlyAll").onclick = () => { boxes().forEach(c => c.checked = true); count(); };
+    $("dOnlyNone").onclick = () => { boxes().forEach(c => c.checked = false); count(); };
+    let last = null;
+    $("dOnlyList").addEventListener("click", e => {
+      const b = e.target.closest("[data-obelow]");
+      if (b) { e.preventDefault(); const from = +b.dataset.i, on = b.dataset.obelow === "1"; boxes().forEach(c => { if (+c.dataset.oi >= from) c.checked = on; }); count(); return; }
+      const c = e.target.closest("[data-onlyrow]"); if (!c) return; const i = +c.dataset.oi;
+      if (e.shiftKey && last != null) { const [a, z] = [Math.min(i, last), Math.max(i, last)]; boxes().forEach(x => { if (+x.dataset.oi >= a && +x.dataset.oi <= z) x.checked = c.checked; }); }
+      last = i; count();
+    });
+    count();
+  }
 }
 // take stops i..j (in running order) out of a train as a new train: e.g. SCL 91's Waycross - Montgomery section.
 // The rest stays on the first train. The two are joined by a through-cars link where the section leaves (or joins) it.
