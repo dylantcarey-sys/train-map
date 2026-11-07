@@ -1196,7 +1196,8 @@ function renderContext() {
   const byRR = new Map(); for (const x of S.tables.slice().sort(guideOrder)) { const k = x.rr || ""; if (!byRR.has(k)) byRR.set(k, []); byRR.get(k).push(x); }
   $("selTable").innerHTML = S.tables.length ? [...byRR].map(([k, ts]) => `<optgroup label="${esc(rrLabel(S.railroads.find(r => r.abbrev === k) || { abbrev: k || "No railroad" }))}">${ts.map(t => `<option value="${esc(t.id)}" ${t.id === S.tableId ? "selected" : ""}>${esc(tableName(t))}</option>`).join("")}</optgroup>`).join("") : `<option value="">${S.sourceId ? "No tables yet: start one" : "Pick a source first"}</option>`;
   const t = curTable();
-  $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table"].filter(Boolean).join(" · ") : "";
+  $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table", t.marksTodo && `<button class="linkish" id="tsMarks" style="color:var(--warn,#b45309)" title="Added with several tables at once: enter this table's explanation of signs">Reference marks not entered yet</button>`].filter(Boolean).join(" · ") : "";
+  if ($("tsMarks")) $("tsMarks").onclick = () => tableDialog(curTable());
   if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); LS.set("rrTab", "g:" + S.sourceId); showPage("railroads"); };
   $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') : "";
   if ($("selTStatus")) { $("selTStatus").disabled = !S.db; $("selTStatus").onchange = e => { setTableStatus(t.id, e.target.value); renderContext(); }; }
@@ -2685,7 +2686,7 @@ function tableDialog(existing) {
   // a new table starts with the marks of the table before it: the one you're on if it's the same railroad, else that railroad's latest
   const cur0 = curTable(), sameRR = S.tables.filter(x => (x.rr || "") === (t.rr || "")).sort(guideOrder);
   const seedTbl = existing ? null : (cur0 && (cur0.rr || "") === (t.rr || "") ? cur0 : sameRR[sameRR.length - 1] || cur0 || null);
-  let marks = structuredClone(existing ? tableMarks(existing) : seedTbl ? tableMarks(seedTbl) : (LS.get("lastMarks", null) || Core.DEFAULT_MARKS));
+  let marks = structuredClone(existing ? (existing.marksTodo ? [] : tableMarks(existing)) : seedTbl ? tableMarks(seedTbl) : (LS.get("lastMarks", null) || Core.DEFAULT_MARKS));
   const markSrcs = S.tables.filter(x => x.id !== existing?.id).sort((a, b) => ((a.rr || "") === (t.rr || "") ? 0 : 1) - ((b.rr || "") === (t.rr || "") ? 0 : 1) || guideOrder(a, b));
   dialog(`<h2>${existing ? "Table details" : "New table"}</h2>
     <p class="small muted">One numbered timetable in ${esc(src?.name || "this source")}, for one railroad.</p>
@@ -2730,7 +2731,7 @@ function tableDialog(existing) {
     LS.set("lastMarks", cleanMarks);
     const body = { ...(existing || { rows: [] }), hosted: $("dHosted").checked, condensed: $("dCondensed").checked, marks: cleanMarks, rr, tableNo: no, page: $("dPage").value.trim(), title: $("dTitle").value.trim(), tableDateText: dt, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: $("dTz").value, basis: $("dBasis").value, notes: $("dTNotes").value };
     const id = existing?.id || `${rr.replace(/[^A-Za-z0-9]/g, "")}-${no.replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`;
-    delete body.id; delete body.part; LS.set("rr", rr);
+    delete body.id; delete body.part; delete body.marksTodo; LS.set("rr", rr);
     if (!existing) { body.createdAt = new Date().toISOString(); LS.set("lastTz", body.tz); }
     remember(`${tablesPath()}/${id}`, existing || null);
     try { await S.db.doc(`${tablesPath()}/${id}`).set(body); } catch { return "Couldn't save the table."; }
@@ -2783,6 +2784,78 @@ function tableDialog(existing) {
   drawMarks();
 }
 // a table's reference marks: saved list, else marks written in its notes ("f - Stops only on signal …"), else the defaults
+// several tables of one railroad at once, to plan its section: number, page, name, date, time zone (and condensed).
+// Marks and trains wait until you open each table (its summary line says the marks aren't entered yet).
+function bulkTablesDialog(r) {
+  const src = curSource(); if (!src || !S.db) return;
+  const mine = S.tables.filter(t => t.rr === r.abbrev).sort(guideOrder);
+  const lastTz = mine[mine.length - 1]?.tz || S.tables.filter(x => x.createdAt && x.tz).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.tz || LS.get("lastTz", "") || "ET";
+  const pr = rrPageRange(S.sourceId, r);
+  const lastNo = mine.map(t => parseInt(t.tableNo, 10)).filter(n => !isNaN(n)).sort((a, b) => b - a)[0];
+  let rows = [];
+  const blank = prev => ({ no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", page: prev?.page || "", title: "", date: prev?.date || "", tz: prev?.tz || lastTz, condensed: false });
+  rows.push({ ...blank(null), no: lastNo ? String(lastNo + 1) : "", page: mine.length ? (mine[mine.length - 1].page || "") : pr ? String(pr[0]) : "" });
+  const pageNote = pr ? ` Its pages in this guide: ${esc(pr[0] === pr[1] ? String(pr[0]) : pr[0] + "–" + pr[1])}.` : "";
+  dialog(`<h2>Add ${esc(rrLabel(r))} tables</h2>
+    <p class="small muted" style="margin:0 0 6px">One row per table in ${esc(src.name)}.${pageNote} Reference marks and trains are added when you get to each table; until then its summary line says the marks aren't entered yet. A new row copies the page, date and time zone of the row above.</p>
+    ${mine.length ? `<details class="small" style="margin:0 0 8px"><summary>Already entered: ${mine.length} table${mine.length === 1 ? "" : "s"}</summary><div class="muted" style="margin:4px 0 0 12px">${mine.map(t => `${esc(tableName(t))}${t.page ? " · p. " + esc(t.page) : ""}${t.tableDateText ? " · " + esc(t.tableDateText) : ""} · ${esc(t.tz || "")}`).join("<br>")}</div></details>` : ""}
+    <div style="max-height:52vh;overflow:auto"><table class="sheet small" id="bkTable"><thead><tr><th>No.</th><th>Page</th><th>Table name</th><th>Table date</th><th>Zone</th><th title="Condensed table">Cond.</th><th></th></tr></thead><tbody id="bkRows"></tbody></table></div>
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button type="button" class="small-btn" id="bkAdd">＋ Add a row</button><button type="button" class="small-btn" id="bkPaste" title="Paste rows from a spreadsheet: number, page, name, date, zone">Paste rows…</button><span class="small muted" id="bkCount"></span></div>`, "Add tables", async () => {
+    read();
+    const used = rows.filter(x => x.no || x.title || x.page || x.date);
+    if (!used.length) return "Fill in at least one row.";
+    const out = [];
+    for (const [i, x] of used.entries()) {
+      const lab = x.no ? `Table ${x.no}` : x.title || `row ${i + 1}`;
+      const pd = x.date ? Core.parseMonthDate(x.date) : null;
+      if (x.date && !pd) return `${lab}: type the date like September 24, 1944 (or leave it blank).`;
+      if (x.no && !x.title && (mine.some(t => String(t.tableNo).trim() === x.no) || used.filter(y => y.no === x.no).length > 1)) return `${lab} is already listed. Give each part its own name so they can be told apart.`;
+      out.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: !!x.condensed, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + i).toISOString() });
+    }
+    const ids = [];
+    try { for (const body of out) { const id = `${r.abbrev.replace(/[^A-Za-z0-9]/g, "")}-${body.tableNo.replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`; await S.db.doc(`${tablesPath()}/${id}`).set(body); ids.push(id); } }
+    catch { return ids.length ? `Saved ${ids.length} of ${out.length} tables; the rest couldn't be saved. Close this and try the others again.` : "Couldn't save the tables."; }
+    LS.set("rr", r.abbrev); LS.set("lastTz", out[out.length - 1].tz);
+    setTimeout(() => { rrStats = null; if (S.page === "railroads") renderRailroads(); renderContext(); }, 400);
+  });
+  const cell = (i, k, w, ph) => `<input data-bk="${i}" data-bkk="${k}" value="${esc(rows[i][k])}" placeholder="${ph}" autocomplete="off" style="width:${w}">`;
+  function read() { document.querySelectorAll("#bkRows [data-bk]").forEach(el => { const x = rows[+el.dataset.bk]; if (!x) return; x[el.dataset.bkk] = el.type === "checkbox" ? el.checked : el.value.trim(); }); }
+  function draw(focus) {
+    $("bkRows").innerHTML = rows.map((x, i) => `<tr><td>${cell(i, "no", "4em", "No.")}</td><td>${cell(i, "page", "4em", "Page")}</td><td>${cell(i, "title", "20em", "e.g. Chicago and Los Angeles")}</td><td>${cell(i, "date", "10em", "e.g. January, 1971")}</td>
+      <td><select data-bk="${i}" data-bkk="tz" aria-label="Time zone" style="min-width:4.5em">${TZS.map(z => `<option ${z === x.tz ? "selected" : ""}>${z}</option>`).join("")}</select></td>
+      <td style="text-align:center"><input type="checkbox" data-bk="${i}" data-bkk="condensed" aria-label="Condensed table" ${x.condensed ? "checked" : ""}></td>
+      <td class="rowbtns"><button type="button" class="ghost danger" data-bkdel="${i}" aria-label="Remove row" ${rows.length === 1 ? "disabled" : ""}>✕</button></td></tr>`).join("");
+    const n = rows.filter(x => x.no || x.title || x.page || x.date).length;
+    $("bkCount").textContent = n ? `${n} table${n === 1 ? "" : "s"} to add` : "";
+    document.querySelectorAll("#bkRows [data-bk]").forEach(el => el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => { read(); const n = rows.filter(x => x.no || x.title || x.page || x.date).length; $("bkCount").textContent = n ? `${n} table${n === 1 ? "" : "s"} to add` : ""; }));
+    // Enter in a row moves to the next row's same box, adding a row at the end
+    document.querySelectorAll("#bkRows input[data-bkk]:not([type=checkbox])").forEach(el => el.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); read(); const i = +el.dataset.bk;
+      if (i === rows.length - 1) rows.push(blank(rows[i]));
+      draw({ i: i + 1, k: el.dataset.bkk });
+    }));
+    document.querySelectorAll("[data-bkdel]").forEach(b => b.onclick = () => { read(); rows.splice(+b.dataset.bkdel, 1); draw(); });
+    if (focus) document.querySelector(`#bkRows [data-bk="${focus.i}"][data-bkk="${focus.k}"]`)?.focus();
+  }
+  $("bkAdd").onclick = () => { read(); rows.push(blank(rows[rows.length - 1])); draw({ i: rows.length - 1, k: "no" }); };
+  $("bkPaste").onclick = () => {
+    const box = document.createElement("div");
+    box.innerHTML = `<p class="small muted" style="margin:8px 0 4px">One table per line: number, page, name, date, zone, separated by tabs (as copied from a spreadsheet) or by " | ".</p><textarea id="bkPasteTxt" rows="6" style="width:100%" spellcheck="false"></textarea><div class="row" style="gap:6px;margin-top:4px"><button type="button" class="small-btn primary" id="bkPasteGo">Add these rows</button></div>`;
+    $("bkPaste").closest(".row").after(box); $("bkPaste").disabled = true; $("bkPasteTxt").focus();
+    $("bkPasteGo").onclick = () => {
+      read(); rows = rows.filter(x => x.no || x.title || x.page || x.date);
+      for (const ln of $("bkPasteTxt").value.split(/\r?\n/).map(q => q.trim()).filter(Boolean)) {
+        const c = (ln.includes("\t") ? ln.split("\t") : ln.split(/\s*\|\s*/)).map(q => q.trim());
+        const prev = rows[rows.length - 1], z = (c[4] || "").toUpperCase().replace(/[^A-Z]/g, "").replace(/^([AECMP])S?T$/, "$1T");
+        rows.push({ no: c[0] || "", page: c[1] || prev?.page || "", title: c[2] || "", date: c[3] || prev?.date || "", tz: TZS.includes(z) ? z : prev?.tz || lastTz, condensed: false });
+      }
+      if (!rows.length) rows.push(blank(null));
+      box.remove(); $("bkPaste").disabled = false; draw();
+    };
+  };
+  const dlg = document.querySelector("#overlay .dialog"); if (dlg) { dlg.style.width = "min(860px, 96vw)"; dlg.style.maxWidth = "96vw"; }
+  draw({ i: 0, k: "no" });
+}
 function tableMarks(t) { if (!t) return []; if (Array.isArray(t.marks)) return t.marks; const fromNotes = Core.marksFromNotes(t.notes); return fromNotes.length ? fromNotes : Core.DEFAULT_MARKS; }
 // a stop can carry several marks at once ("735 f†", "735 f u"): split them using this table's marks (longest first),
 // anything left over one character at a time
@@ -3641,7 +3714,7 @@ function rrLinesHTML(r, g) {
       <td style="white-space:nowrap">${t ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: t.id, train: "", mode: "grid" }))}'>${esc(tlab(t))}</button>` : `<span class="muted">${l.tableNo ? "no table entered" : "no passenger table"}</span>`} · <button class="linkish" data-lnst="${i}">${open ? "Hide stations" : `Stations${(l.stations || []).length ? ` (${l.stations.length})` : ""}`}</button></td>
       <td class="rowbtns"><button class="ghost" data-lnmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-lnmove="${i}" data-by="1" aria-label="Move down" ${i < lines.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-lndel="${i}" aria-label="Remove line">✕</button></td></tr>
       ${open ? `<tr class="lnst"><td colspan="6">${rrStationsHTML(l, i, t)}</td></tr>` : ""}`; }).join("")}</tbody></table>` : ""}
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
 }
 function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
@@ -3668,6 +3741,7 @@ function wireRRGuide(r) {
   el.querySelectorAll("[data-ln][data-lk=tableNo]").forEach(inp => inp.addEventListener("change", () => renderRailroads()));
   el.querySelectorAll("[data-sn]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.sn].stations[+inp.dataset.sj][inp.dataset.sk] = inp.value; put(x); }));
   if ($("lnNewTable")) $("lnNewTable").onclick = () => { LS.set("rr", r.abbrev); goTo({ then: () => tableDialog(null) }); };
+  if ($("lnBulk")) $("lnBulk").onclick = () => bulkTablesDialog(r);
   if ($("lnAdd")) $("lnAdd").onclick = () => { const x = g(); x.lines.push({ tableNo: "", miles: "", from: "", to: "" }); put(x, true); };
   const ends = t => { const rows = (t.rows || []).filter(q => !q.divider && q.stationId); const nm = q => q ? stName(q.stationId) : ""; const mi = Math.max(0, ...rows.map(q => parseFloat(String(q.miles || "").replace(/,/g, "")) || 0)); return { from: nm(rows[0]), to: nm(rows[rows.length - 1]), miles: mi ? String(mi) : "" }; };
   if ($("lnFill")) $("lnFill").onclick = () => {
