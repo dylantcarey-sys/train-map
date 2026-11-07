@@ -3067,11 +3067,21 @@ function addSeveralDialog() {
       const m = part.trim().match(/^([A-Za-z][A-Za-z&.\-]*)\s+(\S+)$/); if (m && S.railroads.some(r => r.abbrev.toLowerCase() === m[1].toLowerCase())) return [withName({ rr: S.railroads.find(r => r.abbrev.toLowerCase() === m[1].toLowerCase()).abbrev, no: m[2] })]; return part.trim().split(/\s+/).filter(Boolean).map(no => withName({ rr: t.rr, no })); });
     const here = trainsInTable(), all = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted);
     const seen = new Set(); const items = [];
+    // one number can belong to two different trains run on the same schedule (Santa Fe 17: El Capitan and The Super Chief):
+    // typed with their names, each is its own train, matched by name
+    const nm = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
+    const nameOk = (k, x) => !k.name || !(x.trainName || "").trim() || nm(x.trainName) === nm(k.name);
     for (const k of toks) {
-      const key = k.rr + " " + k.no; if (seen.has(key)) { const it = items.find(x => x.rr === k.rr && x.no === k.no); if (it && k.name && !it.name) it.name = k.name; continue; } seen.add(key);
-      if (here.some(x => trRR(x) === k.rr && x.trainNo === k.no)) { items.push({ ...k, kind: "here" }); continue; }
-      const ex = all.filter(x => !mem(x) && !x.copyOf && trRR(x) === k.rr && x.trainNo === k.no);   // a repeat column isn't the train itself
-      items.push(ex.length ? { ...k, kind: "exists", ex } : { ...k, kind: "new" });
+      const key = k.rr + " " + k.no + (k.name ? " " + nm(k.name) : "");
+      if (seen.has(key)) continue;
+      if (!k.name && seen.has(k.rr + " " + k.no)) continue;
+      if (!k.name) { const it = items.find(x => x.rr === k.rr && x.no === k.no); if (it) continue; }
+      else { const it = items.find(x => x.rr === k.rr && x.no === k.no && !x.name); if (it) { it.name = k.name; seen.add(key); continue; } }
+      seen.add(key); seen.add(k.rr + " " + k.no);
+      if (here.some(x => trRR(x) === k.rr && x.trainNo === k.no && !x.copyOf && nameOk(k, x))) { items.push({ ...k, kind: "here" }); continue; }
+      const same = all.filter(x => !mem(x) && !x.copyOf && !x.setupOf && trRR(x) === k.rr && x.trainNo === k.no);   // a repeat column isn't the train itself
+      const ex = k.name ? (same.filter(x => nm(x.trainName) === nm(k.name)).length ? same.filter(x => nm(x.trainName) === nm(k.name)) : same.filter(x => !(x.trainName || "").trim())) : same;
+      items.push(ex.length ? { ...k, kind: "exists", ex } : { ...k, kind: "new", others: same.map(x => x.id) });
     }
     setTimeout(() => addSeveralStep2(items), 0);
   });
@@ -3150,6 +3160,7 @@ function insertRowsInOrder(order, add) {
 }
 function addSeveralStep2(items) {
   const t = curTable(), T = S.tableId;
+  const nm = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
   const where = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => tableName(tb)).join(", ") || "no table";
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
   if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
@@ -3202,15 +3213,17 @@ function addSeveralStep2(items) {
       const ei = exist.indexOf(x), exId = ei >= 0 ? exIds[ei] : null, legs = stubFor.get("a" + i) || [];
       if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); }
       else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
-      else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); }
+      else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
+        // a different train with the same number (named differently): give it its name now and mark the two as different trains
+        if (x.name) { w.trainName = x.name; x.done = id; for (const o of x.others || []) if (nm(trainDoc(o)?.trainName) !== nm(x.name)) markDifferent(id, o); } }
     }
     // a train already on this table (added earlier as a number only) gets its times filled in too, unless it's being added again as a second appearance
     if (withStops && !dupKind) for (const id of hereIds()) if (!useIds.includes(id)) useIds.push(id);
-    for (const [i, x] of dupHere.entries()) { if (!isOn(x)) continue; const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
+    for (const [i, x] of dupHere.entries()) { if (!isOn(x)) continue; const legs = stubFor.get("h" + i) || []; if (!legs.length) continue; const tgt = hereOf(x); if (!tgt) continue; fold(tgt.id, legs); useIds.push(tgt.id); }
     let rowsAdded = 0, filled = 0;
     if (withStops && useIds.length) { rowsAdded = insertRowsInOrder(order, P); for (const id of useIds) filled += fillFromRows(id, P).added; }
     // names typed with the numbers ("17 - The Missouri River Eagle") fill in trains that don't have one yet
-    for (const x of items) { if (!x.name || !isOn(x)) continue; for (const tr of trainsInTable()) if (trRR(tr) === x.rr && tr.trainNo === x.no && !(tr.trainName || "").trim()) edit(tr.id).trainName = x.name; }
+    for (const x of items) { if (!x.name || !isOn(x) || x.done) continue; const tr = trainsInTable().find(tr => trRR(tr) === x.rr && tr.trainNo === x.no && !(tr.trainName || "").trim()); if (tr) edit(tr.id).trainName = x.name; }
     const nAdd = useIds.length + newIds.length; if (!nAdd) { notice("Nothing added."); render(); return; }
     notice(`Added ${nAdd} train${nAdd > 1 ? "s" : ""}${withStops && useIds.length ? ` (${useIds.length} brought in with ${filled} stop${filled === 1 ? "" : "s"})` : ""}${rowsAdded ? `, and ${rowsAdded} station row${rowsAdded === 1 ? "" : "s"}` : ""}.`);
     if (S.mode !== "grid") setMode("grid"); render();
@@ -3221,7 +3234,8 @@ function addSeveralStep2(items) {
   // the record used for each existing number (the first match, or the one picked); null when it's unticked
   function chosenExisting() { return exist.map((x, i) => isOn(x) ? (document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id) : null); }
   const stubIds = () => [...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno);
-  const hereIds = () => dupHere.filter(isOn).map(x => trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf)?.id).filter(Boolean);
+  const hereOf = x => { const c = trainsInTable().filter(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf && !o.copyOf); return (x.name && c.find(o => nm(o.trainName) === nm(x.name))) || c.find(o => !x.name || !(o.trainName || "").trim()) || c[0]; };
+  const hereIds = () => dupHere.filter(isOn).map(x => hereOf(x)?.id).filter(Boolean);
   const below = sid => `<span style="display:flex;gap:4px"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
   const box = $("dSevSt");
   const count = () => { const n = box.querySelectorAll("[data-stpick]:checked").length, all = box.querySelectorAll("[data-stpick]").length; $("dSevCount").textContent = all ? `${n} of ${all} ticked` : ""; };
@@ -3338,7 +3352,8 @@ function viaStation(name, stops, i) {
 async function buildCSV() {
   const rows = []; const rrName = ab => rrBizName(ab);
   const link = arr => arr.filter(c => c?.trainNo || c?.rr).map(c => `${c.rr || ""} ${c.trainNo || ""}${c.stationId ? " at " + (S.stById.get(c.stationId)?.name || c.stationId) + " (" + c.stationId + ")" : ""}`.replace(/\s+/g, " ").trim()).join("; ");
-  for (const { src, tables, tr } of await allTrainsForExport()) {
+  const allEx = await allTrainsForExport(), allTr = allEx.map(x => x.tr);
+  for (const { src, tables, tr } of allEx) {
     const keys = Object.keys(tr.tables || {}).filter(k => tables.has(k));
     if (!keys.length) continue;
     const order = [...tables.values()].sort((a, b) => (a.rr || "").localeCompare(b.rr || "") || Core.tableNoSort(a.tableNo, b.tableNo) || (a.title || "").localeCompare(b.title || "")).map(t => t.id);
@@ -3369,7 +3384,7 @@ async function buildCSV() {
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
       const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}${tlab(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
-      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
+      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${tr.trainNo && (tr.notSame || []).some(o => { const x = allTr.find(y => y.id === o); return x && trRR(x) === rr && x.trainNo === tr.trainNo; }) ? " " + (tr.trainName || tr.id.slice(0, 4)) : ""}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
     });
     }
   }
