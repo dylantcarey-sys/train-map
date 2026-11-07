@@ -3584,6 +3584,8 @@ function addSeveralStep2(items) {
   const nm = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
   const where = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => tableName(tb)).join(", ") || "no table";
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
+  // the same new number typed twice with two names ("18 - The Super Chief, 18 - El Capitan"): one train printed in two columns, or two trains
+  const twinOf = new Map(); add.forEach((x, i) => { if (x.kind !== "new" || !x.name) return; const y = add.slice(0, i).find(o => o.kind === "new" && o.name && o.rr === x.rr && o.no === x.no && !twinOf.has(o)); if (y) twinOf.set(x, y); });
   if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
   // unnumbered legs of this railroad, entered from another road's condensed table (City of Miami, South Wind): one can become a train being added
   const stubs = allTrainDocs().filter(x => !x.tables?.[T] && stubOf(x, S.tables) && stubRR(x, S.tables) === (t.rr || "")).sort((a, b) => (a.trainName || "").localeCompare(b.trainName || "") || (a.description || "").localeCompare(b.description || ""));
@@ -3593,6 +3595,7 @@ function addSeveralStep2(items) {
   const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
     <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}${x.name ? ` <span style="font-weight:400">${esc(x.name)}</span>` : ""}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
+    ${twinOf.size ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc([...new Set([...twinOf.keys()].map(x => x.no))].join(", "))} ${twinOf.size > 1 ? "are" : "is"} typed twice with different names: <select id="dSevTwin" style="width:auto"><option value="one">one train under both names (the second column repeats the first's times)</option><option value="two">two different trains</option></select></label>` : ""}
     ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="app">add again as a second appearance (its own name, days and stops)</option></select></label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
@@ -3634,7 +3637,15 @@ function addSeveralStep2(items) {
       const ei = exist.indexOf(x), exId = ei >= 0 ? exIds[ei] : null, legs = stubFor.get("a" + i) || [];
       if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); }
       else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
+      else if (twinOf.has(x) && twinOf.get(x).done && ($("dSevTwin")?.value || "one") === "one") {
+        // a repeat column of the first, headed with its own name; the first train takes both names and shows its own here
+        const firstId = twinOf.get(x).done, f = edit(firstId), [id] = makeTrains([x.no]); const w = S.work.get(id);
+        Object.assign(w, { rr: x.rr, copyOf: firstId, setupOf: firstId, stops: [], trainName: x.name, frequency: f.frequency || "Daily" }); w.tables[T].order = ord++; newIds.push(id); x.done = id;
+        const ns = [...(f.names || []).map(n => n.name), f.trainName, x.name].map(n => (n || "").trim()).filter(Boolean).flatMap(n => n.split(/\s+\/\s+/));
+        f.names = [...new Map(ns.map(n => [nameKey(n), n])).values()].map(name => ({ name })); syncNames(f); f.tables[T].shownName = twinOf.get(x).name;
+      }
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
+        if (twinOf.has(x) && twinOf.get(x).done) markDifferent(id, twinOf.get(x).done);
         // a different train with the same number (named differently): give it its name now and mark the two as different trains
         if (x.name) { w.trainName = x.name; x.done = id; for (const o of x.others || []) if (!hasName(trainDoc(o) || {}, x.name)) markDifferent(id, o); } }
     }
