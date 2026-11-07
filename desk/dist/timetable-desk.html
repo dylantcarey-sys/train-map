@@ -3789,6 +3789,8 @@ function newStationDialog(name, onDone) {
   let townTouched = false;
   $("nsTown").addEventListener("input", () => { townTouched = true; });
   $("nsName").addEventListener("input", () => { if (!townTouched) $("nsTown").value = $("nsName").value; });
+  // Enter in any box adds the station (same as the Add station button)
+  ["nsName", "nsTown", "nsState", "nsMiles", "nsNotes", "nsTz"].forEach(k => $(k)?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("dOk")?.click(); } }));
   setTimeout(() => ($("nsMiles") || $("nsState")).focus(), 0);
 }
 // replace a temporary station ID with its real StationID everywhere it was used
