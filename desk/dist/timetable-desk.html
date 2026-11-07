@@ -1620,10 +1620,13 @@ function renderContext() {
   $("btnEditTable").hidden = !t; $("btnNewTrain").disabled = $("btnAddSeveral").disabled = !t || !S.db;
 }
 // a table is always named with its number and its own name, so tables sharing a number (one per part) stay clear: "6 — Buffalo to New York"
-const tno = t => t ? (String(t.tableNo || "").trim() ? `${t.tableNo}${t.title ? " — " + t.title : ""}` : (t.title || "unnumbered")) : "?";
-// "Table 3 — title", or the table's name when the Guide gives it no number
-const tlab = t => t && !String(t.tableNo || "").trim() ? `${t.title || "Unnumbered table"} (no number)` : `Table ${tno(t)}`;
-const tnum = t => t && String(t.tableNo || "").trim() ? `Table ${t.tableNo}` : (t?.title || "unnumbered table");
+// a table the Guide prints with neither number nor name is called by its ends (e.g. "Reader – Waterloo") once it has stations
+const tEnds = t => { const rs = (t?.rows || []).filter(r => !r.divider && r.stationId); if (!rs.length) return ""; const nm = r => S.stById.get(r.stationId)?.name || r.stationId; return rs.length > 1 ? `${nm(rs[0])} – ${nm(rs[rs.length - 1])}` : nm(rs[0]); };
+const tTitle = t => t?.title || tEnds(t) || "";
+const tno = t => t ? (String(t.tableNo || "").trim() ? `${t.tableNo}${t.title ? " — " + t.title : ""}` : (tTitle(t) || "unnumbered")) : "?";
+// "Table 3 — title", or the table's name (or its ends) when the Guide gives it no number
+const tlab = t => t && !String(t.tableNo || "").trim() ? `${tTitle(t) || "Unnumbered table"} (no number)` : `Table ${tno(t)}`;
+const tnum = t => t && String(t.tableNo || "").trim() ? `Table ${t.tableNo}` : (tTitle(t) || "unnumbered table");
 const tableName = t => `${t.rr || "?"} · ${tlab(t)}`;
 // overall status of a whole table (separate from each train's own status)
 const TSTATUS = [["todo", "Not started"], ["working", "In progress"], ["done", "Completed"]];
@@ -3097,7 +3100,7 @@ function tableDialog(existing) {
       <label class="f" style="grid-column:1/-1"><span>Railroad</span><select id="dRR">${S.railroads.map(r => `<option value="${esc(r.abbrev)}" ${r.abbrev === t.rr ? "selected" : ""}>${esc(r.abbrev)} — ${esc(rrLabel(r))}</option>`).join("")}<option value="__new">Add a railroad…</option></select></label>
       <label class="f" id="dNewRR" hidden style="grid-column:1/-1"><span>New railroad</span><div class="row"><input id="dRRName" class="grow" placeholder="Full name, e.g. Napierville Junction Railway"><input id="dRRAb" style="width:110px" placeholder="Shown as, e.g. NJR"></div></label>
       <label class="row small" style="grid-column:1/-1;gap:6px;align-items:flex-start;margin:-2px 0 2px"><input type="checkbox" id="dHosted" ${t.hosted ? "checked" : ""}> <span>This railroad hosts other railroads' trains on this table <span class="muted">(e.g. a joint line like the New York and Long Branch, which ran PC and CNJ trains). Each train column gets its own railroad.</span></span></label>
-      <label class="f"><span>Table number</span><input id="dNo" value="${esc(t.tableNo || "")}" placeholder="e.g. 1 (blank if none)" title="Leave blank when the Guide prints no number; then give the table a name"></label>
+      <label class="f"><span>Table number</span><input id="dNo" value="${esc(t.tableNo || "")}" placeholder="e.g. 1 (blank if none)" title="Leave blank when the Guide prints no number. With no name either, the table is called by its first and last stations"></label>
       <label class="f"><span>Guide page</span><input id="dPage" value="${esc(t.page || "")}" placeholder="e.g. 116"></label>
       <label class="f" style="grid-column:1/-1"><span>Table name</span><input id="dTitle" value="${esc(t.title || "")}" placeholder="e.g. Buffalo to New York"></label>
       <p class="small muted" style="grid-column:1/-1;margin:-4px 0 0">If the Guide prints one table number in separate parts (each direction, or a branch), make a table for each part with the same number and its own name.</p>
@@ -3125,7 +3128,7 @@ function tableDialog(existing) {
       rr = ab;
     }
     if (!rr) return "Pick a railroad.";
-    const no = $("dNo").value.trim(); if (!no && !$("dTitle").value.trim()) return "Type the table number as printed, or give a table with no number a name.";
+    const no = $("dNo").value.trim();   // a table can have neither number nor name: it's then called by its first and last stations
     if (no && S.tables.some(x => x.id !== existing?.id && x.rr === rr && x.tableNo === no) && !$("dTitle").value.trim()) return `There's already a ${rr} Table ${no}. Give this one its own name so the two can be told apart.`;
     const dt = $("dTDate").value.trim(); const pd = dt ? Core.parseMonthDate(dt) : null;
     if (dt && !pd) return "Type the table date like September 24, 1944 (or leave it blank).";

@@ -64,5 +64,5 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - Equipment with a blank From/To runs the whole train: the Desk fills in the train's first and last stations when you move to another table.
 - A railroad keeps one short name across renamings and reorganizations: each formal name is a period on the same record (D&H: Canal Company 1823–99, The D&H Company 1899–1930, Railroad Corporation 1930–68, Railway Company 1968–). Separate railroads that merged in go under Formed from / `rootFrom`. Chartered and began operating are kept apart. Mixed-only railroads get a neutral gray (#8C8F94) on the map.
 - Next/Previous table follow the Guide's page order across railroads; tables are grouped under their railroad in the table picker, and each table links to its railroad's section for the guide.
-- Tables can have no number (common on freight lines); they then need a name and show as "Name (no number)".
+- Tables can have no number and no name (common on small and freight lines); they show as "Name (no number)", or by their first and last stations ("Reader – Waterloo (no number)").
 - Bus legs aren't stops. A connection that changes stations by bus (SP 98 at San Francisco to SP 12 at Oakland) is a link with `otherStationId`.
