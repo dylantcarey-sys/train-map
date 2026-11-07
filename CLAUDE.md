@@ -40,7 +40,7 @@ Map behaviour to keep: the date (first of the guide's month by default) drives t
 ## The Desk's data
 
 Stored in the artifact's database (edit with the ArtifactData tool, same URL). One source (guide) per Desk:
-- `sources/og-1971-04/tables` and `sources/og-1971-04/trains`; `railroads` (global identity: commonly used name `common`, business name `name`, other names, dates `from`/`to`/`passengerEnd` (the Railroads page hides ones not running on the guide's date), map color and basis, predecessors/successors, parent, HQ, lines served); `sources/og-1971-04/rrpages/<railroad id>` (a railroad's section in that guide: offices, other offices, route miles, subsidiaries, page numbers, general equipment, common notes, and `lines`: `[{tableNo, miles, from, to, stations: [{miles, name, city, state, stationId?}]}]`); `newstations` (stations added in the Desk with temporary NEW-#### ids); `stationlists/current` (an imported station CSV).
+- `sources/og-1971-04/tables` and `sources/og-1971-04/trains`; `railroads` (global identity: commonly used name `common`, business name `name`, other names, dates `from`/`to` for this company under this exact name, `rootFrom` for its earliest predecessor, `passengerEnd` (the Railroads page hides ones not running on the guide's date, and can hide mixed-only ones), map color and basis, predecessors/successors, parent, HQ, lines served); `sources/og-1971-04/rrpages/<railroad id>` (a railroad's section in that guide: offices, other offices, route miles, subsidiaries, page numbers, general equipment, common notes, and `lines`: `[{tableNo, miles, from, to, stations: [{miles, name, city, state, stationId?}]}]`); `newstations` (stations added in the Desk with temporary NEW-#### ids); `stationlists/current` (an imported station CSV).
 - Train documents are stored compact: blank stop fields are left out, so scripts must tolerate missing fields.
 - Batches: up to 50 writes, each pinned with `if_version`. Dylan wants few approval prompts: one batch per table where possible.
 
@@ -62,4 +62,5 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - Condensed tables often print no date; a missing date on a condensed table isn't a problem.
 - A stop printed with a mark but no time ("f –", a flag stop) is entered with the mark only (type "f" in the cell); it isn't flagged as missing a time.
 - Equipment with a blank From/To runs the whole train: the Desk fills in the train's first and last stations when you move to another table.
+- Each name iteration of a railroad is its own company (Delaware and Hudson Railway, 1968, is not the Delaware and Hudson Railroad Corporation, 1930–68); `from` is when this one started, `rootFrom` the earliest predecessor. Mixed-only railroads get a neutral gray (#8C8F94) on the map.
 - Bus legs aren't stops. A connection that changes stations by bus (SP 98 at San Francisco to SP 12 at Oakland) is a link with `otherStationId`.

@@ -3411,8 +3411,9 @@ const RR_FIELDS = [
   ["otherNames", "Other names and marks", "Names it appears under, one per line, e.g. Penn Central, PC. These also help match stations' “served by” listings.", 3],
   ["kind", "Service", "", 1],
   ["hq", "Headquarters", "City, e.g. Chicago, Ill.", 1],
-  ["from", "In operation from", "e.g. February 1, 1968 (a year alone is fine)", 1],
-  ["to", "In operation to", "Blank if it still runs; e.g. March 31, 1976", 1],
+  ["from", "Company started", "This company under this name, e.g. February 1, 1968 (a year alone is fine)", 1],
+  ["to", "Company ended", "Blank if it still runs; e.g. March 31, 1976", 1],
+  ["rootFrom", "Earliest predecessor started", "e.g. 1823 (Delaware and Hudson Canal Company)", 1],
   ["passengerEnd", "Passenger service ended", "e.g. April 30, 1971 (Amtrak)", 1],
   ["color", "Map color", "e.g. #7C3030", 1],
   ["colorNote", "Color based on", "e.g. Tuscan red passenger cars", 1],
@@ -3457,7 +3458,11 @@ async function renderRailroads() {
   if (!rrStats) { el.innerHTML = `<div class="card">Gathering railroads…</div>`; try { rrStats = await homeData(); } catch { rrStats = []; } }
   // railroads with tables or trains in this guide always show, whatever their dates say
   const inGuide = ab => rrStats.some(d => d.src.id === S.sourceId && (d.tables.some(t => t.rr === ab) || d.trains.some(tr => trRR(tr) === ab)));
-  const list = onlyActive ? all.filter(x => rrActiveOn(x, onDate) || inGuide(x.abbrev) || x.id === rrSel) : all;
+  // railroads whose only trains in this guide are mixed trains (passengers and freight)
+  const mixedOnly = ab => { let n = 0; for (const d of rrStats) if (d.src.id === S.sourceId) for (const tr of d.trains) if (trRR(tr) === ab && !tr.copyOf && !tr.setupOf) { if (!(tr.tags || []).includes("mixed")) return false; n++; } return n > 0; };
+  const hideMixed = LS.get("rrHideMixed", false);
+  let list = onlyActive ? all.filter(x => rrActiveOn(x, onDate) || inGuide(x.abbrev) || x.id === rrSel) : all;
+  if (hideMixed) list = list.filter(x => !mixedOnly(x.abbrev) || x.id === rrSel);
   const hiddenN = all.length - list.length;
   if (!rrSel || !list.some(r => r.id === rrSel)) rrSel = LS.get("rrSel", "") && list.some(r => r.id === LS.get("rrSel", "")) ? LS.get("rrSel", "") : (list[0]?.id || "");
   const r = list.find(x => x.id === rrSel);
@@ -3467,9 +3472,9 @@ async function renderRailroads() {
   // a mark is "in use" once any table, train, or through-service link anywhere refers to it
   const inUse = ab => used(ab).length > 0 || rrStats.some(d => d.trains.some(tr => [...(tr.throughFrom || []), ...(tr.throughTo || [])].some(c => c?.rr === ab)));
   el.innerHTML = `
-    <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">Railroads</h2><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}${onlyActive && hiddenN ? ` <span class="muted">(${hiddenN} hidden)</span>` : ""}</label>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">Railroads</h2><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}</label>` : ""}<label class="row small" style="gap:6px" title="Hide railroads whose only trains in this guide are mixed trains"><input type="checkbox" id="rrHideMixed" ${hideMixed ? "checked" : ""}> Hide mixed-only</label>${hiddenN ? `<span class="small muted">${hiddenN} hidden</span>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
     <div class="rrwrap">
-      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}<span class="muted small">${esc(x.abbrev)}${x.kind === "freight" ? " · freight only" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
+      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}<span class="muted small">${esc(x.abbrev)}${x.kind === "freight" ? " · freight only" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2><span class="small muted" id="rrSaved"></span></div>
         ${inUse(r.abbrev) ? `<div class="small muted" style="margin:2px 0 10px">Short name (reporting mark) <b>${esc(r.abbrev)}</b>. It's already used on tables or trains, so it can't be changed here.</div>`
@@ -3483,6 +3488,7 @@ async function renderRailroads() {
     </div>`;
   el.querySelectorAll("[data-rr]").forEach(b => b.onclick = () => { rrSel = b.dataset.rr; LS.set("rrSel", rrSel); renderRailroads(); });
   if ($("rrActive")) $("rrActive").onchange = e => { LS.set("rrActive", e.target.checked); renderRailroads(); };
+  $("rrHideMixed").onchange = e => { LS.set("rrHideMixed", e.target.checked); renderRailroads(); };
   if ($("rrAbbrevSave")) $("rrAbbrevSave").onclick = async () => {
     const rr = S.railroads.find(x => x.id === rrSel); const v = $("rrAbbrev").value.trim();
     if (!rr || !v || v === rr.abbrev) return;
