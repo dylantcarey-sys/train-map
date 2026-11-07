@@ -2211,6 +2211,7 @@ function gridEquipmentHTML(trs) {
     <datalist id="carTypes">${CAR_TYPES.map(c => `<option value="${esc(c)}">`).join("")}</datalist>
     <div class="row" style="gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
       <button class="small-btn" id="gEqAdd">＋ Add a car for</button><select id="gEqAddTrain" aria-label="Train to add a car for" style="width:auto">${opt(lastTid)}</select>
+      <button class="small-btn" id="gEqCopy" title="Copy another train's cars on this table into the train picked to the left, e.g. the opposite direction's train with From and To swapped">Copy from another train…</button>
       <button class="small-btn" id="gEqBulk" title="Give several trains on this table the same consist row at once (e.g. Reclining seat coaches, Coaches only)">Add to several trains…</button>
     </div>
     <p class="small muted" style="margin:4px 0 0">Enter in a train's last car, or Tab from its Days, adds another car for that train. A car can be moved to another train with the Train list.</p>
@@ -2224,6 +2225,7 @@ function wireGridEquipment(el, trs) {
   if ($("gEqAdd")) $("gEqAdd").onclick = () => add($("gEqAddTrain").value);
   if ($("gEqAddTrain")) $("gEqAddTrain").onchange = e => LS.set("gEqTrain", e.target.value);
   if ($("gEqBulk")) $("gEqBulk").onclick = () => consistBulkDialog(null);
+  if ($("gEqCopy")) $("gEqCopy").onclick = () => copyConsistDialog($("gEqAddTrain").value, "this");   // into the train picked in "Add a car for"
   if (!tb) return;
   const isLastRow = r => !r.nextElementSibling || r.nextElementSibling.dataset.tid !== r.dataset.tid;   // the last car of that train
   tb.querySelectorAll("[data-st]").forEach(inp => {
