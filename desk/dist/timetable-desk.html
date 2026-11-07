@@ -3756,13 +3756,18 @@ document.addEventListener("change", async e => { if (e.target.id === "dFile" && 
 function nextNewId() { const n = Math.max(0, ...(S.newStations || []).map(x => parseInt(x.id.slice(4), 10) || 0)) + 1; return "NEW-" + String(n).padStart(4, "0"); }
 function newStationDialog(name, onDone) {
   const t = curTable();
+  // defaults from the table: the state and time zone of the station added before (or the table's last station), the town from the name
+  const lastRow = [...(t?.rows || [])].reverse().find(r => r.stationId && S.stById.get(r.stationId));
+  const prev = (t && LS.get("nsPrev:" + t.id, null)) || (lastRow ? { state: S.stById.get(lastRow.stationId)?.state || "", tz: S.stById.get(lastRow.stationId)?.tz || "" } : {});
+  const tz0 = prev.tz || t?.tz || "ET";
   dialog(`<h2>Add a new station</h2>
     <p class="small muted">For a station that isn't in your ArcGIS layer yet. It gets a temporary ID and is flagged to add to the shapefile; once it's there, swap in its real StationID from <b>Station list</b>.</p>
     <div class="fields">
       <label class="f" style="grid-column:1/-1"><span>Station name</span><input id="nsName" value="${esc(name)}"></label>
-      <label class="f"><span>Town</span><input id="nsTown"></label>
-      <label class="f"><span>State</span><input id="nsState" maxlength="6" placeholder="e.g. NY"></label>
-      <label class="f"><span>Time zone</span><select id="nsTz">${TZS.map(z => `<option ${z === (t?.tz || "ET") ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+      <label class="f"><span>Town</span><input id="nsTown" value="${esc(name)}" title="Starts as the station name; change it if the station is in or named for another town"></label>
+      <label class="f"><span>State</span><input id="nsState" maxlength="6" placeholder="e.g. NY" value="${esc(prev.state || "")}" title="${prev.state ? "Same as the station before it on this table" : ""}"></label>
+      <label class="f"><span>Time zone</span><select id="nsTz">${TZS.map(z => `<option ${z === tz0 ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+      ${t ? `<label class="f"><span>Miles on ${esc(tnum(t))}</span><input id="nsMiles" inputmode="decimal" placeholder="e.g. 12.3" autocomplete="off" title="Its milepost on this table (optional)"></label>` : ""}
       <label class="f" style="grid-column:1/-1"><span>Notes</span><input id="nsNotes" placeholder="e.g. Between Altoona and Tyrone; Guide index lists it as a flag stop"></label>
     </div>`, "Add station", async () => {
     const nm = $("nsName").value.trim(); if (!nm) return "Give the station a name.";
@@ -3771,8 +3776,17 @@ function newStationDialog(name, onDone) {
     const doc = { id, name: nm, town: $("nsTown").value.trim(), state: st, tz: $("nsTz").value, notes: $("nsNotes").value.trim(), addedOn: new Date().toISOString().slice(0, 10), source: curSource()?.name || "" };
     try { await S.db.doc(`newstations/${id}`).set(doc); } catch (e) { return "Couldn't save the station: " + (e?.message || e?.code); }
     S.newStations = [...(S.newStations || []).filter(x => x.id !== id), doc]; rebuildStations();
+    if (t) LS.set("nsPrev:" + t.id, { state: st, tz: doc.tz });
+    const mi = $("nsMiles")?.value.trim() || "";
     onDone?.(S.stById.get(id));
+    // its miles go on the row it was just added as
+    if (mi && t) setTimeout(() => { const tb = tableById(t.id); const r = [...(tb?.rows || [])].reverse().find(x => x.stationId === id && !x.miles); if (r) { mutateTable(tb2 => { const rr = tb2.rows.find(x => x.rid === r.rid); if (rr) rr.miles = mi; }); renderEntry(); } }, 60);
   });
+  // the town follows the name until it's changed by hand
+  let townTouched = false;
+  $("nsTown").addEventListener("input", () => { townTouched = true; });
+  $("nsName").addEventListener("input", () => { if (!townTouched) $("nsTown").value = $("nsName").value; });
+  setTimeout(() => ($("nsMiles") || $("nsState")).focus(), 0);
 }
 // replace a temporary station ID with its real StationID everywhere it was used
 async function remapStation(oldId, newId) {
@@ -4745,7 +4759,7 @@ function trainIssues(tr, tablesMap) {
   }
   return out;
 }
-window.__desk = { sectionPaths, outOfOrder, roleCheck, endCheckFor, timeOrder, markMeaning, markDays, splitMarks };   // for testing
+window.__desk = { newStationDialog, sectionPaths, outOfOrder, roleCheck, endCheckFor, timeOrder, markMeaning, markDays, splitMarks };   // for testing
 // one-time clean-up: rewrite this guide's stored trains in the compact form (blank fields left out); skips anything mid-edit
 async function tidyStorage() {
   if (!S.db || !S.sourceId) return;
