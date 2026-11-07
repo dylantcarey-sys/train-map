@@ -251,6 +251,8 @@ table.grid thead th.stth { z-index: 4; }
 table.grid th.tr .colmove input.colord { width: 34px; padding: 0 2px; font-size: 11px; font-weight: 500; height: 18px; text-align: center; color: var(--muted); }
 .colmove input.colord.pending { color: var(--ink); font-weight: 700; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .stline { display: flex; gap: 2px; align-items: center; }
+button.stname { text-align: left; font: inherit; color: inherit; text-decoration: none; padding: 0; background: none; border: 0; cursor: pointer; }
+button.stname:hover { text-decoration: underline; }
 .stname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stline button { padding: 1px 5px; font-size: 12.5px; }
 tr.addrow input { width: 100%; }
@@ -2799,7 +2801,7 @@ function renderGrid(el, t) {
         <td class="st"><button class="divx" data-act="rdel" title="Remove this section line" aria-label="Remove section line">×</button></td>
         ${showOrd ? `<td class="ord"></td>` : ""}
         <td colspan="${trs.length + 2}" class="divfill"></td></tr>` : `<tr data-r="${ri}">
-        <td class="st"><div class="stline"><span class="stname" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId))].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></span>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
+        <td class="st"><div class="stline"><button type="button" class="stname" data-act="rstation" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId)), r.orphan ? "" : r.stationId.startsWith("NEW-") ? "Click to fix its name, town or state, or swap in another station" : "Click to swap in a different station on this row"].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></button>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
         ${showOrd ? `<td class="ord"><input data-k="ord" class="${S.ordPending.has(ordKey(r)) ? "pending" : ""}" value="${esc(S.ordPending.get(ordKey(r)) ?? stNo(ri))}" inputmode="numeric" autocomplete="off" aria-label="Row number for ${esc(S.stById.get(r.stationId)?.name || "")}" title="Type the row number this station should be, then press Apply row numbers"></td>` : ""}
         <td class="mls"><input data-k="mls" value="${esc(r.miles || "")}" inputmode="decimal" aria-label="Miles" ${r.orphan ? "disabled" : ""}></td>
         ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const ref = !s && !r.divider && isRefIn(tr, t.id, allTrs) ? refCell(tr, t.id, r, rows, refCache) : null; const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input ${tr.copyOf ? `readonly title="Repeats No. ${esc(tr.trainNo || "")}'s times: edit them in its own column"` : ""} class="cell ${tr.copyOf ? "copycell" : ""} ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${ref ? `placeholder="${esc(Core.formatCell12(ref))}" title="${esc("From " + ref.fromLabel + ". Typing here enters a time on this table instead.")}"` : ""} ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
@@ -3031,6 +3033,7 @@ function renderGrid(el, t) {
       const tb = mutateTable(tb => { const k = tb.rows.findIndex(x => x.rid === r.rid); if (k > 0) { [tb.rows[k - 1], tb.rows[k]] = [tb.rows[k], tb.rows[k - 1]]; delete tb.rows[k - 1].auto; delete tb.rows[k].auto; } });
       renderEntry();
     }
+    if (b.dataset.act === "rstation") { if (!r.orphan) stationRowDialog(r); return; }
     if (b.dataset.act === "rins") { S.insAt = S.insAt === r.rid ? null : r.rid; renderEntry(); setTimeout(() => $("insRow")?.focus(), 0); return; }
     if (b.dataset.act === "rdiv") {
       const nrid = uid(); mutateTable(tb => { const k = tb.rows.findIndex(x => x.rid === r.rid); tb.rows.splice(k < 0 ? tb.rows.length : k, 0, { rid: nrid, divider: true }); });
@@ -3801,7 +3804,7 @@ $("btnStations").onclick = () => {
   <p>${(S.stations.length - ns.length).toLocaleString()} stations, from a ${esc(S.stationSource)}.</p>
   <fieldset><legend>Stations added here (${ns.length})</legend>
     ${ns.length ? `<p class="small muted" style="margin:0">Add these to the shapefile, reload the station list, then pick each one's real station to swap it in everywhere it's used.</p>
-    ${ns.map(n => `<div class="newst-row"><span class="grow"><b>${esc(n.id)}</b> ${esc(n.name)} (${esc([n.town, n.state].filter(Boolean).join(", "))})</span><input data-remap="${esc(n.id)}" placeholder="Replace with… (search the list)" autocomplete="off" style="flex:1 1 220px"></div>`).join("")}
+    ${ns.map(n => `<div class="newst-row"><span class="grow"><b>${esc(n.id)}</b> ${esc(n.name)} (${esc([n.town, n.state].filter(Boolean).join(", "))}) <button type="button" class="linkish small" data-nsedit="${esc(n.id)}" title="Fix its name, town, state, time zone or notes">Edit</button></span><input data-remap="${esc(n.id)}" placeholder="Replace with… (search the list)" autocomplete="off" style="flex:1 1 220px"></div>`).join("")}
     <div class="row" style="margin-top:8px"><button type="button" id="dExportNew" class="small-btn">Download list to add (CSV)</button></div>` : `<p class="small muted" style="margin:0">None yet. When a station isn't in the list, choose “Add as a new station” at the bottom of the search results.</p>`}
   </fieldset>
   <fieldset><legend>Served by, from your entries</legend>
@@ -3824,6 +3827,7 @@ $("btnStations").onclick = () => {
   await loadStations();
   });
   $("dExportNew")?.addEventListener("click", exportNewStations);
+  document.querySelectorAll("[data-nsedit]").forEach(b => b.onclick = () => stationRowDialog(null, b.dataset.nsedit));
   $("dExportServed").onclick = exportServedBy;
   document.querySelectorAll("[data-remap]").forEach(inp => {
     inp.addEventListener("input", () => openPicker(inp, async st => {
@@ -3875,6 +3879,49 @@ function newStationDialog(name, onDone) {
   // Enter in any box adds the station (same as the Add station button)
   ["nsName", "nsTown", "nsState", "nsMiles", "nsNotes", "nsTz"].forEach(k => $(k)?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("dOk")?.click(); } }));
   setTimeout(() => ($("nsMiles") || $("nsState")).focus(), 0);
+}
+// a station row on the table: fix a station added here (name, town, state, zone, notes: changes it everywhere it's used),
+// or swap a different station onto this row (this table's row and its trains' stops here only)
+function stationRowDialog(r, nsId) {
+  const t = curTable(), sid = r ? r.stationId : nsId, st = S.stById.get(sid), ns = (S.newStations || []).find(x => x.id === sid);
+  const uses = ns ? allTrainDocs().filter(tr => (tr.stops || []).some(x => x.stationId === sid)).length : 0;
+  dialog(`<h2>${ns ? "Edit station" : "Station on this row"}</h2>
+    <p class="small muted" style="margin:0">${esc(st?.label || sid)} · ${esc(sid)}</p>
+    ${ns ? `<p class="small muted" style="margin:0">Added here (not in the ArcGIS layer yet). Changes apply everywhere it's used${uses ? ` (${uses} train${uses === 1 ? "" : "s"})` : ""}.</p>
+    <div class="fields">
+      <label class="f" style="grid-column:1/-1"><span>Station name</span><input id="esName" value="${esc(ns.name || "")}"></label>
+      <label class="f"><span>Town</span><input id="esTown" value="${esc(ns.town || "")}"></label>
+      <label class="f"><span>State</span><input id="esState" maxlength="6" value="${esc(ns.state || "")}"></label>
+      <label class="f"><span>Time zone</span><select id="esTz">${TZS.map(z => `<option ${z === ns.tz ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+      <label class="f" style="grid-column:1/-1"><span>Notes</span><input id="esNotes" value="${esc(ns.notes || "")}"></label>
+    </div>` : ""}
+    ${r && t ? `<fieldset><legend>${ns ? "Or swap in a different station" : "Swap in a different station"}</legend>
+      <p class="small muted" style="margin:0 0 6px">For a wrong pick: this row on ${esc(tnum(t))} and the stops of its trains here change to the station you pick. Other tables aren't touched.</p>
+      <input id="esSwap" placeholder="Search the station list…" autocomplete="off" style="width:100%"></fieldset>` : ""}`, ns ? "Save" : "Close", async () => {
+    if (!ns) return;
+    const nm = $("esName").value.trim(), stt = $("esState").value.trim().toUpperCase();
+    if (!nm) return "Give the station a name."; if (!stt) return "Add the state.";
+    const doc = { ...ns, name: nm, town: $("esTown").value.trim(), state: stt, tz: $("esTz").value, notes: $("esNotes").value.trim() };
+    if (JSON.stringify(doc) === JSON.stringify(ns)) return;
+    try { await S.db.doc(`newstations/${sid}`).set(doc); } catch (e) { return "Couldn't save the station: " + (e?.message || e?.code); }
+    S.newStations = (S.newStations || []).map(x => x.id === sid ? doc : x); rebuildStations(); render();
+  });
+  if (ns) ["esName", "esTown", "esState", "esNotes", "esTz"].forEach(k => $(k)?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("dOk")?.click(); } }));
+  const inp = $("esSwap"); if (!inp) return;
+  inp.addEventListener("input", () => openPicker(inp, nst => { if (nst && nst.id !== sid) swapRowStation(r, nst.id); $("overlay").hidden = true; $("overlay").innerHTML = ""; notePresence(false); }));
+  inp.addEventListener("keydown", pickerKeys);
+  inp.addEventListener("blur", () => setTimeout(() => { if (pick?.input === inp) closePicker(); }, 150));
+  if (!ns) setTimeout(() => inp.focus(), 0);
+}
+function swapRowStation(r, newId) {
+  const T = S.tableId, oldId = r.stationId;
+  mutateTable(tb => { const x = tb.rows.find(q => q.rid === r.rid); if (x) x.stationId = newId; });
+  for (const tr of allTrainDocs()) {
+    if (!tr.tables?.[T] || !(tr.stops || []).some(x => x.tableId === T && (x.rid === r.rid || (!x.rid && x.stationId === oldId)))) continue;
+    const w = edit(tr.id); (w.stops || []).forEach(x => { if (x.tableId === T && (x.rid === r.rid || (!x.rid && x.stationId === oldId))) x.stationId = newId; });
+    (w.equipment || []).forEach(e => { if (e.from === oldId) e.from = newId; if (e.to === oldId) e.to = newId; });
+  }
+  renderEntry(); renderTrainList();
 }
 // replace a temporary station ID with its real StationID everywhere it was used
 async function remapStation(oldId, newId) {
