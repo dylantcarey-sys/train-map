@@ -1019,6 +1019,7 @@ const trainsInTable = () => [...new Set([...S.trains.keys(), ...S.work.keys()])]
 const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId] && (!t.tables[s.tableId].onlyRows || t.tables[s.tableId].onlyRows.includes(s.rid))) } : t; };   // onlyRows: a repeat column that shows only part of the run
 
 function subscribeSource() {
+  if (S.sourceId) loadRRPages(S.sourceId).then(() => { if (S.page === "trains") renderTrainsPage(); else if (S.page === "desk") renderTrainList(); });
   S.unsubTables?.(); S.unsubTrains?.();
   S.tables = []; S.trains = new Map(); S.work = new Map(); S.dirty.clear(); S.loaded = { tables: false, trains: false };
   if (!S.db || !S.sourceId) { render(); return; }
@@ -1245,7 +1246,7 @@ function renderTrainList() {
   if (!t) { list.innerHTML = `<li class="empty">${S.sourceId ? "Start a table for the railroad you're transcribing, then add its trains." : "Pick a source to begin."}</li>`; return; }
   const trs = trainsInTable();
   if (!trs.length) { list.innerHTML = `<li class="empty">No trains in this table yet. Use <b>New train</b>, or switch to <b>Timetable grid</b> and add train columns.</li>`; return; }
-  list.innerHTML = trs.map(tr => `<li><button data-id="${esc(tr.id)}" aria-current="${tr.id === S.trainId}"><span class="no">${esc(trLabel(tr))}</span><span class="nm">${esc(tr.trainName || "")} ${tagChips(tr)} <span class="muted small">${tStops(tr).filter(s => !s.pass && s.stationId).length} stops</span></span><span class="chip st-${tStatus(tr)}">${statusShort[tStatus(tr)]}</span></button></li>`).join("");
+  list.innerHTML = trs.map(tr => `<li><button data-id="${esc(tr.id)}" aria-current="${tr.id === S.trainId}"><span class="no">${esc(trLabel(tr))}</span><span class="nm">${esc(tr.trainName || "")} ${tagChips(tr)} <span class="muted small">${tStops(tr).filter(s => !s.pass && s.stationId).length} stops</span></span><span class="chip st-${tStatus(tr)}">${stShort(tr)}</span></button></li>`).join("");
 }
 $("trainList").addEventListener("click", e => { const b = e.target.closest("button[data-id]"); if (!b) return; openTrainRecord(b.dataset.id, S.tableId, true); return; S.trainId = b.dataset.id; LS.set("train", S.trainId); setMode("train"); });
 
@@ -1325,6 +1326,10 @@ function renderEntryInner() {
 const mem = (tr, T = S.tableId) => tr?.tables?.[T];
 // one status per train (its progress); a train with timed stops and no status set counts as in progress
 // a train run by a railroad whose own tables aren't entered yet (CP, SP, IC... shown only as connections): treated as not in the Desk yet
+// a railroad with passenger service that prints no timetables in this guide (e.g. the B&M): its trains aren't waiting to be entered
+const rrNoTimes = ab => { const r = S.railroads.find(x => x.abbrev === ab); return !!(r && rrGuide.get(`${S.sourceId}|${r.id}`)?.noTimes); };
+const trStLabel = tr => tStatus(tr) === "future" && rrNoTimes(trRR(tr)) ? "No timetable in this guide" : STATUS_LABEL[tStatus(tr)];
+const stShort = tr => tStatus(tr) === "future" && rrNoTimes(trRR(tr)) ? "No timetable" : statusShort[tStatus(tr)];
 const futureRR = (tr, tables = S.tables) => { const rr = tr?.rr || ""; return !!rr && !tables.some(t => (t.rr || "") === rr); };
 const tStatus = tr => futureRR(tr) ? "future" : tr?.progress ? (STATUS_OF_PROG[tr.progress] || "created") : ((tr?.stops || []).some(s => s.stationId && (s.arr || s.dep)) ? "adding" : "created");
 function setTrainStatus(w, k) { const p = PROG_OF_STATUS[k] ?? ""; if (p) w.progress = p; else delete w.progress; if (w.tables?.[S.tableId]) w.tables[S.tableId].status = k; }
@@ -2367,7 +2372,7 @@ function renderGrid(el, t) {
         ${tr.copyOf ? `<span class="tn" title="A second column showing the same train and times. Its times are edited in the train's own column.">repeat column</span>` : `<button class="ghost mainbtn ${mem(tr)?.main ? "set" : ""}" data-main="${esc(tr.id)}" title="${mem(tr)?.main ? "A main train of this table: the service the table is about. Click to make it a reference train again." : hasMain ? "A reference train here: its times come from its own tables (grey), its consist stays on its record. Click to make it a main train." : "Mark as a main train of this table (the service the table is about). The other trains then become reference columns."}">${mem(tr)?.main ? "★ main" : hasMain ? "☆ reference" : "☆"}</button>`}
         <input class="tname" data-train="${esc(tr.id)}" data-k="tname" value="${esc(tr.trainName || "")}" placeholder="Name" autocomplete="off" aria-label="Train name" title="${esc((tr.names || []).length ? namesText(tr) + " (set on the train's page)" : tr.trainName || "Train name")}" ${(tr.names || []).length ? "readonly" : ""}>
         ${freqSelect(tr.frequency || "Daily", false, `class="tfreq" data-train="${esc(tr.id)}" data-k="tfreq" aria-label="Days the train runs" title="${esc(tr.frequency || "Daily")}${tr.freqAuto ? " (set by the first stop's mark)" : ""}"`)}
-        <button class="chip st-${tStatus(tr)}" data-train="${esc(tr.id)}" data-k="status" title="Click to advance this train's status">${statusShort[tStatus(tr)]}</button>${tr.copyOf ? (tr.tags?.length ? `<div>${tagChips(tr)}</div>` : "") : `<button class="ghost tagbtn ${(tr.tags || []).includes("mixed") ? "set" : ""}" data-tagtgl="mixed" data-train="${esc(tr.id)}" title="${(tr.tags || []).includes("mixed") ? "Mixed train (passengers and freight). Click to clear." : "Mark as a mixed train: carried both passengers and freight"}">${(tr.tags || []).includes("mixed") ? "Mixed service" : "mixed?"}</button>`}
+        <button class="chip st-${tStatus(tr)}" data-train="${esc(tr.id)}" data-k="status" title="Click to advance this train's status">${stShort(tr)}</button>${tr.copyOf ? (tr.tags?.length ? `<div>${tagChips(tr)}</div>` : "") : `<button class="ghost tagbtn ${(tr.tags || []).includes("mixed") ? "set" : ""}" data-tagtgl="mixed" data-train="${esc(tr.id)}" title="${(tr.tags || []).includes("mixed") ? "Mixed train (passengers and freight). Click to clear." : "Mark as a mixed train: carried both passengers and freight"}">${(tr.tags || []).includes("mixed") ? "Mixed service" : "mixed?"}</button>`}
         <button class="ghost danger delcol" data-delcol="${esc(tr.id)}" title="Remove this train from the table" aria-label="Remove column">✕</button>
         ${rowsDeferred(tr) ? `<span class="tn warn-text" title="Its stations were copied from another table. They join this grid when the train is marked Stations added.">stations pending</span>` : ""}
       </th>`).join("")}<th><button id="btnAddCol" title="Add a train column">＋ Train</button><button id="btnAddCols" class="small-btn" style="display:block;margin:4px auto 0" title="Add several empty train columns at once">＋ Several…</button><button id="btnAddNums" class="small-btn" style="display:block;margin:4px auto 0" title="Type a list of train numbers (e.g. 1, 3, 5-3) and add them all as columns">＋ Numbers…</button></th></tr></thead>
@@ -2730,7 +2735,9 @@ function tableDialog(existing) {
     if (!existing && picked.length) { let ord = Date.now(); for (const tid of picked) { const w = edit(tid); w.tables = { ...(w.tables || {}), [id]: { order: ord++, status: "created" } }; } }
     S.tableId = id; LS.set("table", id); render();
   });
-  $("dRR").onchange = e => { $("dNewRR").hidden = e.target.value !== "__new"; drawRosterPick(); };
+  const pagePrefill = () => { if (existing || $("dPage").value.trim()) return; const r = S.railroads.find(x => x.abbrev === $("dRR").value); const pr = r && rrPageRange(S.sourceId, r); if (pr) $("dPage").value = String(pr[0]); };
+  $("dRR").onchange = e => { $("dNewRR").hidden = e.target.value !== "__new"; drawRosterPick(); pagePrefill(); };
+  loadRRPages(S.sourceId).then(pagePrefill);
   function drawRosterPick() {
     const box = $("dRosterBox"); if (!box) return;
     const rr = $("dRR").value, free = allTrainDocs().filter(t => trRR(t) === rr && !onTables(t).length).sort((a, b) => Core.trainNoSort(a.trainNo, b.trainNo));
@@ -3484,18 +3491,28 @@ const RRG_FIELDS = [
   ["offices", "Executive and general offices", "As printed, e.g. 139 West Van Buren Street, Chicago, Ill. 60605", 2],
   ["otherOffices", "General offices in other places", "e.g. Rock Island Building, Des Moines, Iowa", 2],
   ["miles", "Route miles", "e.g. 7,500", 1],
-  ["pages", "Guide pages", "e.g. 392–399", 1],
+  ["pages", "Guide pages", "e.g. 140–143 (sets its place in the Guide's order)", 1],
   ["subsidiaries", "Subsidiary railroads", "One per line, e.g. Warren & Ouachita Valley Railway Co.", 2],
   ["equipment", "General equipment and consist notes", "The railroad's own equipment section, when it isn't tied to one table (e.g. the B&O's): trains, cars and where they run", 6],
   ["footnotes", "Notes common to all its schedules", "e.g. baggage rules, reservations, children's fares", 3],
   ["notes", "Other notes for this guide", "", 3],
 ];
 const rrGuide = new Map();   // "<source>|<railroad id>" -> its doc for that guide ({} once read and empty)
+// every railroad's section for a guide, read in one go (for page numbers); fills rrGuide
+const rrPagesRead = new Set();
+async function loadRRPages(srcId) {
+  if (!S.db || !srcId || rrPagesRead.has(srcId)) return;
+  try { const snap = await S.db.collection(`sources/${srcId}/rrpages`).get(); for (const r of S.railroads) if (!rrGuide.has(`${srcId}|${r.id}`)) rrGuide.set(`${srcId}|${r.id}`, {}); for (const d of snap.docs) rrGuide.set(`${srcId}|${d.id}`, d.data()); rrPagesRead.add(srcId); } catch { }
+}
+// a railroad's pages in a guide, "140–143" -> [140, 143]
+const rrPageRange = (srcId, r) => { const m = String(rrGuide.get(`${srcId}|${r?.id}`)?.pages || "").match(/(\d+)(?:\s*[-–—]\s*(\d+))?/); return m ? [+m[1], +(m[2] || m[1])] : null; };
 let rrSel = "", rrTimer = null, rrStats = null, rrgTimer = null;
 async function renderRailroads() {
   const el = $("rrPage"); if (!S.db) { el.innerHTML = `<div class="card">Saving isn't available in this view.</div>`; return; }
   const src0 = S.sources.find(x => x.id === S.sourceId), onDate = src0?.date || "", onlyActive = LS.get("rrActive", true) && !!onDate;
-  const all = [...S.railroads].sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+  await loadRRPages(S.sourceId);
+  const pgOf = r => rrPageRange(S.sourceId, r), byPage = LS.get("rrByPage", false);
+  const all = [...S.railroads].sort((a, b) => byPage ? ((pgOf(a)?.[0] ?? 1e9) - (pgOf(b)?.[0] ?? 1e9)) || rrLabel(a).localeCompare(rrLabel(b)) : rrLabel(a).localeCompare(rrLabel(b)));
   if (!rrStats) { el.innerHTML = `<div class="card">Gathering railroads…</div>`; try { rrStats = await homeData(); } catch { rrStats = []; } }
   // railroads with tables or trains in this guide always show, whatever their dates say
   const inGuide = ab => rrStats.some(d => d.src.id === S.sourceId && (d.tables.some(t => t.rr === ab) || d.trains.some(tr => trRR(tr) === ab)));
@@ -3513,9 +3530,9 @@ async function renderRailroads() {
   // a mark is "in use" once any table, train, or through-service link anywhere refers to it
   const inUse = ab => used(ab).length > 0 || rrStats.some(d => d.trains.some(tr => [...(tr.throughFrom || []), ...(tr.throughTo || [])].some(c => c?.rr === ab)));
   el.innerHTML = `
-    <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">Railroads</h2><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}</label>` : ""}<label class="row small" style="gap:6px" title="Hide railroads whose only trains in this guide are mixed trains"><input type="checkbox" id="rrHideMixed" ${hideMixed ? "checked" : ""}> Hide mixed-only</label>${hiddenN ? `<span class="small muted">${hiddenN} hidden</span>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="margin:0">Railroads</h2><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}</label>` : ""}<label class="row small" style="gap:6px" title="List railroads by their pages in this guide instead of by name"><input type="checkbox" id="rrByPage" ${byPage ? "checked" : ""}> Guide order</label><label class="row small" style="gap:6px" title="Hide railroads whose only trains in this guide are mixed trains"><input type="checkbox" id="rrHideMixed" ${hideMixed ? "checked" : ""}> Hide mixed-only</label>${hiddenN ? `<span class="small muted">${hiddenN} hidden</span>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
     <div class="rrwrap">
-      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}<span class="muted small">${esc(x.abbrev)}${rrFreightOn(x, onDate) ? " · freight only" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
+      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}<span class="muted small">${esc(x.abbrev)}${pgOf(x) ? ` · p. ${pgOf(x)[0]}${pgOf(x)[1] !== pgOf(x)[0] ? "–" + pgOf(x)[1] : ""}` : ""}${rrFreightOn(x, onDate) ? " · freight only" : ""}${rrGuide.get(`${S.sourceId}|${x.id}`)?.noTimes ? " · no timetables in this guide" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2>${onDate && rrNameOn(r, onDate) && rrNameOn(r, onDate) !== r.common ? `<span class="small muted" title="Its formal name on the guide's date">${esc(src0.dateText || onDate)}: ${esc(rrNameOn(r, onDate))}</span>` : ""}<span class="small muted" id="rrSaved"></span></div>
         ${inUse(r.abbrev) ? `<div class="small muted" style="margin:2px 0 10px">Short name (reporting mark) <b>${esc(r.abbrev)}</b>. It's already used on tables or trains, so it can't be changed here.</div>`
@@ -3531,6 +3548,7 @@ async function renderRailroads() {
   el.querySelectorAll("[data-rr]").forEach(b => b.onclick = () => { rrSel = b.dataset.rr; LS.set("rrSel", rrSel); renderRailroads(); });
   if ($("rrActive")) $("rrActive").onchange = e => { LS.set("rrActive", e.target.checked); renderRailroads(); };
   $("rrHideMixed").onchange = e => { LS.set("rrHideMixed", e.target.checked); renderRailroads(); };
+  $("rrByPage").onchange = e => { LS.set("rrByPage", e.target.checked); renderRailroads(); };
   if ($("rrAbbrevSave")) $("rrAbbrevSave").onclick = async () => {
     const rr = S.railroads.find(x => x.id === rrSel); const v = $("rrAbbrev").value.trim();
     if (!rr || !v || v === rr.abbrev) return;
@@ -3593,6 +3611,7 @@ function rrGuideHTML(r) {
   return `<h2 style="margin-top:16px">In ${esc(src.name)}</h2>
     ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
       : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
+    ${g === null || S.viewOnly ? "" : `<label class="row small" style="gap:6px;margin:8px 0 0"><input type="checkbox" id="rrNoTimes" ${g.noTimes ? "checked" : ""}> Has passenger service, but prints no timetables in this guide <span class="muted">(its trains won't show as waiting to be entered)</span></label>`}
     ${g === null ? "" : rrLinesHTML(r, g)}
     ${r.kind === "freight" && !trs.length ? "" : `<details class="rrconsist" ${trs.length && trs.length <= 40 ? "open" : ""}><summary><b>Consist by train</b> <span class="small muted">${trs.length} train${trs.length === 1 ? "" : "s"} in this guide, whichever table they were entered from. Edit a train's cars on its own page.</span></summary>
       ${trs.length ? `<table class="sheet small rrcons"><thead><tr><th>Train</th><th>Days</th><th>Cars and services</th></tr></thead><tbody>${trs.map(t => `<tr><td><button class="linkish" data-gotbl='${esc(JSON.stringify({ source: src.id, table: firstTable(t), train: t.id, mode: "train" }))}'>${esc(trLabel(t))}</button>${t.trainName ? `<div class="muted">${esc(t.trainName)}</div>` : ""}</td><td>${esc(t.frequency || "Daily")}</td><td>${(t.equipment || []).filter(e => e.type || e.desc).map(e => `<div>${esc(eqLine(e))}</div>`).join("") || `<span class="muted">none entered</span>`}</td></tr>`).join("")}</tbody></table>` : `<p class="small muted">No trains of this railroad in ${esc(src.name)}.</p>`}
@@ -3635,6 +3654,7 @@ function wireRRGuide(r) {
   const g = () => { const x = { ...(rrGuide.get(key) || {}) }; x.lines = structuredClone(x.lines || []); return x; };
   const put = (x, redraw) => { rrGuide.set(key, x); save(redraw); if (redraw) renderRailroads(); };
   el.querySelectorAll("[data-rrg]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x[inp.dataset.rrg] = inp.value; put(x); }));
+  if ($("rrNoTimes")) $("rrNoTimes").onchange = e => { const x = g(); if (e.target.checked) x.noTimes = true; else delete x.noTimes; put(x, true); };
   el.querySelectorAll("[data-ln]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.ln][inp.dataset.lk] = inp.value; put(x); }));
   el.querySelectorAll("[data-ln][data-lk=tableNo]").forEach(inp => inp.addEventListener("change", () => renderRailroads()));
   el.querySelectorAll("[data-sn]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.sn].stations[+inp.dataset.sj][inp.dataset.sk] = inp.value; put(x); }));
@@ -4371,6 +4391,7 @@ async function renderHome() {
   el.innerHTML = `<div class="card">Gathering your work…</div>`;
   let data; try { data = await homeData(); } catch (e) { el.innerHTML = `<div class="card">Couldn't load the summary: ${esc(e?.message || e?.code || e)}</div>`; return; }
   if (S.page !== "home") return;
+  { const ls = LS.get("source", ""); if (ls) await loadRRPages(ls); }
   const all = data.flatMap(d => d.trains.map(tr => ({ ...d, tr })));
   // totals
   const summed = data.filter(d => d.summary), sumOf = k => summed.reduce((a, d) => a + (d.summary[k] || 0), 0);
@@ -4403,11 +4424,18 @@ async function renderHome() {
     resume.push(`<div class="item"><span class="small muted">Continue this railroad</span><b>${esc(rrLabel(rrOf(ab) || { abbrev: ab }))}</b><span class="small">${esc(lastSrc.name)} · ${mine.length} table${mine.length === 1 ? "" : "s"}, ${nTr} train${nTr === 1 ? "" : "s"} · last open: ${lastTr ? trL(lastTr) + " on " : ""}${tLabel(lastTbl)}</span><div class="row" style="gap:6px;flex-wrap:wrap">${rrOf(ab) ? `<button class="primary" data-gorr='${rrGo(lastSrc, ab)}'>Open ${esc(rrLabel(rrOf(ab)))}</button>` : ""}<button ${rrOf(ab) ? "" : 'class="primary"'} data-go='${esc(JSON.stringify({ source: lastSrc.id, table: lastTbl.id, train: lastTr?.id || "", mode: lastMode }))}'>Back to ${tLabel(lastTbl)}</button></div></div>`);
     // the next railroad: the one whose tables come next in the Guide, else one not started yet
     const order = dLast.tables.slice().sort(guideOrder), lastMine = order.map(t => t.rr || "").lastIndexOf(ab);
-    const nxt = order.slice(lastMine + 1).find(t => (t.rr || "") !== ab);
     const started = new Set(dLast.tables.map(t => t.rr || "")), when = lastSrc.date || "";
-    const fresh = S.railroads.filter(r => !started.has(r.abbrev) && !rrFreightOn(r, when) && rrActiveOn(r, when)).sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+    // where this railroad ends in the Guide: its pages if entered, else its last table's page
+    const pg = r => rrPageRange(lastSrc.id, r), curEnd = pg(rrOf(ab))?.[1] ?? Math.max(0, ...mine.map(t => parseInt(t.page, 10) || 0));
+    const firstPg = r => pg(r)?.[0] ?? (dLast.tables.filter(t => t.rr === r.abbrev).map(t => parseInt(t.page, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b)[0]);
+    // the next railroad: the first one whose pages come after this one's (entered or not), else the next one with tables
+    const after = S.railroads.filter(r => r.abbrev !== ab && firstPg(r) > curEnd && !rrFreightOn(r, when) && !rrGuide.get(`${lastSrc.id}|${r.id}`)?.noTimes).sort((a, b) => firstPg(a) - firstPg(b))[0];
+    const nxtT = order.slice(lastMine + 1).find(t => (t.rr || "") !== ab);
+    const nxt = after && started.has(after.abbrev) ? dLast.tables.find(t => t.rr === after.abbrev) : (!after ? nxtT : null);
+    const fresh = S.railroads.filter(r => !started.has(r.abbrev) && !rrFreightOn(r, when) && rrActiveOn(r, when) && !rrGuide.get(`${lastSrc.id}|${r.id}`)?.noTimes).sort((a, b) => (firstPg(a) ?? 1e9) - (firstPg(b) ?? 1e9) || rrLabel(a).localeCompare(rrLabel(b)));
+    const pick = after && !started.has(after.abbrev) ? after.id : "";
     resume.push(nxt ? `<div class="item"><span class="small muted">Next railroad in the Guide</span><b>${esc(rrLabel(rrOf(nxt.rr) || { abbrev: nxt.rr }))}</b><span class="small">from page ${esc(nxt.page || "?")} · ${(n => `${n} table${n === 1 ? "" : "s"} entered`)(dLast.tables.filter(t => t.rr === nxt.rr).length)}</span><div>${rrOf(nxt.rr) ? `<button data-gorr='${rrGo(lastSrc, nxt.rr)}'>Open ${esc(rrLabel(rrOf(nxt.rr)))}</button>` : ""}</div></div>`
-      : `<div class="item"><span class="small muted">Next railroad</span><b>Start a new railroad</b><span class="small">${esc(rrLabel(rrOf(ab) || { abbrev: ab }))} is the last railroad entered so far.</span><div class="row" style="gap:6px;flex-wrap:nowrap"><select id="hNextRR" aria-label="Railroad to start" style="min-width:0;flex:1">${fresh.map(r => `<option value="${esc(r.id)}">${esc(rrLabel(r))}</option>`).join("")}</select><button data-startrr="${esc(lastSrc.id)}">Start</button></div></div>`);
+      : `<div class="item"><span class="small muted">Next railroad</span><b>Start a new railroad</b><span class="small">${pick ? `${esc(rrLabel(S.railroads.find(r => r.id === pick)))} comes next in the Guide (page ${firstPg(S.railroads.find(r => r.id === pick))}).` : `${esc(rrLabel(rrOf(ab) || { abbrev: ab }))} is the last railroad entered so far.`}</span><div class="row" style="gap:6px;flex-wrap:nowrap"><select id="hNextRR" aria-label="Railroad to start" style="min-width:0;flex:1">${fresh.map(r => `<option value="${esc(r.id)}" ${r.id === pick ? "selected" : ""}>${esc(rrLabel(r))}${firstPg(r) ? ` (p. ${firstPg(r)})` : ""}</option>`).join("")}</select><button data-startrr="${esc(lastSrc.id)}">Start</button></div></div>`);
   }
   const recent = all.filter(x => x.tr.updatedAt && Object.keys(x.tr.tables || {}).length).sort((a, b) => b.tr.updatedAt.localeCompare(a.tr.updatedAt)).slice(0, 8);
   const recentHtml = recent.length ? `<h3 style="margin:12px 0 0">Recently edited</h3><ul class="recentlist">${recent.map(x => { const k = Object.keys(x.tr.tables).find(k => x.tables.some(t => t.id === k)) || ""; const tb = x.tables.find(t => t.id === k); return tb ? `<li><button class="linkish" data-go='${esc(JSON.stringify({ source: x.src.id, table: k, train: x.tr.id, mode: "train" }))}'>${trL(x.tr)}</button><span class="small muted">${tLabel(tb)} · ${esc(ago(x.tr.updatedAt))}</span></li>` : ""; }).join("")}</ul>` : "";
@@ -4437,7 +4465,7 @@ async function renderHome() {
       const go = m => esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: m }));
       const gk = d.src.id + "|" + (t.rr || "");
       return `<tr data-rrg="${esc(gk)}" ${opened.has(gk) ? "" : "hidden"}><td><button class="linkish" data-go='${go("grid")}'><b>${tLabel(t)}</b></button>${t.page ? ` <span class="small muted">p. ${esc(t.page)}</span>` : ` <span class="small" style="color:var(--warn)" title="No page number entered, so it can't be placed in Guide order">⚠ no page</span>`} ${tStatusSelect(t, trs.length, `data-tstat="${esc(t.id)}"`)}
-          ${trs.length ? `<details><summary class="small muted">${trs.length} train${trs.length > 1 ? "s" : ""}</summary><div class="trs">${trs.map(tr => `<button class="chip st-${tStatus(tr)}" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: tr.id, mode: "train" }))}' title="${esc(tr.trainName || "")} · ${esc(STATUS_LABEL[tStatus(tr)])}">${esc(tr.trainNo || "?")}</button>`).join("")}</div></details>` : `<div class="small muted">No trains yet</div>`}</td>
+          ${trs.length ? `<details><summary class="small muted">${trs.length} train${trs.length > 1 ? "s" : ""}</summary><div class="trs">${trs.map(tr => `<button class="chip st-${tStatus(tr)}" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: tr.id, mode: "train" }))}' title="${esc(tr.trainName || "")} · ${esc(trStLabel(tr))}">${esc(tr.trainNo || "?")}</button>`).join("")}</div></details>` : `<div class="small muted">No trains yet</div>`}</td>
         <td class="n-tr">${trs.length}<span class="mlab"> train${trs.length === 1 ? "" : "s"}</span></td><td class="n-st">${nSt}<span class="mlab"> stops</span></td><td class="prog">${bar(sts)}<div class="small muted">${done} of ${trs.length} done</div></td><td class="small muted ago">${esc(ago(lastEd))}</td>
         <td class="act"><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="small-btn" data-go='${go("grid")}'>Grid</button><button class="small-btn" data-go='${go("train")}'>One train</button></div></td></tr>`;
     };
