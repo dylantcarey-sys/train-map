@@ -567,7 +567,7 @@ body.view-only .home table.tbls td.act, body.view-only #trainsPanel, body.view-o
       <div class="row" style="flex-wrap:nowrap"><select id="selTable" class="grow"></select></div>
     </label>
     <div class="span2 row" style="align-items:center;flex-wrap:nowrap"><span class="small muted grow" id="tableSummary"></span><span id="tStatusBox"></span><button id="btnEditTable">Edit table</button></div>
-    <div class="span2 row" style="align-items:center;flex-wrap:wrap;gap:6px"><button id="btnPrevTable" class="small-btn" title="The previous table of this railroad in the Guide (by page)">‹ Previous table</button><button id="btnNextTable" class="small-btn" title="The next table in the Guide (by page)">Next table ›</button><select id="selRecent" class="grow" aria-label="Recently edited trains"></select></div>
+    <div class="span2 row" style="align-items:center;flex-wrap:wrap;gap:6px"><button id="btnPrevTable" class="small-btn" title="The previous table in the Guide (by page), whichever railroad">‹ Previous table</button><button id="btnNextTable" class="small-btn" title="The next table in the Guide (by page)">Next table ›</button><select id="selRecent" class="grow" aria-label="Recently edited trains"></select></div>
   </section>
 
   <div class="main" id="main">
@@ -1603,13 +1603,16 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 function renderContext() {
   const ss = [...S.sources].sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.name.localeCompare(b.name));
   $("selSource").innerHTML = ss.length ? ss.map(s => `<option value="${esc(s.id)}" ${s.id === S.sourceId ? "selected" : ""}>${esc(s.name)}</option>`).join("") : `<option value="">No sources yet</option>`;
-  $("selTable").innerHTML = S.tables.length ? S.tables.map(t => `<option value="${esc(t.id)}" ${t.id === S.tableId ? "selected" : ""}>${esc(tableName(t))}</option>`).join("") : `<option value="">${S.sourceId ? "No tables yet: start one" : "Pick a source first"}</option>`;
+  // tables grouped under their railroad, railroads in Guide order (by their first page)
+  const byRR = new Map(); for (const x of S.tables.slice().sort(guideOrder)) { const k = x.rr || ""; if (!byRR.has(k)) byRR.set(k, []); byRR.get(k).push(x); }
+  $("selTable").innerHTML = S.tables.length ? [...byRR].map(([k, ts]) => `<optgroup label="${esc(rrLabel(S.railroads.find(r => r.abbrev === k) || { abbrev: k || "No railroad" }))}">${ts.map(t => `<option value="${esc(t.id)}" ${t.id === S.tableId ? "selected" : ""}>${esc(tableName(t))}</option>`).join("")}</optgroup>`).join("") : `<option value="">${S.sourceId ? "No tables yet: start one" : "Pick a source first"}</option>`;
   const t = curTable();
-  $("tableSummary").innerHTML = t ? [t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table"].filter(Boolean).join(" · ") : "";
+  $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table"].filter(Boolean).join(" · ") : "";
+  if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); showPage("railroads"); };
   $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') : "";
   if ($("selTStatus")) { $("selTStatus").disabled = !S.db; $("selTStatus").onchange = e => { setTableStatus(t.id, e.target.value); renderContext(); }; }
   const nx = t && nextTableAfter(S.tables, t.id), pv = t && prevTableBefore(S.tables, t.id);
-  $("btnNextTable").disabled = nx ? false : (!S.sourceId || !S.db); $("btnNextTable").textContent = nx ? "Next table ›" : "＋ New table"; $("btnNextTable").title = !t ? "Start the first table in this source" : nx ? `Open ${tableName(nx)}${nx.page ? ", page " + nx.page : ""}` : `No later ${t.rr || ""} table yet: start one`;
+  $("btnNextTable").disabled = nx ? false : (!S.sourceId || !S.db); $("btnNextTable").textContent = nx ? "Next table ›" : "＋ New table"; $("btnNextTable").title = !t ? "Start the first table in this source" : nx ? `Open ${tableName(nx)}${nx.page ? ", page " + nx.page : ""}` : "No later table entered yet: start the next one (any railroad)";
   $("btnPrevTable").disabled = !pv; $("btnNextTable").onclick = () => nx ? goTo({ table: nx.id, train: "", mode: S.mode || "train" }) : t ? newTableAfter(t) : tableDialog(null); $("btnPrevTable").onclick = () => pv && goTo({ table: pv.id, train: "", mode: S.mode || "train" });
   const rec = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(x => x && !x._deleted && x.updatedAt && Object.keys(x.tables || {}).some(k => tableById(k))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 10);
   $("selRecent").innerHTML = `<option value="">Recently edited trains…</option>` + rec.map(x => { const k = x.tables?.[S.tableId] ? S.tableId : Object.keys(x.tables).find(k => tableById(k)); return `<option value="${esc(JSON.stringify({ table: k, train: x.id }))}">${esc(trLabel(x))} · ${esc(tblName(k))} · ${esc(ago(x.updatedAt))}</option>`; }).join("");
@@ -1633,8 +1636,9 @@ function setTableStatus(id, v) {
 // guide order: by printed page, then railroad and table number
 const pageNo = t => { const n = parseInt(t.page, 10); return isNaN(n) ? 1e9 : n; };
 const guideOrder = (a, b) => pageNo(a) - pageNo(b) || (a.rr || "").localeCompare(b.rr || "") || Core.tableNoSort(a.tableNo, b.tableNo) || (a.title || "").localeCompare(b.title || "");
-const nextTableAfter = (tables, id) => { const cur = tables.find(t => t.id === id); if (!cur) return null; const l = tables.filter(t => (t.rr || "") === (cur.rr || "")).sort(guideOrder), i = l.findIndex(t => t.id === id); return l[i + 1] || null; };
-const prevTableBefore = (tables, id) => { const cur = tables.find(t => t.id === id); if (!cur) return null; const l = tables.filter(t => (t.rr || "") === (cur.rr || "")).sort(guideOrder), i = l.findIndex(t => t.id === id); return i > 0 ? l[i - 1] : null; };
+// next and previous tables in the Guide, whichever railroad they belong to
+const nextTableAfter = (tables, id) => { const l = tables.slice().sort(guideOrder), i = l.findIndex(t => t.id === id); return i >= 0 ? l[i + 1] || null : null; };
+const prevTableBefore = (tables, id) => { const l = tables.slice().sort(guideOrder), i = l.findIndex(t => t.id === id); return i > 0 ? l[i - 1] : null; };
 // an unnumbered train on a condensed table is a leg whose real details are in another railroad's section of the Guide
 // a leg without a number that's only printed on condensed tables or on another railroad's tables (e.g. SCL legs on an L&N table):
 // it gets flagged once that railroad's own tables are entered, so it can be matched to its real train
@@ -2447,7 +2451,7 @@ function copyStopsDialog(id, mode) {
   const tn = t => `${t.id === id ? "This train: " : ""}${t.trainNo || "(no number)"}${t.trainName ? " — " + t.trainName : ""}` + (here ? ` · ${plural(nStops(t, T))}` : ` · on ${otherKeys(t).map(k => "Table " + tno(tableById(k))).join(", ")}`);
   const numSort = (a, b) => String(a.trainNo || "").localeCompare(String(b.trainNo || ""), undefined, { numeric: true, sensitivity: "base" }) || String(a.trainName || "").localeCompare(String(b.trainName || ""));
   const rrs = [...new Set(others.map(t => trRR(t) || ""))].sort((a, b) => a.localeCompare(b));
-  const rrName = r => S.railroads.find(x => x.abbrev === r)?.name || "";
+  const rrName = r => rrBizName(r);
   const me = trainDoc(id); const rr0 = rrs.includes(trRR(me)) ? trRR(me) : rrs[0];
   dialog(`<h2>${title}</h2>
     <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -2490,7 +2494,7 @@ function copyConsistDialog(id, mode) {
   const tn = t => `${t.trainNo || "(no number)"}${t.trainName ? " — " + t.trainName : ""} · ${summary(t)}` + (here ? "" : ` · on ${otherKeys(t).map(k => "Table " + tno(tableById(k))).join(", ")}`);
   const numSort = (a, b) => String(a.trainNo || "").localeCompare(String(b.trainNo || ""), undefined, { numeric: true, sensitivity: "base" }) || String(a.trainName || "").localeCompare(String(b.trainName || ""));
   const rrs = [...new Set(others.map(t => trRR(t) || ""))].sort((a, b) => a.localeCompare(b));
-  const rrName = r => S.railroads.find(x => x.abbrev === r)?.name || "";
+  const rrName = r => rrBizName(r);
   const me = trainDoc(id); const rr0 = rrs.includes(trRR(me)) ? trRR(me) : rrs[0];
   const mine = cars(me).length;
   dialog(`<h2>${title}</h2>
@@ -3087,7 +3091,7 @@ function tableDialog(existing) {
   dialog(`<h2>${existing ? "Table details" : "New table"}</h2>
     <p class="small muted">One numbered timetable in ${esc(src?.name || "this source")}, for one railroad.</p>
     <div class="fields">
-      <label class="f" style="grid-column:1/-1"><span>Railroad</span><select id="dRR">${S.railroads.map(r => `<option value="${esc(r.abbrev)}" ${r.abbrev === t.rr ? "selected" : ""}>${esc(r.abbrev)} — ${esc(r.name)}</option>`).join("")}<option value="__new">Add a railroad…</option></select></label>
+      <label class="f" style="grid-column:1/-1"><span>Railroad</span><select id="dRR">${S.railroads.map(r => `<option value="${esc(r.abbrev)}" ${r.abbrev === t.rr ? "selected" : ""}>${esc(r.abbrev)} — ${esc(rrLabel(r))}</option>`).join("")}<option value="__new">Add a railroad…</option></select></label>
       <label class="f" id="dNewRR" hidden style="grid-column:1/-1"><span>New railroad</span><div class="row"><input id="dRRName" class="grow" placeholder="Full name, e.g. Napierville Junction Railway"><input id="dRRAb" style="width:110px" placeholder="Shown as, e.g. NJR"></div></label>
       <label class="row small" style="grid-column:1/-1;gap:6px;align-items:flex-start;margin:-2px 0 2px"><input type="checkbox" id="dHosted" ${t.hosted ? "checked" : ""}> <span>This railroad hosts other railroads' trains on this table <span class="muted">(e.g. a joint line like the New York and Long Branch, which ran PC and CNJ trains). Each train column gets its own railroad.</span></span></label>
       <label class="f"><span>Table number</span><input id="dNo" value="${esc(t.tableNo || "")}" placeholder="e.g. 1"></label>
@@ -3645,7 +3649,7 @@ function viaStation(name, stops, i) {
   return cands.filter(st => st.lon != null).sort((a, b) => d(a) - d(b))[0]?.id || cands[0].id;
 }
 async function buildCSV() {
-  const rows = []; const rrName = ab => S.rrByAbbrev.get(ab)?.name || "";
+  const rows = []; const rrName = ab => rrBizName(ab);
   const link = arr => arr.filter(c => c?.trainNo || c?.rr).map(c => `${c.rr || ""} ${c.trainNo || ""}${c.stationId ? " at " + (S.stById.get(c.stationId)?.name || c.stationId) + " (" + c.stationId + ")" : ""}`.replace(/\s+/g, " ").trim()).join("; ");
   for (const { src, tables, tr } of await allTrainsForExport()) {
     const keys = Object.keys(tr.tables || {}).filter(k => tables.has(k));
@@ -3826,9 +3830,10 @@ const RR_FIELDS = [
   ["otherNames", "Other names and marks", "Names it appears under, one per line, e.g. Penn Central, PC. These also help match stations' “served by” listings.", 3],
   ["kind", "Service", "", 1],
   ["hq", "Headquarters", "City, e.g. Chicago, Ill.", 1],
-  ["from", "Company started", "This company under this name, e.g. February 1, 1968 (a year alone is fine)", 1],
-  ["to", "Company ended", "Blank if it still runs; e.g. March 31, 1976", 1],
-  ["rootFrom", "Earliest predecessor started", "e.g. 1823 (Delaware and Hudson Canal Company)", 1],
+  ["chartered", "Chartered", "When the first company under this short name was chartered, e.g. December 21, 1833", 1],
+  ["from", "Began operating", "First trains, e.g. 1837 (a year alone is fine)", 1],
+  ["to", "Ended", "Blank if it still runs; e.g. March 31, 1976", 1],
+  ["rootFrom", "Earliest predecessor started", "A separate company it grew from, e.g. 1831 (Elizabethtown and Somerville Railroad)", 1],
   ["passengerEnd", "Passenger service ended", "e.g. April 30, 1971 (Amtrak)", 1],
   ["color", "Map color", "e.g. #7C3030", 1],
   ["colorNote", "Color based on", "e.g. Tuscan red passenger cars", 1],
@@ -3849,7 +3854,18 @@ function rrDate(text, end) {
   return null;
 }
 // was the railroad running on the guide's date? (unknown dates count as running)
-const rrActiveOn = (r, iso) => { if (!iso) return true; const a = rrDate(r.from, false), b = rrDate(r.to, true); return (!a || a <= iso) && (!b || b >= iso); };
+// the railroad's whole span, across its formal names (periods)
+const rrSpan = r => {
+  const ps = (r.periods || []).filter(p => p.name || p.from || p.to || p.chartered);
+  const starts = [rrDate(r.from, false) || rrDate(r.chartered, false), ...ps.map(p => rrDate(p.from, false) || rrDate(p.chartered, false))].filter(Boolean).sort();
+  const open = !String(r.to || "").trim() && (!ps.length || ps.some(p => !String(p.to || "").trim()));
+  const ends = [rrDate(r.to, true), ...ps.map(p => rrDate(p.to, true))].filter(Boolean).sort();
+  return { a: starts[0] || null, b: open ? null : ends[ends.length - 1] || null };
+};
+const rrActiveOn = (r, iso) => { if (!iso) return true; const { a, b } = rrSpan(r); return (!a || a <= iso) && (!b || b >= iso); };
+// its formal (business) name on a date: the period that covers it, else the record's business name
+const rrNameOn = (r, iso) => { if (!r) return ""; if (iso) for (const p of r.periods || []) { const a = rrDate(p.from, false) || rrDate(p.chartered, false), b = rrDate(p.to, true); if (p.name && (!a || a <= iso) && (!b || b >= iso)) return p.name; } return r.name || ""; };
+const rrBizName = ab => rrNameOn(S.rrByAbbrev?.get(ab) || S.railroads.find(x => x.abbrev === ab), S.sources.find(x => x.id === S.sourceId)?.date || "");
 const rrLabel = r => r.common || r.name || r.abbrev;
 const RR_KINDS = [["", "Passenger and freight"], ["passenger", "Passenger only"], ["freight", "Freight only (no passenger trains)"]];
 const kindLabel = v => (RR_KINDS.find(k => k[0] === (v || "")) || RR_KINDS[0])[1];
@@ -3891,10 +3907,11 @@ async function renderRailroads() {
     <div class="rrwrap">
       <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}<span class="muted small">${esc(x.abbrev)}${x.kind === "freight" ? " · freight only" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
-        <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2><span class="small muted" id="rrSaved"></span></div>
+        <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2>${onDate && rrNameOn(r, onDate) && rrNameOn(r, onDate) !== r.common ? `<span class="small muted" title="Its formal name on the guide's date">${esc(src0.dateText || onDate)}: ${esc(rrNameOn(r, onDate))}</span>` : ""}<span class="small muted" id="rrSaved"></span></div>
         ${inUse(r.abbrev) ? `<div class="small muted" style="margin:2px 0 10px">Short name (reporting mark) <b>${esc(r.abbrev)}</b>. It's already used on tables or trains, so it can't be changed here.</div>`
           : `<div class="row small" style="gap:6px;align-items:center;margin:2px 0 10px"><span class="muted">Short name (reporting mark)</span><input id="rrAbbrev" value="${esc(r.abbrev)}" autocomplete="off" style="width:110px"><button class="small-btn" id="rrAbbrevSave">Change</button><span class="muted">Not used on any table or train yet, so it can still be changed.</span></div>`}
         ${S.viewOnly ? `<dl class="rrview">${RR_FIELDS.filter(([k]) => k !== "name" && r[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd>${k === "color" ? `<span class="rrsw" style="background:${esc(r.color)}"></span>` : ""}${esc(k === "kind" ? kindLabel(r[k]) : r[k])}</dd>`).join("") || `<dd class="muted">No details entered yet.</dd>`}</dl>` : ""}<div class="fields edit-only">${RR_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 || k === "name" || k === "common" ? "1/-1" : "auto"}"><span>${esc(label)}</span>${k === "kind" ? `<select data-rrf="kind">${RR_KINDS.map(([v, l]) => `<option value="${v}" ${(r.kind || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : k === "color" ? `<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="color" data-rrcolor value="${esc(/^#[0-9a-f]{6}$/i.test(r.color || "") ? r.color : "#888888")}" aria-label="Pick the map color" style="width:44px;height:32px;padding:2px"><input data-rrf="color" value="${esc(r.color || "")}" placeholder="${esc(ph)}" autocomplete="off" style="flex:1" title="The color this railroad's trains and routes get on the map"></span>` : rows > 1 ? `<textarea data-rrf="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(r[k] || "")}</textarea>` : `<input data-rrf="${k}" value="${esc(r[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>
+        ${rrPeriodsHTML(r, onDate)}
         ${r.offices || r.miles ? `<p class="small muted">Older entries kept on the railroad itself (they belong to a guide now): ${esc([r.offices && "offices: " + r.offices.replace(/\n/g, "; "), r.miles && "route miles: " + r.miles].filter(Boolean).join(" · "))}</p>` : ""}
         <h2 style="margin-top:16px">In your timetables</h2>
         ${u.length ? `<ul class="attn">${u.map(x => `<li><b>${esc(x.src.name)}</b>: ${x.ts.map(t => `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: x.src.id, table: t.id, train: "", mode: "grid" }))}'>Table ${esc(tno(t))}</button>`).join(", ") || "no tables of its own"} · ${x.trs.length} train${x.trs.length === 1 ? "" : "s"}</li>`).join("")}</ul>` : `<p class="small muted">Not used on any table or train yet.</p>`}
@@ -3925,14 +3942,33 @@ async function renderRailroads() {
   });
   const pickC = el.querySelector("[data-rrcolor]"), textC = el.querySelector('[data-rrf="color"]');
   if (pickC && textC) { pickC.addEventListener("input", () => { textC.value = pickC.value; textC.dispatchEvent(new Event("input")); }); textC.addEventListener("input", () => { if (/^#[0-9a-f]{6}$/i.test(textC.value.trim())) pickC.value = textC.value.trim(); }); }
-  el.querySelectorAll("[data-rrf]").forEach(inp => inp.addEventListener("input", () => {
-    const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return;
-    rr[inp.dataset.rrf] = inp.value; $("rrSaved").textContent = "Saving…";
-    clearTimeout(rrTimer); rrTimer = setTimeout(async () => {
+  const saveRR = (rr, now) => {
+    $("rrSaved").textContent = "Saving…"; clearTimeout(rrTimer);
+    rrTimer = setTimeout(async () => {
       const { id, ...body } = rr; remember(`railroads/${id}`, S.railroads.find(x => x.id === id));
       try { await S.db.doc(`railroads/${id}`).set(body); $("rrSaved").textContent = "Saved"; } catch { $("rrSaved").textContent = "Couldn't save"; }
-    }, 600);
+    }, now ? 0 : 600);
+  };
+  el.querySelectorAll("[data-rrf]").forEach(inp => inp.addEventListener("input", () => {
+    const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return;
+    rr[inp.dataset.rrf] = inp.value; saveRR(rr);
   }));
+  // formal names over time
+  el.querySelectorAll("[data-pd]").forEach(inp => inp.addEventListener("input", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.periods[+inp.dataset.pd][inp.dataset.pk] = inp.value; saveRR(rr); }));
+  if ($("pdAdd")) $("pdAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.periods ||= []).push({ name: "", chartered: "", from: "", to: "" }); saveRR(rr, true); renderRailroads(); };
+  el.querySelectorAll("[data-pddel]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.periods.splice(+b.dataset.pddel, 1); if (!rr.periods.length) delete rr.periods; saveRR(rr, true); renderRailroads(); });
+  el.querySelectorAll("[data-pdmove]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; const i = +b.dataset.pdmove, j = i + +b.dataset.by; if (j < 0 || j >= rr.periods.length) return; [rr.periods[i], rr.periods[j]] = [rr.periods[j], rr.periods[i]]; saveRR(rr, true); renderRailroads(); });
+}
+// one railroad (one short name) can carry several formal names over time, e.g. the D&H's canal company, the D&H Company, Railroad Corporation and Railway
+function rrPeriodsHTML(r, onDate) {
+  const ps = r.periods || [];
+  const cell = (i, k, v, ph, w) => `<input data-pd="${i}" data-pk="${k}" value="${esc(v || "")}" placeholder="${esc(ph)}" autocomplete="off" style="width:${w}">`;
+  const now = i => { const p = ps[i]; const a = rrDate(p.from, false) || rrDate(p.chartered, false), b = rrDate(p.to, true); return onDate && (!a || a <= onDate) && (!b || b >= onDate); };
+  return `<h2 style="margin-top:16px">Formal names over time</h2>
+    <p class="small muted" style="margin:0 0 6px">The same railroad under different company names (reorganizations and renamings), so it keeps one short name. Each guide shows the name in use on its date. A separate railroad it grew out of goes under Formed from instead.</p>
+    ${S.viewOnly ? (ps.length ? `<table class="sheet small"><thead><tr><th>Formal name</th><th>Chartered</th><th>From</th><th>To</th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.name || "")}</td><td>${esc(p.chartered || "")}</td><td>${esc(p.from || "")}</td><td>${esc(p.to || "")}</td></tr>`).join("")}</tbody></table>` : `<p class="small muted">Only one name entered.</p>`) : `
+    ${ps.length ? `<table class="sheet small"><thead><tr><th>Formal name</th><th>Chartered</th><th>From</th><th>To</th><th></th></tr></thead><tbody>${ps.map((p, i) => `<tr${now(i) ? ' style="background:var(--accent-soft)" title="The name in use on this guide\'s date"' : ""}><td>${cell(i, "name", p.name, "e.g. Delaware and Hudson Railroad Corporation", "22em")}</td><td>${cell(i, "chartered", p.chartered, "Chartered", "8em")}</td><td>${cell(i, "from", p.from, "From", "8em")}</td><td>${cell(i, "to", p.to, "To", "8em")}</td><td class="rowbtns"><button class="ghost" data-pdmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-pdmove="${i}" data-by="1" aria-label="Move down" ${i < ps.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-pddel="${i}" aria-label="Remove name">✕</button></td></tr>`).join("")}</tbody></table>` : ""}
+    <button class="small-btn" id="pdAdd" style="margin-top:6px">＋ Add a formal name</button>`}`;
 }
 
 // the railroad in the guide open now: its general pages (stored per guide) and every train's consist in one list
@@ -4752,7 +4788,7 @@ async function renderHome() {
     if (tb && !(lastTr && edited.tr.id === lastTr.id)) resume.push(`<div class="item"><span class="small muted">Last edited ${esc(ago(edited.tr.updatedAt))}</span><b>${trL(edited.tr)}</b><span class="small">${esc(edited.src.name)} · ${tLabel(tb)}</span><div><button data-go='${esc(JSON.stringify({ source: edited.src.id, table: k, train: edited.tr.id, mode: "train" }))}'>Open this train</button></div></div>`); }
   if (lastSrc && lastTbl) { const nx = nextTableAfter(dLast.tables, lastTbl.id);
     resume.push(nx ? `<div class="item"><span class="small muted">Next table in the Guide</span><b>${tLabel(nx)}</b><span class="small">${nx.page ? "page " + esc(nx.page) : "no page entered"} · after ${tLabel(lastTbl)}</span><div><button data-go='${esc(JSON.stringify({ source: lastSrc.id, table: nx.id, train: "", mode: "grid" }))}'>Open next table</button></div></div>`
-      : `<div class="item"><span class="small muted">Next table in the Guide</span><b>None after ${tLabel(lastTbl)}</b><span class="small">That's the last ${esc(lastTbl.rr)} table so far.</span><div><button data-newtable="${esc(lastSrc.id)}" data-nrr="${esc(lastTbl.rr || "")}">＋ New ${esc(lastTbl.rr)} table</button></div></div>`); }
+      : `<div class="item"><span class="small muted">Next table in the Guide</span><b>None after ${tLabel(lastTbl)}</b><span class="small">That's the last table entered so far. The next one can be any railroad: pick it in the new table.</span><div><button data-newtable="${esc(lastSrc.id)}" data-nrr="${esc(lastTbl.rr || "")}">＋ New table</button></div></div>`); }
   const recent = all.filter(x => x.tr.updatedAt && Object.keys(x.tr.tables || {}).length).sort((a, b) => b.tr.updatedAt.localeCompare(a.tr.updatedAt)).slice(0, 8);
   const recentHtml = recent.length ? `<h3 style="margin:12px 0 0">Recently edited</h3><ul class="recentlist">${recent.map(x => { const k = Object.keys(x.tr.tables).find(k => x.tables.some(t => t.id === k)) || ""; const tb = x.tables.find(t => t.id === k); return tb ? `<li><button class="linkish" data-go='${esc(JSON.stringify({ source: x.src.id, table: k, train: x.tr.id, mode: "train" }))}'>${trL(x.tr)}</button><span class="small muted">${tLabel(tb)} · ${esc(ago(x.tr.updatedAt))}</span></li>` : ""; }).join("")}</ul>` : "";
   if (!resume.length) resume.push(`<div class="item"><b>Nothing open yet</b><span class="small">Pick a source below and add its first table.</span></div>`);
