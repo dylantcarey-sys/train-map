@@ -670,6 +670,9 @@ function endCheckFor(tr, T, tables) {
 const CAR_TYPES = ["Coaches", "Reclining seat coaches", "Sleeping car", "Parlor car", "Dining car", "Lounge car", "Club car", "Observation car", "Dome car", "Buffet car", "Snack bar coach", "Tavern car", "Grill car", "Café car", "Dormitory car", "Baggage car", "Mail car", "Express car"];
 // a train that carries several names at once (UP 103/104: City of Los Angeles / City of San Francisco / City of Denver …),
 // each with where it applies. The train name becomes all of them, "A / B / C", so every list and the export show them.
+// does a train go by this name? its name, any of its names, or one part of a combined "The Super Chief / El Capitan"
+const nameKey = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
+const hasName = (tr, name) => { const k = nameKey(name); return !!k && [tr.trainName, ...String(tr.trainName || "").split(/\s+\/\s+/), ...(tr.names || []).map(n => n.name)].some(v => nameKey(v) === k); };
 const namesText = tr => (tr.names || []).filter(n => (n.name || "").trim()).map(n => n.name.trim() + (n.from && n.to ? ` (${stName(n.from)}–${stName(n.to)})` : "") + (n.days ? ` [${n.days}]` : "")).join("; ");
 const syncNames = w => { const ns = (w.names || []).map(n => (n.name || "").trim()).filter(Boolean); if ((w.names || []).length) w.trainName = ns.join(" / "); };
 function namesFieldHTML(tr) {
@@ -3070,7 +3073,7 @@ function addSeveralDialog() {
     // one number can belong to two different trains run on the same schedule (Santa Fe 17: El Capitan and The Super Chief):
     // typed with their names, each is its own train, matched by name
     const nm = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
-    const nameOk = (k, x) => !k.name || !(x.trainName || "").trim() || nm(x.trainName) === nm(k.name);
+    const nameOk = (k, x) => !k.name || !(x.trainName || "").trim() || hasName(x, k.name);
     for (const k of toks) {
       const key = k.rr + " " + k.no + (k.name ? " " + nm(k.name) : "");
       if (seen.has(key)) continue;
@@ -3080,7 +3083,7 @@ function addSeveralDialog() {
       seen.add(key); seen.add(k.rr + " " + k.no);
       if (here.some(x => trRR(x) === k.rr && x.trainNo === k.no && !x.copyOf && nameOk(k, x))) { items.push({ ...k, kind: "here" }); continue; }
       const same = all.filter(x => !mem(x) && !x.copyOf && !x.setupOf && trRR(x) === k.rr && x.trainNo === k.no);   // a repeat column isn't the train itself
-      const ex = k.name ? (same.filter(x => nm(x.trainName) === nm(k.name)).length ? same.filter(x => nm(x.trainName) === nm(k.name)) : same.filter(x => !(x.trainName || "").trim())) : same;
+      const ex = k.name ? (same.filter(x => hasName(x, k.name)).length ? same.filter(x => hasName(x, k.name)) : same.filter(x => !(x.trainName || "").trim())) : same;
       items.push(ex.length ? { ...k, kind: "exists", ex } : { ...k, kind: "new", others: same.map(x => x.id) });
     }
     setTimeout(() => addSeveralStep2(items), 0);
@@ -3203,7 +3206,7 @@ function addSeveralStep2(items) {
       const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.copyOf); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
       if (!orig) continue;
       w.setupOf = orig.setupOf || orig.id;
-      if (dupKind === "copy") { w.copyOf = orig.id; w.stops = []; w.trainName = orig.trainName || ""; w.frequency = orig.frequency || "Daily"; }
+      if (dupKind === "copy") { w.copyOf = orig.id; w.stops = []; w.trainName = x.name || orig.trainName || ""; w.frequency = orig.frequency || "Daily"; if (x.name) x.done = id; }
     }
     const stubFor = new Map(); document.querySelectorAll("[data-stubno]").forEach(sel => { if (sel.value) stubFor.set(sel.value, [...(stubFor.get(sel.value) || []), sel.dataset.stubno]); });
     const fold = (targetId, legIds) => { for (const sid of legIds) if (sid !== targetId) combineTrains(targetId, sid); };
@@ -3215,7 +3218,7 @@ function addSeveralStep2(items) {
       else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
       else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
         // a different train with the same number (named differently): give it its name now and mark the two as different trains
-        if (x.name) { w.trainName = x.name; x.done = id; for (const o of x.others || []) if (nm(trainDoc(o)?.trainName) !== nm(x.name)) markDifferent(id, o); } }
+        if (x.name) { w.trainName = x.name; x.done = id; for (const o of x.others || []) if (!hasName(trainDoc(o) || {}, x.name)) markDifferent(id, o); } }
     }
     // a train already on this table (added earlier as a number only) gets its times filled in too, unless it's being added again as a second appearance
     if (withStops && !dupKind) for (const id of hereIds()) if (!useIds.includes(id)) useIds.push(id);
@@ -3234,7 +3237,7 @@ function addSeveralStep2(items) {
   // the record used for each existing number (the first match, or the one picked); null when it's unticked
   function chosenExisting() { return exist.map((x, i) => isOn(x) ? (document.querySelector(`[data-sevpick="${i}"]`)?.value || x.ex[0].id) : null); }
   const stubIds = () => [...document.querySelectorAll("[data-stubno]")].filter(x => x.value).map(x => x.dataset.stubno);
-  const hereOf = x => { const c = trainsInTable().filter(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf && !o.copyOf); return (x.name && c.find(o => nm(o.trainName) === nm(x.name))) || c.find(o => !x.name || !(o.trainName || "").trim()) || c[0]; };
+  const hereOf = x => { const c = trainsInTable().filter(o => trRR(o) === x.rr && o.trainNo === x.no && !o.setupOf && !o.copyOf); return (x.name && c.find(o => hasName(o, x.name))) || c.find(o => !x.name || !(o.trainName || "").trim()) || c[0]; };
   const hereIds = () => dupHere.filter(isOn).map(x => hereOf(x)?.id).filter(Boolean);
   const below = sid => `<span style="display:flex;gap:4px"><button type="button" class="ghost small-btn" data-below="1" data-sid="${esc(sid)}" title="Tick this station and every station below it">Tick ↓</button><button type="button" class="ghost small-btn" data-below="0" data-sid="${esc(sid)}" title="Clear this station and every station below it">Clear ↓</button></span>`;
   const box = $("dSevSt");
