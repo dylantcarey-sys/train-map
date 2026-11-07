@@ -870,10 +870,14 @@ async function loadStations() {
   S.baseRows = rows; rebuildStations(); render();
 }
 // the station list plus stations added by hand (temporary NEW-#### ids, flagged for the shapefile)
+const rowSid = r => typeof r[0] === "string" ? r[0] : Core.stationId(r[0]);
 function rebuildStations() {
   const extra = (S.newStations || []).map(n => [n.id, n.name, n.town || "", n.state || "", n.tz || "", {}, null, null]);
-  S.stations = Core.buildIndex([...(S.baseRows || []), ...extra]);
-  for (const st of S.stations) st.isNew = st.id.startsWith("NEW-");
+  // fixes flagged for the ArcGIS layer show here already (the layer itself is changed later, by hand)
+  const fx = new Map((S.stationFixes || []).map(f => [f.id, f]));
+  const base = fx.size ? (S.baseRows || []).map(r => { const f = fx.get(rowSid(r)); if (!f) return r; const x = r.slice(); [["name", 1], ["town", 2], ["state", 3], ["tz", 4]].forEach(([k, i]) => { if (f[k]) x[i] = f[k]; }); return x; }) : (S.baseRows || []);
+  S.stations = Core.buildIndex([...base, ...extra]);
+  for (const st of S.stations) { st.isNew = st.id.startsWith("NEW-"); if (fx.has(st.id)) st.fixFlag = true; }
   S.stById = new Map(S.stations.map(s => [s.id, s]));
   $("stationInfo").textContent = `${S.stations.length.toLocaleString()} stations` + ((S.newStations || []).length ? ` · ${S.newStations.length} added here` : "");
 }
@@ -2386,7 +2390,7 @@ function renderGrid(el, t) {
         <td class="st"><button class="divx" data-act="rdel" title="Remove this section line" aria-label="Remove section line">×</button></td>
         ${showOrd ? `<td class="ord"></td>` : ""}
         <td colspan="${trs.length + 2}" class="divfill"></td></tr>` : `<tr data-r="${ri}">
-        <td class="st"><div class="stline"><button type="button" class="stname" data-act="rstation" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId)), r.orphan ? "" : r.stationId.startsWith("NEW-") ? "Click to fix its name, town or state, or swap in another station" : "Click to swap in a different station on this row"].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></button>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
+        <td class="st"><div class="stline"><button type="button" class="stname" data-act="rstation" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId)), r.orphan ? "" : r.stationId.startsWith("NEW-") ? "Click to fix its name, town or state, or swap in another station" : "Click to flag a fix for the ArcGIS layer, or swap in a different station on this row"].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></button>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
         ${showOrd ? `<td class="ord"><input data-k="ord" class="${S.ordPending.has(ordKey(r)) ? "pending" : ""}" value="${esc(S.ordPending.get(ordKey(r)) ?? stNo(ri))}" inputmode="numeric" autocomplete="off" aria-label="Row number for ${esc(S.stById.get(r.stationId)?.name || "")}" title="Type the row number this station should be, then press Apply row numbers"></td>` : ""}
         <td class="mls"><input data-k="mls" value="${esc(r.miles || "")}" inputmode="decimal" aria-label="Miles" ${r.orphan ? "disabled" : ""}></td>
         ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const ref = !s && !r.divider && isRefIn(tr, t.id, allTrs) ? refCell(tr, t.id, r, rows, refCache) : null; const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input ${tr.copyOf ? `readonly title="Repeats No. ${esc(tr.trainNo || "")}'s times: edit them in its own column"` : ""} class="cell ${tr.copyOf ? "copycell" : ""} ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${ref ? `placeholder="${esc(Core.formatCell12(ref))}" title="${esc("From " + ref.fromLabel + ". Typing here enters a time on this table instead.")}"` : ""} ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
@@ -3387,6 +3391,12 @@ $("btnStations").onclick = () => {
   const ns = S.newStations || [];
   dialog(`<h2>Station list</h2>
   <p>${(S.stations.length - ns.length).toLocaleString()} stations, from a ${esc(S.stationSource)}.</p>
+  <fieldset><legend>Fixes to make in ArcGIS (${(S.stationFixes || []).length})</legend>
+    ${(S.stationFixes || []).length ? `<p class="small muted" style="margin:0 0 6px">Already shown corrected in the Desk. Make each change in the layer, then remove its flag (after you load the new export, ones that match are marked).</p>
+    ${S.stationFixes.slice().sort((a, b) => (a.flaggedOn || "").localeCompare(b.flaggedOn || "") || a.id.localeCompare(b.id)).map(f => { const raw = (S.baseRows || []).find(x => rowSid(x) === f.id), now = raw ? { name: raw[1], town: raw[2], state: raw[3], tz: raw[4] } : {}; const ch = ["name", "town", "state", "tz"].filter(k => f[k]); const done = ch.length && ch.every(k => now[k] === f[k]); return `<div class="newst-row"><span class="grow"><b>${esc(f.id)}</b> ${esc(f.label || "")}: ${ch.map(k => `${{ name: "name", town: "town", state: "state", tz: "time zone" }[k]} ${esc(f.was?.[k] || "blank")} → <b>${esc(f[k])}</b>`).join(", ") || "see note"}${f.note ? ` <span class="muted">· ${esc(f.note)}</span>` : ""}${done ? ` <span class="pill">now matches the list</span>` : ""} <button type="button" class="linkish small" data-fxedit="${esc(f.id)}">Edit</button> · <button type="button" class="linkish small" data-fxdone="${esc(f.id)}" title="Remove it from this list">Done</button></span></div>`; }).join("")}
+    <div class="row" style="margin-top:8px"><button type="button" id="dExportFix" class="small-btn">Download fixes (CSV)</button></div>` : `<p class="small muted" style="margin:0 0 6px">None yet. Click a station's name on a table to flag a fix, or search for one here.</p>`}
+    <input id="dFixFind" placeholder="Flag a fix for a station… (search the list)" autocomplete="off" style="width:100%;margin-top:6px">
+  </fieldset>
   <fieldset><legend>Stations added here (${ns.length})</legend>
     ${ns.length ? `<p class="small muted" style="margin:0">Add these to the shapefile, reload the station list, then pick each one's real station to swap it in everywhere it's used.</p>
     ${ns.map(n => `<div class="newst-row"><span class="grow"><b>${esc(n.id)}</b> ${esc(n.name)} (${esc([n.town, n.state].filter(Boolean).join(", "))}) <button type="button" class="linkish small" data-nsedit="${esc(n.id)}" title="Fix its name, town, state, time zone or notes">Edit</button></span><input data-remap="${esc(n.id)}" placeholder="Replace with… (search the list)" autocomplete="off" style="flex:1 1 220px"></div>`).join("")}
@@ -3413,6 +3423,15 @@ $("btnStations").onclick = () => {
   });
   $("dExportNew")?.addEventListener("click", exportNewStations);
   document.querySelectorAll("[data-nsedit]").forEach(b => b.onclick = () => stationRowDialog(null, b.dataset.nsedit));
+  document.querySelectorAll("[data-fxedit]").forEach(b => b.onclick = () => stationRowDialog(null, b.dataset.fxedit));
+  document.querySelectorAll("[data-fxdone]").forEach(b => b.onclick = () => confirmInline(b, "Remove?", async () => { try { await S.db.doc(`stationfixes/${b.dataset.fxdone}`).delete(); S.stationFixes = (S.stationFixes || []).filter(x => x.id !== b.dataset.fxdone); rebuildStations(); render(); b.closest(".newst-row").remove(); } catch { b.textContent = "Couldn't remove"; } }));
+  $("dExportFix")?.addEventListener("click", async () => {
+    if (!S.dl) { notice("Downloads aren't available in this view."); return; }
+    const rows = (S.stationFixes || []).map(f => [f.id, f.was?.name || "", f.name || "", f.was?.town || "", f.town || "", f.was?.state || "", f.state || "", f.was?.tz || "", f.tz || "", f.note || "", f.flaggedOn || ""]);
+    try { await S.dl.save({ filename: `station-fixes-${new Date().toISOString().slice(0, 10)}.csv`, data: Core.toCSV(["StationID", "Name now", "Name should be", "Town now", "Town should be", "State now", "State should be", "Zone now", "Zone should be", "Note", "Flagged"], rows) }); }
+    catch (e) { if (e?.code !== "declined") notice("The download didn't start: " + esc(e?.message || e?.code)); }
+  });
+  { const fi = $("dFixFind"); fi.addEventListener("input", () => openPicker(fi, st => { if (!st || st.isNew) { fi.value = ""; fi.placeholder = st?.isNew ? "Stations added here are edited from their row above" : fi.placeholder; return; } stationRowDialog(null, st.id); })); fi.addEventListener("keydown", pickerKeys); fi.addEventListener("blur", () => setTimeout(() => { if (pick?.input === fi) closePicker(); }, 150)); }
   $("dExportServed").onclick = exportServedBy;
   document.querySelectorAll("[data-remap]").forEach(inp => {
     inp.addEventListener("input", () => openPicker(inp, async st => {
@@ -3467,10 +3486,12 @@ function newStationDialog(name, onDone) {
 }
 // a station row on the table: fix a station added here (name, town, state, zone, notes: changes it everywhere it's used),
 // or swap a different station onto this row (this table's row and its trains' stops here only)
-function stationRowDialog(r, nsId) {
-  const t = curTable(), sid = r ? r.stationId : nsId, st = S.stById.get(sid), ns = (S.newStations || []).find(x => x.id === sid);
+function stationRowDialog(r, sid0) {
+  const t = curTable(), sid = r ? r.stationId : sid0, st = S.stById.get(sid), ns = (S.newStations || []).find(x => x.id === sid);
+  const raw = (S.baseRows || []).find(x => rowSid(x) === sid), fix = (S.stationFixes || []).find(x => x.id === sid);
+  const orig = raw ? { name: raw[1] || "", town: raw[2] || "", state: raw[3] || "", tz: raw[4] || "" } : null, cur = orig ? { ...orig, ...Object.fromEntries(Object.entries(fix || {}).filter(([k, v]) => ["name", "town", "state", "tz"].includes(k) && v)) } : null;
   const uses = ns ? allTrainDocs().filter(tr => (tr.stops || []).some(x => x.stationId === sid)).length : 0;
-  dialog(`<h2>${ns ? "Edit station" : "Station on this row"}</h2>
+  dialog(`<h2>${ns ? "Edit station" : r ? "Station on this row" : "Station"}</h2>
     <p class="small muted" style="margin:0">${esc(st?.label || sid)} · ${esc(sid)}</p>
     ${ns ? `<p class="small muted" style="margin:0">Added here (not in the ArcGIS layer yet). Changes apply everywhere it's used${uses ? ` (${uses} train${uses === 1 ? "" : "s"})` : ""}.</p>
     <div class="fields">
@@ -3480,9 +3501,28 @@ function stationRowDialog(r, nsId) {
       <label class="f"><span>Time zone</span><select id="esTz">${TZS.map(z => `<option ${z === ns.tz ? "selected" : ""}>${z}</option>`).join("")}</select></label>
       <label class="f" style="grid-column:1/-1"><span>Notes</span><input id="esNotes" value="${esc(ns.notes || "")}"></label>
     </div>` : ""}
-    ${r && t ? `<fieldset><legend>${ns ? "Or swap in a different station" : "Swap in a different station"}</legend>
-      <p class="small muted" style="margin:0 0 6px">For a wrong pick: this row on ${esc(tnum(t))} and the stops of its trains here change to the station you pick. Other tables aren't touched.</p>
-      <input id="esSwap" placeholder="Search the station list…" autocomplete="off" style="width:100%"></fieldset>` : ""}`, ns ? "Save" : "Close", async () => {
+    ${orig ? `<fieldset><legend>${fix ? "Fix flagged for ArcGIS" : "Flag a fix for the ArcGIS layer"}</legend>
+      <p class="small muted" style="margin:0 0 6px">When the layer itself is wrong (a wrong state, a misspelling). The Desk shows the corrected values right away; the fix goes on the list under <b>Stations</b> to make in ArcGIS later.</p>
+      <div class="fields">
+        <label class="f" style="grid-column:1/-1"><span>Station name${orig.name !== cur.name ? ` <span class="muted">(layer: ${esc(orig.name)})</span>` : ""}</span><input id="fxName" value="${esc(cur.name)}"></label>
+        <label class="f"><span>Town${orig.town !== cur.town ? ` <span class="muted">(layer: ${esc(orig.town || "blank")})</span>` : ""}</span><input id="fxTown" value="${esc(cur.town)}"></label>
+        <label class="f"><span>State${orig.state !== cur.state ? ` <span class="muted">(layer: ${esc(orig.state || "blank")})</span>` : ""}</span><input id="fxState" maxlength="6" value="${esc(cur.state)}"></label>
+        <label class="f"><span>Time zone${orig.tz !== cur.tz ? ` <span class="muted">(layer: ${esc(orig.tz || "blank")})</span>` : ""}</span><select id="fxTz"><option value="">${orig.tz ? "" : "(none)"}</option>${TZS.map(z => `<option ${z === cur.tz ? "selected" : ""}>${z}</option>`).join("")}</select></label>
+        <label class="f" style="grid-column:1/-1"><span>Note for the fix</span><input id="fxNote" value="${esc(fix?.note || "")}" placeholder="e.g. La Plata is in Missouri; Guide p. 442"></label>
+      </div>
+      ${fix ? `<button type="button" class="small-btn" id="fxClear" title="Take it off the list (once it's fixed in ArcGIS, or if it was a mistake)">Remove this flag</button>` : ""}</fieldset>` : ""}
+    ${r && t ? `<fieldset><legend>${ns || orig ? "Or swap in a different station" : "Swap in a different station"}</legend>
+      <p class="small muted" style="margin:0 0 6px">For a wrong pick (the station itself is right in ArcGIS, it's just not this one): this row on ${esc(tnum(t))} and the stops of its trains here change to the station you pick. Other tables aren't touched.</p>
+      <input id="esSwap" placeholder="Search the station list…" autocomplete="off" style="width:100%"></fieldset>` : ""}`, ns || orig ? "Save" : "Close", async () => {
+    if (orig) {
+      const v = { name: $("fxName").value.trim(), town: $("fxTown").value.trim(), state: $("fxState").value.trim().toUpperCase(), tz: $("fxTz").value }, note = $("fxNote").value.trim();
+      const diff = Object.fromEntries(Object.entries(v).filter(([k, x]) => x && x !== orig[k]));
+      if (!Object.keys(diff).length && !note) { if (fix) { try { await S.db.doc(`stationfixes/${sid}`).delete(); } catch { return "Couldn't remove the flag."; } } return; }
+      const doc = { ...diff, note, was: orig, label: `${v.name || orig.name} (${v.town || orig.town}, ${v.state || orig.state})`, flaggedOn: fix?.flaggedOn || new Date().toISOString().slice(0, 10), source: curSource()?.name || "" };
+      if (fix && JSON.stringify({ ...fix, id: undefined }) === JSON.stringify({ ...doc, id: undefined })) return;
+      try { await S.db.doc(`stationfixes/${sid}`).set(doc); } catch (e) { return "Couldn't save the flag: " + (e?.message || e?.code); }
+      S.stationFixes = [...(S.stationFixes || []).filter(x => x.id !== sid), { id: sid, ...doc }]; rebuildStations(); render(); return;
+    }
     if (!ns) return;
     const nm = $("esName").value.trim(), stt = $("esState").value.trim().toUpperCase();
     if (!nm) return "Give the station a name."; if (!stt) return "Add the state.";
@@ -3491,6 +3531,8 @@ function stationRowDialog(r, nsId) {
     try { await S.db.doc(`newstations/${sid}`).set(doc); } catch (e) { return "Couldn't save the station: " + (e?.message || e?.code); }
     S.newStations = (S.newStations || []).map(x => x.id === sid ? doc : x); rebuildStations(); render();
   });
+  if ($("fxClear")) $("fxClear").onclick = async () => { try { await S.db.doc(`stationfixes/${sid}`).delete(); } catch { $("dErr").textContent = "Couldn't remove the flag."; return; } S.stationFixes = (S.stationFixes || []).filter(x => x.id !== sid); rebuildStations(); render(); $("overlay").hidden = true; $("overlay").innerHTML = ""; notePresence(false); };
+  ["fxName", "fxTown", "fxState", "fxNote"].forEach(k => $(k)?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("dOk")?.click(); } }));
   if (ns) ["esName", "esTown", "esState", "esNotes", "esTz"].forEach(k => $(k)?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("dOk")?.click(); } }));
   const inp = $("esSwap"); if (!inp) return;
   inp.addEventListener("input", () => openPicker(inp, nst => { if (nst && nst.id !== sid) swapRowStation(r, nst.id); $("overlay").hidden = true; $("overlay").innerHTML = ""; notePresence(false); }));
@@ -4671,6 +4713,7 @@ async function start() {
     if (!curSource() && !picking) { picking = true; S.sourceId = await startSource(); picking = false; LS.set("source", S.sourceId); subscribeSource(); if (S.page === "trains") renderTrainsPage(); }
     renderContext();
   }, dbError);
+  db.collection("stationfixes").onSnapshot(snap => { S.stationFixes = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (S.baseRows) { rebuildStations(); render(); } }, dbError);
   db.collection("newstations").onSnapshot(snap => { S.newStations = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (S.baseRows) { rebuildStations(); renderTrainList(); } }, dbError);
   db.collection("railroads").onSnapshot(snap => {
     S.railroads = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.abbrev.localeCompare(b.abbrev));
