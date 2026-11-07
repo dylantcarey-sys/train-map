@@ -60,3 +60,6 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - Trains of railroads with no tables yet are "Future railroad" placeholders and aren't flagged as problems.
 - Mixed trains (passengers and freight) get the "Mixed service" tag. They carry no equipment unless the Guide prints some (no "Coaches" default).
 - Condensed tables often print no date; a missing date on a condensed table isn't a problem.
+- A stop printed with a mark but no time ("f –", a flag stop) is entered with the mark only (type "f" in the cell); it isn't flagged as missing a time.
+- Equipment with a blank From/To runs the whole train: the Desk fills in the train's first and last stations when you move to another table.
+- Bus legs aren't stops. A connection that changes stations by bus (SP 98 at San Francisco to SP 12 at Oakland) is a link with `otherStationId`.

@@ -61,6 +61,9 @@ const Core = (() => {
     if (/^[-–—]+$/.test(s)) return { pass: true };
     // "via Orlando": the train doesn't stop here; it runs by way of another station (used to route it on the map)
     const via = s.match(/^via\s+(.+)$/i); if (via) return { pass: true, via: via[1].trim() };
+    // a mark with no time ("f", "f –"): the Guide prints the stop (e.g. a flag stop) but gives no time
+    { const mo = s.match(/^([^\d\s\/|:.,\-–—]+(?:[\s,]+[^\d\s\/|:.,\-–—]+)*)\s*[-–—]*$/);
+      if (mo && !/^(noon|(mid)?night|ar(r(ives?)?)?\.?|lv|lve|leaves?|dep(arts?)?)$/i.test(mo[1].trim())) return { arr: "", dep: "", single: true, mark: mo[1].replace(/[\s,]+/g, " ").trim() }; }
     // "Arr. 930 p", "arr 930p", "ar 930p", "Lv. 645a", "lve 645 a f", or the word after the time ("930p arr") = arrives / leaves only
     const AR = "ar(?:r(?:ives?)?)?\\.?", LV = "(?:lv|lve|leaves?|dep(?:arts?)?)\\.?";
     const kw = s.match(new RegExp(`^(${AR}|${LV})\\s*(\\d.*)$`, "i")) || ((m => m && [m[0], m[2], m[1]])(s.match(new RegExp(`^(\\d.*?)\\s+(${AR}|${LV})$`, "i"))));

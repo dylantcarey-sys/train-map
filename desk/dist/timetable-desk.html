@@ -656,6 +656,9 @@ const Core = (() => {
     if (/^[-–—]+$/.test(s)) return { pass: true };
     // "via Orlando": the train doesn't stop here; it runs by way of another station (used to route it on the map)
     const via = s.match(/^via\s+(.+)$/i); if (via) return { pass: true, via: via[1].trim() };
+    // a mark with no time ("f", "f –"): the Guide prints the stop (e.g. a flag stop) but gives no time
+    { const mo = s.match(/^([^\d\s\/|:.,\-–—]+(?:[\s,]+[^\d\s\/|:.,\-–—]+)*)\s*[-–—]*$/);
+      if (mo && !/^(noon|(mid)?night|ar(r(ives?)?)?\.?|lv|lve|leaves?|dep(arts?)?)$/i.test(mo[1].trim())) return { arr: "", dep: "", single: true, mark: mo[1].replace(/[\s,]+/g, " ").trim() }; }
     // "Arr. 930 p", "arr 930p", "ar 930p", "Lv. 645a", "lve 645 a f", or the word after the time ("930p arr") = arrives / leaves only
     const AR = "ar(?:r(?:ives?)?)?\\.?", LV = "(?:lv|lve|leaves?|dep(?:arts?)?)\\.?";
     const kw = s.match(new RegExp(`^(${AR}|${LV})\\s*(\\d.*)$`, "i")) || ((m => m && [m[0], m[2], m[1]])(s.match(new RegExp(`^(\\d.*?)\\s+(${AR}|${LV})$`, "i"))));
@@ -1563,7 +1566,28 @@ async function saveTable(t) {
 }
 
 // ---------- rendering: context ----------
-function render() { renderContext(); renderTrainList(); renderEntry(); showSave(); }
+function render() { noteTableLeft(); renderContext(); renderTrainList(); renderEntry(); showSave(); }
+// cars with a blank From or To run the whole train: when you move off a table, fill them in with the train's first and last stations
+let lastTableSeen = "";
+function noteTableLeft() { const prev = lastTableSeen; lastTableSeen = S.tableId || ""; if (prev && prev !== lastTableSeen) fillEquipEnds(prev); }
+function fillEquipEnds(T) {
+  if (!T || S.viewOnly) return 0; let n = 0;
+  for (const tr of trainsInTableOf(T)) {
+    if (tr.copyOf || tr.setupOf || !(tr.equipment || []).some(e => (e.type || e.desc) && (!e.from || !e.to))) continue;
+    const run = trainRun(tr); if (run.length < 2) continue;
+    const a = run[0].stationId, b = run[run.length - 1].stationId; if (!a || !b || a === b) continue;
+    const w = edit(tr.id);
+    for (const e of w.equipment || []) {
+      if (!(e.type || e.desc) || (e.from && e.to)) continue;
+      if (!e.from && !e.to) { e.from = a; e.to = b; }
+      else if (!e.to) e.to = e.from === b ? a : b;
+      else e.from = e.to === a ? b : a;
+      n++;
+    }
+  }
+  return n;
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && fillEquipEnds(S.tableId)) S.dirty.forEach(id => { clearTimeout(timers.get(id)); flush(id); }); });
 function renderContext() {
   const ss = [...S.sources].sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.name.localeCompare(b.name));
   $("selSource").innerHTML = ss.length ? ss.map(s => `<option value="${esc(s.id)}" ${s.id === S.sourceId ? "selected" : ""}>${esc(s.name)}</option>`).join("") : `<option value="">No sources yet</option>`;
@@ -1959,7 +1983,7 @@ function renderTrain(el, t, tr) {
               <td class="eq-n">${i + 1}</td>
               <td><input data-q="type" list="carTypes" value="${esc(e.type || "")}" placeholder="e.g. Sleeping car" autocomplete="off" aria-label="Car type"></td>
               <td><input data-q="desc" value="${esc(e.desc || "")}" placeholder="e.g. 10 roomettes, 6 double bedrooms" autocomplete="off" aria-label="Description">${e.pts ? `<div class="small muted" title="Older 'points as printed' text; clear it once From / To are set">Printed: ${esc(e.pts)} <button type="button" class="ghost" data-ptsclr="${i}" style="padding:0 4px" title="Clear the printed points text">✕</button></div>` : ""}</td>
-              <td><input data-st="from" class="${e.from ? "set" : ""}" value="${esc(e.from ? stLabel(e.from) : "")}" placeholder="End A (blank = whole train)" autocomplete="off" aria-label="Car runs from"></td>
+              <td><input data-st="from" class="${e.from ? "set" : ""}" value="${esc(e.from ? stLabel(e.from) : "")}" placeholder="End A (blank = the train's ends)" title="Leave blank for the whole train: filled in with its first and last stations when you move to another table" autocomplete="off" aria-label="Car runs from"></td>
               <td><input data-st="to" class="${e.to ? "set" : ""}" value="${esc(e.to ? stLabel(e.to) : "")}" placeholder="End B" autocomplete="off" aria-label="Car runs to"></td>
               <td>${freqSelect(e.days || "", true, `data-eqdays="${i}" aria-label="Days this car runs" title="${esc(e.days || "Same days as the train")}"`)}</td>
               <td class="rowbtns"><button class="ghost" data-eqmove="${i}" data-by="-1" title="Move up" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-eqmove="${i}" data-by="1" title="Move down" aria-label="Move down" ${i < all.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-eqdel="${i}" title="Remove row" aria-label="Remove row">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="small muted">No cars listed yet.</td></tr>`}</tbody>
@@ -2615,7 +2639,7 @@ function gridEquipmentHTML(trs) {
       <td class="geq-tr"><select data-geqtrain aria-label="Train">${opt(tr.id)}</select></td>
       <td><input data-q="type" list="carTypes" value="${esc(e.type || "")}" placeholder="e.g. Sleeping car" autocomplete="off" aria-label="Car type"></td>
       <td><input data-q="desc" value="${esc(e.desc || "")}" placeholder="e.g. Coaches only" autocomplete="off" aria-label="Description"></td>
-      <td><input data-st="from" class="${e.from ? "set" : ""}" value="${esc(e.from ? stLabel(e.from) : "")}" placeholder="End A (blank = whole train)" autocomplete="off" aria-label="Car runs from"></td>
+      <td><input data-st="from" class="${e.from ? "set" : ""}" value="${esc(e.from ? stLabel(e.from) : "")}" placeholder="End A (blank = the train's ends)" title="Leave blank for the whole train: filled in with its first and last stations when you move to another table" autocomplete="off" aria-label="Car runs from"></td>
       <td><input data-st="to" class="${e.to ? "set" : ""}" value="${esc(e.to ? stLabel(e.to) : "")}" placeholder="End B" autocomplete="off" aria-label="Car runs to"></td>
       <td>${freqSelect(e.days || "", true, `data-eqdays aria-label="Days this car runs" title="${esc(e.days || "Same days as the train")}"`)}</td>
       <td class="rowbtns"><button class="ghost" data-geqmove="-1" title="Move up" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-geqmove="1" title="Move down" aria-label="Move down" ${i < all.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-geqdel title="Remove row" aria-label="Remove row">✕</button></td></tr>`));
@@ -3989,7 +4013,7 @@ function masterProblems(tr, byNo) {
     .map(p => { const key = p.key || `${p.kind}|${p.text}`; return { ...p, key, known: !!known[key], sched: known[key]?.kind === "schedule", note: known[key]?.note || "" }; });
 }
 function renderTrainsPage() {
-  if (S.page !== "trains") return;   // a delayed redraw must not pull the editor back from the desk
+  if (S.page !== "trains") return; noteTableLeft();   // a delayed redraw must not pull the editor back from the desk
   const el = $("trPage"); dockEntry(null);
   const trsAll = allTrainsHere(), kidsOf = id => trsAll.filter(t => t.setupOf === id);
   const trs = trsAll.filter(t => !t.setupOf).sort((a, b) => trRR(a).localeCompare(trRR(b)) || Core.trainNoSort(a.trainNo, b.trainNo));
@@ -4507,6 +4531,27 @@ function outOfOrder(list, tables) {
   for (let i = 1; i < ks.length; i++) if ((ks[i] - ks[i - 1] + 1440) % 1440 >= 16 * 60) return true;
   return false;
 }
+// a time typed with am/pm the wrong way round: going to it and on from it takes a full day or more, but 12 hours later fits between its neighbours
+// (Merced 11:47 am, Madera 12:27 am, Fresno 12:50 pm). outOfOrder misses it because each step looks like a forward step of about 12 hours.
+function amPmSlip(list, tables) {
+  if (sectionNames(list).length) { for (const p of sectionPaths(list)) { const r = amPmSlip(p.stops.map(x => ({ ...x, section: "" })), tables); if (r) return r; } return null; }
+  const ks = [];
+  for (const x of list) {
+    if (!x.stationId || x.pass) continue;
+    for (const f of ["arr", "dep"]) if (x[f]) ks.push({ s: x, f, k: ((Core.toMin(x[f]) + (Core.TZ_OFF[timeTz(x, f, tables || undefined)] ?? 0)) % 1440 + 1440) % 1440 });
+  }
+  const gap = (a, b) => (b - a + 1440) % 1440;
+  for (let i = 1; i < ks.length - 1; i++) {
+    if (ks[i - 1].s === ks[i].s || ks[i + 1].s === ks[i].s) continue;   // arrival/departure pairs at one stop are checked through their neighbours
+    const g = gap(ks[i - 1].k, ks[i].k) + gap(ks[i].k, ks[i + 1].k);
+    if (g >= 1440 && gap(ks[i - 1].k, ks[i + 1].k) < 12 * 60) {
+      const t = (Core.toMin(ks[i].s[ks[i].f]) + 720) % 1440, k2 = (ks[i].k + 720) % 1440;
+      const fits = gap(ks[i - 1].k, k2) + gap(k2, ks[i + 1].k) === gap(ks[i - 1].k, ks[i + 1].k);
+      return { s: ks[i].s, f: ks[i].f, alt: fits ? `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}` : "" };
+    }
+  }
+  return null;
+}
 // stops sorted by when the train is there (Eastern clock); a stop with no time stays after the stop it followed
 function timeOrder(list) {
   // a train in sections: put each part (shared, then each section, in the order they first appear) in time order on its own
@@ -4544,9 +4589,10 @@ function trainIssues(tr, tablesMap) {
     const st = (tr.stops || []).filter(s => s.tableId === k && s.stationId);
     if (!st.length) { if (!tr.tables[k]?.main && mainTables().has(k)) continue; out.push({ table: k, text: "no stations yet" }); continue; }   // a reference train shows its times from its own tables
     const cond = !!tablesMap.get(k)?.condensed;
-    const untimed = cond ? [] : st.filter(s => !s.pass && !s.arr && !s.dep);
+    const untimed = cond ? [] : st.filter(s => !s.pass && !s.arr && !s.dep && !s.mark);   // a mark with no time ("f –") is printed that way
     if (untimed.length) out.push({ table: k, text: `${untimed.length} stop${untimed.length > 1 ? "s" : ""} without a time (${untimed.slice(0, 3).map(s => S.stById.get(s.stationId)?.name || s.stationId).join(", ")}${untimed.length > 3 ? "…" : ""})` });
     if (outOfOrder(st, tablesMap)) { out.push({ table: k, text: "stops aren't in time order", fix: "reverse" }); continue; }
+    const slip = amPmSlip(st, tablesMap); if (slip) out.push({ table: k, text: `${S.stById.get(slip.s.stationId)?.name || slip.s.stationId} at ${Core.fmt12(slip.s[slip.f])} ${slip.alt ? `looks 12 hours off (it would fit at ${Core.fmt12(slip.alt)})` : "doesn't fit between the stops either side of it"}` });
     if (cond) continue;
     const rc = roleCheck(st); if (rc) { out.push({ table: k, text: rc.charAt(0).toLowerCase() + rc.slice(1).replace(/\.$/, ""), fix: "reverse" }); continue; }
     if (untimed.length === st.length) continue;
