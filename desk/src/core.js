@@ -267,10 +267,23 @@ const Core = (() => {
     // so a station where the zone changes (North Platte: in on Central time, out on Mountain) reads both right
     const zone = tzOff.zone || (() => "");
     const zoned = s => ({ ...s, ...(s.arr ? { _arrTz: s._arrTz || zone(s) } : {}), ...(s.dep ? { _depTz: s._depTz || zone(s) } : {}) });
-    for (const g of groups) {
+    // the table with the most times goes first and sets the days; the others line up with it (L&N 8: the New Orleans–Cincinnati table
+    // before the Louisville–Cincinnati one, so New Orleans isn't put on the same day as Cincinnati). Ties keep their order.
+    const nT = g => g.stops.filter(s => s.stationId && rawTime(s) != null).length;
+    const ordered = groups.map((g, i) => [g, i]).sort((a, b) => nT(b[0]) - nT(a[0]) || a[1] - b[1]).map(x => x[0]);
+    for (const g of ordered) {
       // unroll this table's times past midnight, comparing on one clock so a time-zone change isn't read as midnight
       let add = 0, prev = null;
-      const seq = g.stops.filter(s => s.stationId).map((s, i) => {
+      // an arrival row and a departure row for one station on this table (Ar. Waycross 7:45 / Lv. Waycross 7:50) are one stop of the run
+      const one = [];
+      for (const s of g.stops.filter(s => s.stationId)) {
+        const p = one[one.length - 1];
+        if (p && p.stationId === s.stationId && p.arr && !p.dep && s.dep && !s.arr && !p.pass && !s.pass && (p.section || "") === (s.section || "")) {
+          one[one.length - 1] = { ...p, dep: s.dep, single: false, mark: [...new Set([p.mark, s.mark].filter(Boolean))].join(" "), _arrTz: p._arrTz || zone(p), _depTz: s._depTz || zone(s),
+            ...(p._k != null || s._k != null ? { _ks: [...(p._ks || []), ...(s._k != null ? [s._k] : [])] } : {}) };
+        } else one.push(s);
+      }
+      const seq = one.map((s, i) => {
         let t = rawTime(s);
         if (t != null) { t += tzOff(s); if (prev != null && t + add < prev - 5) add += 1440; t += add; prev = t; }
         return { s, t, i };
