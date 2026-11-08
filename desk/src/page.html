@@ -1359,7 +1359,10 @@ let _dupAt = 0, _dups = new Set();
 const dupKeys = () => { const now = Date.now(); if (now - _dupAt > 400) { _dupAt = now; const seen = new Set(); _dups = new Set(); for (const id of new Set([...S.trains.keys(), ...S.work.keys()])) { const t = trainDoc(id); if (!t || t._deleted || !t.trainNo) continue; const k = `${trRR(t)}|${t.trainNo}`; if (seen.has(k)) _dups.add(k); else seen.add(k); } } return _dups; };
 const trLabel = tr => { if (tr.placeholder && !tr.trainNo) return `${trRR(tr)} ${tr.unnumbered ? "connection" : "placeholder"}${tr.description ? " · " + tr.description : ""}`; const base = `${trRR(tr)} ${tr.trainNo || "?"}`.trim(); return tr.trainNo && tr.trainName && dupKeys().has(`${trRR(tr)}|${tr.trainNo}`) ? `${base} (${tr.trainName})` : base; };
 const tableById = id => S.tables.find(x => x.id === id);
-const stopTz = (s, tables) => s.tz || S.stById.get(s.stationId)?.tz || (tables ? tables.get(s.tableId) : tableById(s.tableId))?.tz || "ET";
+// a table row can carry its own zone (Dodge City: Central arriving from Chicago, Mountain going west), ahead of the station's
+const rowTzCache = new WeakMap();
+const rowTzOf = (s, tables) => { if (!s.rid) return ""; const tb = tables ? tables.get(s.tableId) : tableById(s.tableId); if (!tb?.rows) return ""; let m = rowTzCache.get(tb); if (!m) { m = new Map(tb.rows.filter(r => r.tz).map(r => [r.rid, r.tz])); rowTzCache.set(tb, m); } return m.get(s.rid) || ""; };
+const stopTz = (s, tables) => s.tz || rowTzOf(s, tables) || S.stById.get(s.stationId)?.tz || (tables ? tables.get(s.tableId) : tableById(s.tableId))?.tz || "ET";
 const tzOffFn = tables => Object.assign(s => Core.TZ_OFF[stopTz(s, tables)] ?? 0, { zone: s => stopTz(s, tables) });
 // the zone of one time at a stop: a merged stop can arrive in one zone and leave in another (North Platte, Huntington)
 const timeTz = (s, f, tables) => s["_" + f + "Tz"] || stopTz(s, tables);
@@ -1798,7 +1801,7 @@ const lvKind = new Map(), bothSet = new Set();
 const newStop = () => ({ rid: "", stationId: "", arr: "", dep: "", single: false, tz: "", days: "", mark: "", miles: "", notes: "", tableId: S.tableId });
 function stopRow(s, i, eff, t, extra, secs) {
   const st = S.stById.get(s.stationId);
-  const autoTz = st?.tz || t.tz || "";
+  const autoTz = (s.tableId === t.id && rowTzOf(s)) || st?.tz || t.tz || "";
   const arr = s.pass ? "" : (eff.arr || ""), dep = s.pass ? "" : (eff.dep || "");
   const mk = s.mark || "", markOn = dep ? "dep" : "arr";
   const mean = markMeaning(t, mk);
@@ -1914,7 +1917,7 @@ function wireStopTable(id) {
   });
 }
 function renderRowTz(tr, st) {
-  const t = curTable(); const sel = tr.querySelector('[data-k="tz"]'); const auto = S.stById.get(st.stationId)?.tz || t?.tz || "";
+  const t = curTable(); const sel = tr.querySelector('[data-k="tz"]'); const auto = (st.tableId === t?.id && rowTzOf(st)) || S.stById.get(st.stationId)?.tz || t?.tz || "";
   sel.options[0].textContent = auto ? auto + " auto" : "?";
   sel.classList.toggle("need", !st.tz && !auto); sel.classList.toggle("tz-auto", !st.tz);
 }
@@ -2400,7 +2403,7 @@ function renderGrid(el, t) {
         <td class="st"><button class="divx" data-act="rdel" title="Remove this section line" aria-label="Remove section line">×</button></td>
         ${showOrd ? `<td class="ord"></td>` : ""}
         <td colspan="${trs.length + 2}" class="divfill"></td></tr>` : `<tr data-r="${ri}">
-        <td class="st"><div class="stline"><button type="button" class="stname" data-act="rstation" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId)), r.orphan ? "" : r.stationId.startsWith("NEW-") ? "Click to fix its name, town or state, or swap in another station" : "Click to flag a fix for the ArcGIS layer, or swap in a different station on this row"].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span></button>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
+        <td class="st"><div class="stline"><button type="button" class="stname" data-act="rstation" title="${esc([stLabel(r.stationId) + " · " + r.stationId, servedText(S.stById.get(r.stationId)), r.orphan ? "" : r.stationId.startsWith("NEW-") ? "Click to fix its name, town or state, or swap in another station" : "Click to flag a fix for the ArcGIS layer, or swap in a different station on this row"].filter(Boolean).join("\n"))}">${esc(S.stById.get(r.stationId)?.name || r.stationId)}<span class="muted small"> ${esc(S.stById.get(r.stationId)?.state || "")}</span>${r.tz ? `<span class="muted small" title="Time zone on this row"> · ${esc(r.tz)}</span>` : ""}</button>${r.orphan ? "" : `<button class="ghost" data-act="rins" title="Add stations above this one" aria-label="Add stations above ${esc(S.stById.get(r.stationId)?.name || "")}">＋</button><button class="ghost" data-act="rdiv" title="Add a section line above this station" aria-label="Add section line above">⎺</button><button class="ghost" data-act="rup" title="Move row up" aria-label="Move row up">↑</button><button class="ghost danger" data-act="rdel" title="Remove row" aria-label="Remove row">✕</button>`}</div></td>
         ${showOrd ? `<td class="ord"><input data-k="ord" class="${S.ordPending.has(ordKey(r)) ? "pending" : ""}" value="${esc(S.ordPending.get(ordKey(r)) ?? stNo(ri))}" inputmode="numeric" autocomplete="off" aria-label="Row number for ${esc(S.stById.get(r.stationId)?.name || "")}" title="Type the row number this station should be, then press Apply row numbers"></td>` : ""}
         <td class="mls"><input data-k="mls" value="${esc(r.miles || "")}" inputmode="decimal" aria-label="Miles" ${r.orphan ? "disabled" : ""}></td>
         ${trs.map(host => { const tr = ownerAt(host, ri), isPart = tr !== host; const s = cellFor(tr, r); const hidden = partsOf(host).filter(x => x !== tr && cellFor(x, r)); const txt = Core.formatCell12(s); const ref = !s && !r.divider && isRefIn(tr, t.id, allTrs) ? refCell(tr, t.id, r, rows, refCache) : null; const pm = s && !s.pass && Core.isPM(s.dep || s.arr); const sk = s?.section ? secOf(tr).indexOf(s.section) : -1; return `<td class="cellwrap ${isPart ? "partcell" : ""}"><input ${tr.copyOf ? `readonly title="Repeats No. ${esc(tr.trainNo || "")}'s times: edit them in its own column"` : ""} class="cell ${tr.copyOf ? "copycell" : ""} ${pm ? "pm" : ""} ${s?.disp ? "disp" : ""} ${sk >= 0 ? "insec sec" + (sk % 4) : ""}" ${hidden.length ? `title="${esc(hidden.map(x => `No. ${x.trainNo} also stops here (${Core.formatCell12(cellFor(x, r))}) but shares this column — give it its own row`).join("; "))}"` : sk >= 0 ? `title="${esc(s.section)} section"` : isPart ? `title="No. ${esc(tr.trainNo || "")}"` : ""} data-train="${esc(tr.id)}" data-rid="${esc(r.rid)}" data-sid="${esc(r.stationId)}" value="${esc(txt)}" ${ref ? `placeholder="${esc(Core.formatCell12(ref))}" title="${esc("From " + ref.fromLabel + ". Typing here enters a time on this table instead.")}"` : ""} ${hidden.length ? `data-clash="${esc(hidden.map(x => `No. ${x.trainNo} also stops here: ${Core.formatCell12(cellFor(x, r))}`).join("; "))}"` : ""} autocomplete="off" aria-label="${esc((S.stById.get(r.stationId)?.name || "") + " train " + (tr.trainNo || ""))}"></td>`; }).join("")}
@@ -3079,10 +3082,10 @@ function addSeveralDialog() {
     const nameOk = (k, x) => !k.name || !(x.trainName || "").trim() || hasName(x, k.name);
     for (const k of toks) {
       const key = k.rr + " " + k.no + (k.name ? " " + nm(k.name) : "");
-      if (seen.has(key)) continue;
-      if (!k.name && seen.has(k.rr + " " + k.no)) continue;
-      if (!k.name) { const it = items.find(x => x.rr === k.rr && x.no === k.no); if (it) continue; }
-      else { const it = items.find(x => x.rr === k.rr && x.no === k.no && !x.name); if (it) { it.name = k.name; seen.add(key); continue; } }
+      if (k.name && seen.has(key)) continue;
+      // typed again ("17 - El Capitan, 17 - The Super Chief", or "17, 17"): a second column for it on this table
+      const first = items.find(x => x.rr === k.rr && x.no === k.no && x.kind !== "again");
+      if (first) { items.push({ ...k, kind: "again", first }); seen.add(key); continue; }
       seen.add(key); seen.add(k.rr + " " + k.no);
       if (here.some(x => trRR(x) === k.rr && x.trainNo === k.no && !x.copyOf && nameOk(k, x))) { items.push({ ...k, kind: "here" }); continue; }
       const same = all.filter(x => !mem(x) && !x.copyOf && !x.setupOf && trRR(x) === k.rr && x.trainNo === k.no);   // a repeat column isn't the train itself
@@ -3169,18 +3172,18 @@ function addSeveralStep2(items) {
   const nm = x => String(x || "").toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
   const where = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => tableName(tb)).join(", ") || "no table";
   const exist = items.filter(x => x.kind === "exists"), dupHere = items.filter(x => x.kind === "here"), add = items.filter(x => x.kind !== "here");
-  // the same new number typed twice with two names ("18 - The Super Chief, 18 - El Capitan"): one train printed in two columns, or two trains
-  const twinOf = new Map(); add.forEach((x, i) => { if (x.kind !== "new" || !x.name) return; const y = add.slice(0, i).find(o => o.kind === "new" && o.name && o.rr === x.rr && o.no === x.no && !twinOf.has(o)); if (y) twinOf.set(x, y); });
+  // a number typed twice ("18 - The Super Chief, 18 - El Capitan"): one train printed in two columns (a repeat column), or two different trains
+  const again = items.filter(x => x.kind === "again");
   if (!add.length && !dupHere.length) { dialog(`<h2>Add trains</h2><p>Nothing to add.</p>`, "OK", () => {}); return; }
   // unnumbered legs of this railroad, entered from another road's condensed table (City of Miami, South Wind): one can become a train being added
   const stubs = allTrainDocs().filter(x => !x.tables?.[T] && stubOf(x, S.tables) && stubRR(x, S.tables) === (t.rr || "")).sort((a, b) => (a.trainName || "").localeCompare(b.trainName || "") || (a.description || "").localeCompare(b.description || ""));
   const numOpts = [...add.map((x, i) => ({ v: "a" + i, label: `${x.rr} ${x.no}` })), ...dupHere.map((x, i) => ({ v: "h" + i, label: `${x.rr} ${x.no} (on this table)` }))];
   const anyExisting = exist.length > 0 || dupHere.length > 0;
   const short = x => Object.keys(x.tables || {}).map(k => tableById(k)).filter(Boolean).map(tb => `${tb.rr} ${tb.tableNo || "?"}`).join(", ") || "no table";
-  const status = x => x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
+  const status = x => x.kind === "again" ? `<span class="muted">again: a second column</span>` : x.kind === "new" ? `<span class="muted">new</span>` : x.kind === "here" ? `<span class="muted">already on this table</span>` : `<span style="color:var(--accent);font-weight:600">entered: ${esc(x.ex.length === 1 ? "Table " + short(x.ex[0]) : x.ex.length + " records")}</span>`;
   dialog(`<h2>Add trains</h2>
     <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}${x.name ? ` <span style="font-weight:400">${esc(x.name)}</span>` : ""}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
-    ${twinOf.size ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc([...new Set([...twinOf.keys()].map(x => x.no))].join(", "))} ${twinOf.size > 1 ? "are" : "is"} typed twice with different names: <select id="dSevTwin" style="width:auto"><option value="one">one train under both names (the second column repeats the first's times)</option><option value="two">two different trains</option></select></label>` : ""}
+    ${again.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc([...new Set(again.map(x => x.no))].join(", "))} ${new Set(again.map(x => x.no)).size > 1 ? "are" : "is"} typed twice: <select id="dSevTwin" style="width:auto"><option value="one">one train in two columns (the second repeats the first's times, under its own name)</option><option value="two">two different trains</option></select></label>` : ""}
     ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="app">add again as a second appearance (its own name, days and stops)</option></select></label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
@@ -3220,17 +3223,21 @@ function addSeveralStep2(items) {
     for (const [i, x] of add.entries()) {
       if (!isOn(x)) continue;
       const ei = exist.indexOf(x), exId = ei >= 0 ? exIds[ei] : null, legs = stubFor.get("a" + i) || [];
-      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); }
-      else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); }
-      else if (twinOf.has(x) && twinOf.get(x).done && ($("dSevTwin")?.value || "one") === "one") {
-        // a repeat column of the first, headed with its own name; the first train takes both names and shows its own here
-        const firstId = twinOf.get(x).done, f = edit(firstId), [id] = makeTrains([x.no]); const w = S.work.get(id);
-        Object.assign(w, { rr: x.rr, copyOf: firstId, setupOf: firstId, stops: [], trainName: x.name, frequency: f.frequency || "Daily" }); w.tables[T].order = ord++; newIds.push(id); x.done = id;
-        const ns = [...(f.names || []).map(n => n.name), f.trainName, x.name].map(n => (n || "").trim()).filter(Boolean).flatMap(n => n.split(/\s+\/\s+/));
-        f.names = [...new Map(ns.map(n => [nameKey(n), n])).values()].map(name => ({ name })); syncNames(f); f.tables[T].shownName = twinOf.get(x).name;
+      if (x.kind === "again") {
+        const f0 = x.first.kind === "here" ? hereOf(x.first)?.id : x.first.resolved; if (!f0) continue;
+        const firstId = trainDoc(f0)?.copyOf || f0;
+        if (($("dSevTwin")?.value || "one") === "one") {
+          // a repeat column of the first, headed with its own name; the train takes both names and shows the first one in its own column here
+          const f = edit(firstId), [id] = makeTrains([x.no]); const w = S.work.get(id);
+          Object.assign(w, { rr: x.rr, copyOf: firstId, setupOf: firstId, stops: [], trainName: x.name || f.trainName || "", frequency: f.frequency || "Daily" }); w.tables[T].order = ord++; newIds.push(id); x.done = id;
+          if (x.name && !hasName(f, x.name)) { const ns = [...(f.names || []).map(n => n.name), f.trainName, x.name].map(n => (n || "").trim()).filter(Boolean).flatMap(n => n.split(/\s+\/\s+/)); f.names = [...new Map(ns.map(n => [nameKey(n), n])).values()].map(name => ({ name })); syncNames(f); }
+          if (x.first.name && f.tables[T]) f.tables[T].shownName = x.first.name;
+        } else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); if (x.name) { w.trainName = x.name; x.done = id; } markDifferent(id, firstId); }
+        continue;
       }
-      else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
-        if (twinOf.has(x) && twinOf.get(x).done) markDifferent(id, twinOf.get(x).done);
+      if (exId) { const w = edit(exId); w.tables[T] = { order: ord++, status: "created" }; useIds.push(exId); if (legs.length) fold(exId, legs); x.resolved = exId; }
+      else if (legs.length) { numberStub(legs[0], x.rr, x.no); const w = edit(legs[0]); w.tables[T] = { order: ord++, status: "created" }; useIds.push(legs[0]); fold(legs[0], legs); x.resolved = legs[0]; }
+      else { const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id); x.resolved = id;
         // a different train with the same number (named differently): give it its name now and mark the two as different trains
         if (x.name) { w.trainName = x.name; x.done = id; for (const o of x.others || []) if (!hasName(trainDoc(o) || {}, x.name)) markDifferent(id, o); } }
     }
@@ -3549,9 +3556,12 @@ function stationRowDialog(r, sid0) {
         <label class="f" style="grid-column:1/-1"><span>Note for the fix</span><input id="fxNote" value="${esc(fix?.note || "")}" placeholder="e.g. La Plata is in Missouri; Guide p. 442"></label>
       </div>
       ${fix ? `<button type="button" class="small-btn" id="fxClear" title="Take it off the list (once it's fixed in ArcGIS, or if it was a mistake)">Remove this flag</button>` : ""}</fieldset>` : ""}
+    ${r && t ? `<fieldset><legend>Time zone on this row</legend><p class="small muted" style="margin:0 0 6px">For a station printed in a different zone on one row of this table (Dodge City: Central arriving from Chicago, Mountain on the row going west). Trains' own zones on a stop still win.</p>
+      <select id="esRowTz"><option value="">Station's zone${st?.tz ? ` (${esc(st.tz)})` : ""}</option>${TZS.map(z => `<option ${z === r.tz ? "selected" : ""}>${z}</option>`).join("")}</select></fieldset>` : ""}
     ${r && t ? `<fieldset><legend>${ns || orig ? "Or swap in a different station" : "Swap in a different station"}</legend>
       <p class="small muted" style="margin:0 0 6px">For a wrong pick (the station itself is right in ArcGIS, it's just not this one): this row on ${esc(tnum(t))} and the stops of its trains here change to the station you pick. Other tables aren't touched.</p>
-      <input id="esSwap" placeholder="Search the station list…" autocomplete="off" style="width:100%"></fieldset>` : ""}`, ns || orig ? "Save" : "Close", async () => {
+      <input id="esSwap" placeholder="Search the station list…" autocomplete="off" style="width:100%"></fieldset>` : ""}`, ns || orig || r ? "Save" : "Close", async () => {
+    if (r && $("esRowTz") && ($("esRowTz").value || "") !== (r.tz || "")) { const v = $("esRowTz").value; mutateTable(tb => { const x = tb.rows.find(q => q.rid === r.rid); if (x) { if (v) x.tz = v; else delete x.tz; } }); renderEntry(); }
     if (orig) {
       const v = { name: $("fxName").value.trim(), town: $("fxTown").value.trim(), state: $("fxState").value.trim().toUpperCase(), tz: $("fxTz").value }, note = $("fxNote").value.trim();
       const diff = Object.fromEntries(Object.entries(v).filter(([k, x]) => x && x !== orig[k]));
@@ -4857,7 +4867,7 @@ function renderTableView(el, t) {
   const noOf = tr => tr.placeholder && !tr.trainNo ? `Unnumbered ${trRR(tr)} train${tr.description ? ": " + tr.description : ""}` : `${trRR(tr) !== t.rr ? trRR(tr) + " " : ""}No. ${(tr.copyOf && tr.tables?.[t.id]?.printedAs) || tr.trainNo || "?"}`;
   const head = col => {
     // the heading: a typed one, else the name most of the column's main trains share (Silver Meteor over The Senator)
-    const tally = new Map(); for (const x of col.main || col) if (x.trainName) tally.set(x.trainName, (tally.get(x.trainName) || 0) + 1);
+    const tally = new Map(); for (const x of col.main || col) { const nmx = x.tables?.[t.id]?.shownName || x.trainName; if (nmx) tally.set(nmx, (tally.get(nmx) || 0) + 1); }
     const top = [...tally].sort((a, b) => b[1] - a[1])[0];
     const names = col.heading ? [col.heading] : top ? [top[0]] : [], fqs = new Set(col.map(x => x.frequency || "Daily"));
     // one frequency for the whole column when they all match; otherwise name the train it belongs to
@@ -4891,7 +4901,7 @@ function renderTableView(el, t) {
 // type a heading for one table-view column (kept on the column's main train for this table)
 function colHeadingDialog(T, id) {
   const col = tableColumns(T, trainsInTable()).find(c => c.some(x => x.id === id)) || []; if (!col.length) return;
-  const tally = new Map(); for (const x of col.main || col) if (x.trainName) tally.set(x.trainName, (tally.get(x.trainName) || 0) + 1);
+  const tally = new Map(); for (const x of col.main || col) { const nmx = x.tables?.[T]?.shownName || x.trainName; if (nmx) tally.set(nmx, (tally.get(nmx) || 0) + 1); }
   const cur = col.heading || "", auto = ([...tally].sort((a, b) => b[1] - a[1])[0] || [""])[0];
   dialog(`<h2>Column heading</h2>
     <p class="small muted">For the column with ${col.map(x => esc(trLabel(x))).join(", ")} on ${esc(tableName(tableById(T)))}.</p>
