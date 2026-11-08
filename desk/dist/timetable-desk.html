@@ -1448,7 +1448,8 @@ function normTrain(d) {
 const trainsInTable = () => [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && t.tables?.[S.tableId]).map(withCopy).sort((a, b) => ordT(a) - ordT(b));
 // a repeat column (PC 147 printed twice on RF&P Table 1, once for each connection): a record with no stops of its own that shows its train's times on the tables it's on.
 // It's display only: the export and the problem checks skip it, and its times are edited in the train's own column.
-const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId] && (!t.tables[s.tableId].onlyRows || t.tables[s.tableId].onlyRows.includes(s.rid))) } : t; };   // onlyRows: a repeat column that shows only part of the run
+// cellMarks {rid: mark}: the marks as printed in this repeat column, in place of the train's own (AT&SF Table 4: "□ On Train 23 Barstow to Los Angeles" in No. 1's column)
+const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); return o && !o._deleted ? { ...t, progress: o.progress, stops: (o.stops || []).filter(s => t.tables?.[s.tableId] && (!t.tables[s.tableId].onlyRows || t.tables[s.tableId].onlyRows.includes(s.rid))).map(s => { const cm = t.tables[s.tableId].cellMarks; return cm && s.rid in cm ? { ...s, mark: cm[s.rid] } : s; }) } : t; };   // onlyRows: a repeat column that shows only part of the run
 
 function subscribeSource() {
   if (S.sourceId) loadRRPages(S.sourceId).then(() => { if (S.page === "trains") renderTrainsPage(); else if (S.page === "desk") renderTrainList(); });
