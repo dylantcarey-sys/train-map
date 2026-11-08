@@ -2250,6 +2250,12 @@ const mainTables = () => mainTablesCache ||= (() => { const set = new Set(); for
 function refCell(tr, T, r, rows, cache) {
   if (!r.stationId) return null;
   const only = tr.tables?.[T]?.onlyRows; if (only && !only.includes(r.rid)) return null;   // limited to its own section of the table
+  // a train entered on this table in some sections (MP 15 St. Louis–Kansas City on AT&SF Table A) only borrows times inside those sections
+  const ri0 = rows.indexOf(r), own = new Set((tr.stops || []).filter(s => s.tableId === T && s.rid).map(s => s.rid));
+  if (own.size && ri0 >= 0) {
+    let lo = ri0, hi = ri0; while (lo > 0 && !rows[lo - 1].divider) lo--; while (hi < rows.length - 1 && !rows[hi + 1].divider) hi++;
+    if (!rows.slice(lo, hi + 1).some(x => own.has(x.rid))) return null;
+  }
   if (!cache.has(tr.id)) {
     const keys = Object.keys(tr.tables || {}).filter(k => k !== T && (tr.stops || []).some(s => s.tableId === k));
     cache.set(tr.id, keys.length ? Core.mergeStops(keys.map(k => ({ key: k, stops: (tr.stops || []).filter(s => s.tableId === k) })), tzOffFn()).stops : []);
