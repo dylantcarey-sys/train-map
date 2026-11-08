@@ -298,8 +298,16 @@ const Core = (() => {
         if (mD && sA) return m.t >= t && m.t - t < 360;
         return false;
       };
+      // each stop also lines up with its own station where another table has it: a table that skips a day between rows
+      // (AT&SF Table 6: Lv. Chicago 10:00 am, Topeka 7:35 pm, then Barstow 11:35 pm the next night) keeps every stop on its right day;
+      // a stop no other table has follows the day of the stop before it
+      let run = off;
       for (const x of seq) {
-        const t = x.t == null ? null : x.t + off;
+        if (x.t != null) {
+          const m = merged.find(m => m.gi !== gi && m.s.stationId === x.s.stationId && m.t != null);
+          if (m) { const o = Math.round((m.t - x.t) / 1440) * 1440; if (Math.abs(m.t - (x.t + o)) < 360) run = o; }
+        }
+        const t = x.t == null ? null : x.t + run;
         // only stops from other tables are matched up: a station listed twice on one table (in and out of a junction, or arr. and lve. rows) is two stops
         const same = merged.find(m => m.gi !== gi && m.s.stationId === x.s.stationId && (m.t == null || t == null || Math.abs(m.t - t) <= 1 ||
           (x.s.arr && m.s.arr && Math.abs(toMin(x.s.arr) - toMin(m.s.arr)) <= 1) || (x.s.dep && m.s.dep && Math.abs(toMin(x.s.dep) - toMin(m.s.dep)) <= 1) || halves(m, x.s, t)));
