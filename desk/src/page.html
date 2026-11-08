@@ -1388,7 +1388,10 @@ function byRows(list, T) {
   const rows = tableById(T)?.rows; if (!rows || list.length < 2) return list;
   const idx = new Map(rows.map((r, k) => [r.rid, k])); if (list.some(s => !idx.has(s.rid))) return list;
   const d = rowsDir(list, rows) || 1;
-  return list.map((s, n) => [s, n]).sort((a, b) => d * (idx.get(a[0].rid) - idx.get(b[0].rid)) || a[1] - b[1]).map(x => x[0]);
+  const sorted = list.map((s, n) => [s, n]).sort((a, b) => d * (idx.get(a[0].rid) - idx.get(b[0].rid)) || a[1] - b[1]).map(x => x[0]);
+  // keep the order as entered when it runs in time better than the rows do (SCL 91 on RF&P Table 1: St. Petersburg is printed above Orlando but reached after Tampa)
+  const back = l => { let n = 0, prev = null; for (const s of l) { const t = s.pass ? null : Core.toMin(s.dep || s.arr || ""); if (t == null || isNaN(t)) continue; if (prev != null && t < prev && prev - t < 360) n++; prev = t; } return n; };
+  return back(sorted) < back(list) ? sorted : list;
 }
 const groupsFor = tr => { const keys = Object.keys(tr.tables || {}); const order = new Map(S.tables.map((t, i) => [t.id, i])); keys.sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999)); return keys.map(k => ({ key: k, stops: byRows((tr.stops || []).filter(s => s.tableId === k), k) })); };
 // replace the stops of table T inside w.stops, keeping other tables' stops where they are
