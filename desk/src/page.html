@@ -1368,10 +1368,15 @@ const tStops = (w, T = S.tableId) => (w.stops || []).filter(s => s.tableId === T
 const trRR = tr => tr.rr || S.tables.find(x => tr.tables?.[x.id])?.rr || "";
 // one train number can be entered more than once (different setups: another name, other days); those get their name added so they can be told apart
 let _dupAt = 0, _dups = new Set();
-const dupKeys = () => { const now = Date.now(); if (now - _dupAt > 400) { _dupAt = now; const seen = new Set(); _dups = new Set(); for (const id of new Set([...S.trains.keys(), ...S.work.keys()])) { const t = trainDoc(id); if (!t || t._deleted || !t.trainNo || t.copyOf || t.setupOf) continue; const k = `${trRR(t)}|${t.trainNo}`; /* a repeat column or second appearance is the same train, not a second one */ if (seen.has(k)) _dups.add(k); else seen.add(k); } } return _dups; };
+const dupKeys = () => { const now = Date.now(); if (now - _dupAt > 400) { _dupAt = now; const seen = new Set(); _dups = new Set(); _dupNames = new Map(); for (const id of new Set([...S.trains.keys(), ...S.work.keys()])) { const t = trainDoc(id); if (!t || t._deleted || !t.trainNo || t.copyOf || t.setupOf) continue; const k = `${trRR(t)}|${t.trainNo}`; /* a repeat column or second appearance is the same train, not a second one */ if (seen.has(k)) _dups.add(k); else seen.add(k); const nk = k + "|" + (t.trainName || ""); _dupNames.set(nk, (_dupNames.get(nk) || 0) + 1); } } return _dups; };
+let _dupNames = new Map();
 // the train's name, when it isn't already part of its label (two different trains with one number carry it there)
 const nameAfter = tr => tr.trainName && !trLabel(tr).includes(`(${tr.trainName})`) ? tr.trainName : "";
-const trLabel = tr => { if (tr.placeholder && !tr.trainNo) return `${trRR(tr)} ${tr.unnumbered ? "connection" : "placeholder"}${tr.description ? " · " + tr.description : ""}`; const base = `${trRR(tr)} ${tr.trainNo || "?"}`.trim(); return tr.trainNo && tr.trainName && dupKeys().has(`${trRR(tr)}|${tr.trainNo}`) ? `${base} (${tr.trainName})` : base; };
+const trLabel = tr => { if (tr.placeholder && !tr.trainNo) return `${trRR(tr)} ${tr.unnumbered ? "connection" : "placeholder"}${tr.description ? " · " + tr.description : ""}`; const base = `${trRR(tr)} ${tr.trainNo || "?"}`.trim(); if (!tr.trainNo || !dupKeys().has(`${trRR(tr)}|${tr.trainNo}`)) return base;
+  // two runs with one number and one name (BN 9 Afternoon Zephyr, daily except Fridays and Sundays / Fridays and Sundays only) are told apart by their days
+  if ((_dupNames.get(`${trRR(tr)}|${tr.trainNo}|${tr.trainName || ""}`) || 0) > 1) return `${base} (${shortDays(tr.frequency || "Daily")})`;
+  return tr.trainName ? `${base} (${tr.trainName})` : base; };
+const shortDays = f => String(f).replace(/\b(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)days?\b/g, m => m.slice(0, 3)).replace(/\bonly\b/g, "").replace(/\s+/g, " ").trim();
 const tableById = id => S.tables.find(x => x.id === id);
 // a table row can carry its own zone (Dodge City: Central arriving from Chicago, Mountain going west), ahead of the station's
 const rowTzCache = new WeakMap();
@@ -1624,6 +1629,7 @@ function renderTrain(el, t, tr) {
       <label class="f" style="grid-column: span 2"><span>Train name</span><input id="fName" value="${esc(tr.trainName || "")}" placeholder="e.g. Spirit of St. Louis" autocomplete="off" ${(tr.names || []).length ? `readonly title="Set from the shared names below"` : ""}></label>
       <label class="f"><span>Frequency</span>${freqSelect(tr.frequency || "Daily", false, `id="fFreq"`)}</label>
       <label class="f" style="grid-column: span 2"><span>Also called</span><input id="fAka" value="${esc(tr.alsoCalled || "")}" placeholder="Other names, e.g. Cincinnati Limited" autocomplete="off"></label>
+      <label class="f" style="grid-column: span 2" title="Trains with other numbers that run together with this one as one train (BN 9, 25 and 31 between Chicago and St. Paul). Each keeps its own column on the tables; on the map they're one train where their times match."><span>Runs combined with</span><input id="fWith" value="${esc((tr.runsWith || []).join(", "))}" placeholder="Other numbers, e.g. 25, 31" autocomplete="off"></label>
       ${namesFieldHTML(tr)}
       <div class="f" style="grid-column: span 2"><span>Type of service</span><div class="tagbox">${TRAIN_TAGS.map(([k, l, d]) => `<label class="row small" style="gap:6px" title="${esc(d)}"><input type="checkbox" data-tag="${k}" ${(tr.tags || []).includes(k) ? "checked" : ""}> ${esc(l)} <span class="muted">(passengers and freight)</span></label>`).join("")}</div></div>
     </div>
@@ -1709,6 +1715,7 @@ function renderTrain(el, t, tr) {
   bindText("fName", (w, v) => { if (!(w.names || []).length) w.trainName = v; });
   wireNames(tr.id);
   bindText("fAka", (w, v) => w.alsoCalled = v);
+  bindText("fWith", (w, v) => { const l = v.split(/\s*[,;\/]\s*/).map(x => x.trim()).filter(Boolean); if (l.length) w.runsWith = l; else delete w.runsWith; });
   el.querySelectorAll("[data-tag]").forEach(cb => cb.onchange = () => { upd(w => { const t = new Set(w.tags || []); cb.checked ? t.add(cb.dataset.tag) : t.delete(cb.dataset.tag); if (t.size) w.tags = [...t]; else delete w.tags; }); renderTrainList(); });
   if ($("fConsist")) bindText("fConsist", (w, v) => w.consist = v);
   wireEquipment(tr.id);
@@ -3256,7 +3263,7 @@ function addSeveralStep2(items) {
   dialog(`<h2>Add trains</h2>
     <div class="pick-list" style="margin-bottom:8px;max-height:170px">${items.map((x, i) => `<label class="pick-row" style="grid-template-columns:26px auto 1fr;padding:3px 8px"><input type="checkbox" data-sevnum="${i}" checked><b style="white-space:nowrap">${esc(x.rr + " " + x.no)}${x.name ? ` <span style="font-weight:400">${esc(x.name)}</span>` : ""}</b><span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${status(x)}</span></label>`).join("")}</div>
     ${again.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc([...new Set(again.map(x => x.no))].join(", "))} ${new Set(again.map(x => x.no)).size > 1 ? "are" : "is"} typed twice: <select id="dSevTwin" style="width:auto"><option value="one">one train in two columns (the second repeats the first's times, under its own name)</option><option value="two">two different trains</option></select></label>` : ""}
-    ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="app">add again as a second appearance (its own name, days and stops)</option></select></label>` : ""}
+    ${dupHere.length ? `<label class="row small" style="gap:6px;margin:4px 0;align-items:center">${esc(dupHere.map(x => x.no).join(", "))} ${dupHere.length > 1 ? "are" : "is"} already on this table: <select id="dSevDup" style="width:auto"><option value="">don't add again</option><option value="copy">add again as a repeat column (same times, shown twice)</option><option value="run">add again as a separate run (other days and times, like BN 9 on Fridays and Sundays at 4:40 pm)</option><option value="app">add again as a second appearance (the same run printed again, with its own name, days and stops)</option></select></label>` : ""}
     ${exist.some(x => x.ex.length > 1) ? `<p class="small" style="margin:8px 0 4px"><b>Some numbers match more than one train.</b> Pick the one meant:</p>${exist.filter(x => x.ex.length > 1).map(x => `<label class="row small" style="gap:6px">${esc(x.rr + " " + x.no)} <select data-sevpick="${exist.indexOf(x)}">${x.ex.map(e => `<option value="${esc(e.id)}">${esc(e.trainName || "(no name)")} · ${esc(where(e))}</option>`).join("")}</select></label>`).join("")}` : ""}
     ${stubs.length && numOpts.length ? `<details style="margin-top:8px"><summary class="small"><b>Unnumbered ${esc(t.rr)} legs from condensed tables (${stubs.length})</b></summary><p class="small muted" style="margin:4px 0">If one of these is a train you're adding, pick its number: it takes that number, comes in with its stops and keeps its links. Two legs given the same number become one train.</p>
     <div class="pick-list">${stubs.map(e => { const st = stopsElsewhere(e), a = st[0], z = st[st.length - 1]; return `<div class="pick-row" style="align-items:center"><select data-stubno="${esc(e.id)}" aria-label="Train number for this leg" style="flex:0 0 auto;width:auto"><option value="">Not one of these</option>${numOpts.map(o => `<option value="${o.v}">${esc(o.label)}</option>`).join("")}</select><span class="pick-st"><b>${esc(e.trainName || "(no name)")}</b>${e.description ? ` <span class="muted">${esc(e.description)}</span>` : ""}</span><span class="pick-t">${a && z ? `${esc(stName(a.stationId))} → ${esc(stName(z.stationId))}` : ""}</span></div>`; }).join("")}</div></details>` : ""}
@@ -3286,6 +3293,8 @@ function addSeveralStep2(items) {
     if (dupKind) for (const x of dupHere.filter(isOn)) {
       const orig = trainsInTable().find(o => trRR(o) === x.rr && o.trainNo === x.no && !o.copyOf); const [id] = makeTrains([x.no]); const w = S.work.get(id); w.rr = x.rr; w.tables[T].order = ord++; newIds.push(id);
       if (!orig) continue;
+      // a separate run: its own train with the same number (and name), on other days at other times; it's its own train on the map
+      if (dupKind === "run") { w.trainName = orig.trainName || ""; if (orig.names) w.names = structuredClone(orig.names); w.frequency = ""; const root = orig.setupOf ? trainDoc(orig.setupOf) || orig : orig; markDifferent(id, root.id); continue; }
       w.setupOf = orig.setupOf || orig.id;
       if (dupKind === "copy") { w.copyOf = orig.id; w.stops = []; w.trainName = x.name || orig.trainName || ""; w.frequency = orig.frequency || "Daily"; if (x.name) x.done = id; }
     }
@@ -3413,7 +3422,7 @@ async function allTrainsForExport() {
   }
   return out;
 }
-const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via", "names", "arrival_tz", "departure_tz"];
+const HEAD = ["source", "source_date", "railroad", "rr", "tables", "table_titles", "table_dates", "pages", "time_basis", "train_id", "train_no", "train_name", "also_called", "printed_as", "frequency", "stop_sequence", "station_id", "station", "city", "state", "arrival", "departure", "arrival_day", "departure_day", "arrival_elapsed_min", "departure_elapsed_min", "tz", "stop_frequency", "mark", "mark_meaning", "miles", "stop_notes", "times_disagree", "consist", "train_notes", "continues_from", "continues_as", "through_service", "status", "stop_role", "section", "stop_section", "rr_color", "stop_days", "lines", "connects_from", "connects_to", "tags", "via", "names", "arrival_tz", "departure_tz", "runs_with", "run_lead"];
 async function exportCSV() {
   if (!S.dl) { notice("Downloads aren't available in this view."); return; }
   const csv = await buildCSV();
@@ -3445,8 +3454,44 @@ function viaStation(name, stops, i) {
   const d = st => near.reduce((a, n) => a + Math.hypot(st.lon - n.lon, st.lat - n.lat), 0);
   return cands.filter(st => st.lon != null).sort((a, b) => d(a) - d(b))[0]?.id || cands[0].id;
 }
+// two different trains with one number (notSame) get their names in the run id; when the names match too (BN 9, the Afternoon Zephyr,
+// daily except Fridays and Sundays at 12:30 pm and on Fridays and Sundays at 4:40 pm), their days
+function runSuffix(tr, rr, allTr) {
+  if (!tr.trainNo) return "";
+  const peers = (tr.notSame || []).map(o => allTr.find(y => y.id === o)).filter(x => x && trRR(x) === rr && x.trainNo === tr.trainNo);
+  if (!peers.length) return "";
+  const nm = tr.trainName || "";
+  return peers.some(x => (x.trainName || "") === nm) ? ` ${nm ? nm + " " : ""}(${tr.frequency || "Daily"})` : " " + (nm || tr.id.slice(0, 4));
+}
+// trains with other numbers that run as one train (BN 9, 25 and 31 Chicago–St. Paul, "Runs combined with"): each keeps its own run,
+// the stops where their times match are marked shared, and the one with the most stops leads, so the map draws one train there
+function combineRuns(rows, rowTr, allTr) {
+  const H = Object.fromEntries(HEAD.map((h, i) => [h, i]));
+  rows.forEach(r => { while (r.length < HEAD.length) r.push(""); });
+  const byTr = new Map(); rows.forEach((r, i) => { const t = rowTr[i]; if (!byTr.has(t.id)) byTr.set(t.id, []); byTr.get(t.id).push(r); });
+  // groups: trains named in each other's "Runs combined with" (same railroad unless the number says another), joined up
+  const par = new Map(), find = x => { while (par.get(x) !== x) x = par.get(x); return x; }, join = (a, b) => par.set(find(a), find(b));
+  const cand = allTr.filter(t => byTr.has(t.id) && !t.copyOf);
+  for (const t of cand) for (const w of t.runsWith || []) {
+    const m = String(w).match(/^(?:([A-Za-z&]+)\s+)?(\S+)$/); if (!m) continue; const rr = m[1] || trRR(t);
+    for (const o of cand) if (o.id !== t.id && trRR(o) === rr && String(o.trainNo) === m[2]) { if (!par.has(t.id)) par.set(t.id, t.id); if (!par.has(o.id)) par.set(o.id, o.id); join(t.id, o.id); }
+  }
+  const groups = new Map(); for (const id of par.keys()) { const r = find(id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(id); }
+  const same = (a, b) => a[H.station_id] === b[H.station_id] && [[H.arrival, H.arrival], [H.departure, H.departure], [H.departure, H.arrival], [H.arrival, H.departure]].some(([x, y]) => a[x] && b[y] && Math.abs((+a[x].slice(0, 2) * 60 + +a[x].slice(3, 5)) - (+b[y].slice(0, 2) * 60 + +b[y].slice(3, 5))) <= 1);
+  for (const ids of groups.values()) {
+    // each member's own (single-section) run; a member sharing fewer than two stops with the others (another day's run of the same number) stays out
+    const runs = ids.map(id => ({ tr: allTr.find(t => t.id === id), rows: byTr.get(id) || [] })).filter(x => x.rows.length && !x.rows.some(r => r[H.section]));
+    const sharedWith = x => x.rows.filter(r => runs.some(y => y !== x && y.rows.some(q => same(r, q))));
+    const mem = runs.filter(x => sharedWith(x).length >= 2); if (mem.length < 2) continue;
+    mem.sort((a, b) => b.rows.length - a.rows.length || Core.trainNoSort(a.tr.trainNo, b.tr.trainNo));
+    const label = `${trRR(mem[0].tr)} ${mem.map(x => x.tr.trainNo).join(" / ")}`;
+    mem.forEach((x, k) => {
+      for (const r of x.rows) { r[H.runs_with] = label; r[H.run_lead] = k === 0 ? "1" : ""; if (!r[H.stop_section] && mem.some(y => y !== x && y.rows.some(q => same(r, q)))) r[H.stop_section] = "shared"; }
+    });
+  }
+}
 async function buildCSV() {
-  const rows = []; const rrName = ab => rrBizName(ab);
+  const rows = [], rowTr = []; const rrName = ab => rrBizName(ab);
   const link = arr => arr.filter(c => c?.trainNo || c?.rr).map(c => `${c.rr || ""} ${c.trainNo || ""}${c.stationId ? " at " + (S.stById.get(c.stationId)?.name || c.stationId) + " (" + c.stationId + ")" : ""}`.replace(/\s+/g, " ").trim()).join("; ");
   const allEx = await allTrainsForExport(), allTr = allEx.map(x => x.tr);
   for (const { src, tables, tr } of allEx) {
@@ -3480,10 +3525,11 @@ async function buildCSV() {
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
       const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}${tlab(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
-      rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${tr.trainNo && (tr.notSame || []).some(o => { const x = allTr.find(y => y.id === o); return x && trRR(x) === rr && x.trainNo === tr.trainNo; }) ? " " + (tr.trainName || tr.id.slice(0, 4)) : ""}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
+      rowTr.push(tr); rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${runSuffix(tr, rr, allTr)}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
     });
     }
   }
+  combineRuns(rows, rowTr, allTr);
   return rows.length ? Core.toCSV(HEAD, rows) : "";
 }
 async function exportJSON() {

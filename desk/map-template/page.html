@@ -341,6 +341,9 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     // sections of one train (e.g. 363's Ocean City and Cape May parts): the first one leads and is the only symbol drawn on the shared part
     S.families = new Map(); for (const t of S.trips) if (t.section) { if (!S.families.has(t.base)) S.families.set(t.base, []); S.families.get(t.base).push(t); }
     for (const fam of S.families.values()) { fam.sort((a, b) => a.section.localeCompare(b.section)); fam.forEach((t, i) => { t.lead = i === 0; t.family = fam; }); }
+    // trains with other numbers that run as one (BN 9, 25 and 31 Chicago–St. Paul): the leading one is drawn where their times match, labelled with every number running
+    const combos = new Map(); for (const t of S.trips) if (t.combo && !t.section) { if (!combos.has(t.combo)) combos.set(t.combo, []); combos.get(t.combo).push(t); }
+    for (const fam of combos.values()) { if (!fam.some(t => t.comboLead)) fam[0].comboLead = true; fam.forEach(t => { t.lead = t.comboLead; t.family = fam; }); }
     // rail-line filter: the lines these trains' routes use
     const usedL = new Map(); for (const t of S.trips) for (const L of t.legs) for (const li of L.used || []) usedL.set(li, (usedL.get(li) || 0) + 1);
     const lname = li => { const a = S.lines[li]?.attrs || {}; return [a.Name, a.Description].filter(Boolean).join(" — ") || `Line ${li}`; };
@@ -503,7 +506,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     for (const t of S.focus.run) line(t, { type: "simple-line", color: [242, 183, 5, 0.9], width: 7 });
     for (const t of S.focus.run) line(t, { type: "simple-line", color: [...hexRGB(S.colors.get(t.rr)), 1], width: 3 });
   }
-  const onShared = (t, p) => p && t.section && (p.status === "at" ? t.stops[p.stop]?.shared : t.stops[p.leg]?.shared && t.stops[p.leg + 1]?.shared);
+  const onShared = (t, p) => p && (t.section || t.combo) && (p.status === "at" ? t.stops[p.stop]?.shared : t.stops[p.leg]?.shared && t.stops[p.leg + 1]?.shared);
 
   function renderRRChecks() {
     const rrs = [...S.colors.keys()];
@@ -555,6 +558,9 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
       running++;
       const pt = new Point({ x: p.x, y: p.y, spatialReference: WM });
       o.g.geometry = pt; o.l.geometry = showL && (view.scale || 0) < TRAIN_LABEL_SCALE ? pt : null;
+      // the leading train of a combined run carries the numbers of all running with it on their shared stretch ("31 / 25 / 9")
+      if (o.t.combo && o.t.lead) { const nos = onShared(o.t, p) ? [o.t.no, ...o.t.family.filter(f => f !== o.t && onShared(f, C.positionAt(f, S.t, runsBack, po))).map(f => f.no)] : [o.t.no]; const txt = nos.join(" / ");
+        if (o.l.symbol.text !== txt) { const sy = typeof o.l.symbol.clone === "function" ? o.l.symbol.clone() : { ...o.l.symbol }; sy.text = txt; o.l.symbol = sy; } }
       const sel = o.t.key === S.selected;
       if (o.angle === null || Math.abs(p.angle - o.angle) > 3 || o.sel !== sel) { o.angle = p.angle; o.sel = sel; o.g.symbol = trainSymbol(o.color, p.angle, sel); }
     }
@@ -593,7 +599,7 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
       <div class="hint" style="margin:2px 0 0">${esc(t.freq || "Daily")} · Table ${esc(t.tables.join(", "))}${back ? ` · left ${back === 1 ? "yesterday" : back + " days ago"}` : ""}</div>
       <div style="margin-top:6px">${line}</div>
       ${t.tags?.length ? `<div class="hint">${t.tags.map(x => `<span class="tag">${esc(x)}</span>`).join(" ")}</div>` : ""}${t.shiftNote ? `<div class="hint" style="color:var(--warn)">${esc(t.shiftNote)} The map uses the changed times.</div>` : ""}
-      ${t.consist ? `<div class="hint">${esc(t.consist)}</div>` : ""}${!linksOf(t).length && t.from ? `<div class="hint">Runs through from ${esc(t.from)}</div>` : ""}${!linksOf(t).length && t.to ? `<div class="hint">Continues as ${esc(t.to)}</div>` : ""}
+      ${t.combo && t.family ? `<div class="hint">Runs combined with ${t.family.filter(f => f !== t).map(f => esc(f.id + (f.name ? " " + f.name : ""))).join(", ")} where their times match</div>` : ""}${t.consist ? `<div class="hint">${esc(t.consist)}</div>` : ""}${!linksOf(t).length && t.from ? `<div class="hint">Runs through from ${esc(t.from)}</div>` : ""}${!linksOf(t).length && t.to ? `<div class="hint">Continues as ${esc(t.to)}</div>` : ""}
       ${linkHtml(t)}
       <table>${rows}</table><div class="hint">Printed local times. Bold = p.m.</div>
       ${(() => { const u = [...new Set(t.legs.flatMap(L => L.used || []))].map(li => S.lines[li]?.attrs?.Name).filter(Boolean); return u.length ? `<div class="hint">Rail lines${t.lineNames?.length ? " (picked in the Desk)" : " used"}: ${esc(u.join("; "))}</div>` : ""; })()}`;
