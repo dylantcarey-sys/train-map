@@ -887,7 +887,13 @@ const Core = (() => {
     // the table with the most times goes first and sets the days; the others line up with it (L&N 8: the New Orleans–Cincinnati table
     // before the Louisville–Cincinnati one, so New Orleans isn't put on the same day as Cincinnati). Ties keep their order.
     const nT = g => g.stops.filter(s => s.stationId && rawTime(s) != null).length;
-    const ordered = groups.map((g, i) => [g, i]).sort((a, b) => nT(b[0]) - nT(a[0]) || a[1] - b[1]).map(x => x[0]);
+    const byTimes = groups.map((g, i) => [g, i]).sort((a, b) => nT(b[0]) - nT(a[0]) || a[1] - b[1]).map(x => x[0]);
+    // then each next table is one that shares a station with those already placed, so its days line up through that station
+    // (BN 32: Seattle–Shelby has no station in common with Fargo–Chicago, but the Shelby–Fargo table links them; placing it by
+    // nearest span alone put Seattle after Chicago)
+    const ordered = [], left = byTimes.slice(), seen = new Set();
+    const ids = g => g.stops.filter(s => s.stationId && rawTime(s) != null).map(s => s.stationId);
+    while (left.length) { const k = ordered.length ? left.findIndex(g => ids(g).some(id => seen.has(id))) : 0; const [g] = left.splice(k < 0 ? 0 : k, 1); ordered.push(g); ids(g).forEach(id => seen.add(id)); }
     for (const g of ordered) {
       // unroll this table's times past midnight, comparing on one clock so a time-zone change isn't read as midnight
       let add = 0, prev = null;
