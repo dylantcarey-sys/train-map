@@ -266,6 +266,16 @@ const Core = (() => {
     // tzOff.zone(stop) names a stop's zone; each merged time keeps the zone of the stop it came from (_arrTz/_depTz),
     // so a station where the zone changes (North Platte: in on Central time, out on Mountain) reads both right
     const zone = tzOff.zone || (() => "");
+    // tzOff.prefer(keyA, keyB): true when table B's times control over table A's (a newer table, or a numbered table over a condensed one)
+    const prefer = tzOff.prefer || (() => false);
+    // the controlling table's times replace the other's where they differ; the conflict is still reported, keeping the controlling times
+    const takeOver = (m, b, t, key) => {
+      if (b.arr) { m.s.arr = b.arr; m.s._arrTz = zone(b); }
+      if (b.dep) { m.s.dep = b.dep; m.s._depTz = zone(b); }
+      if (b.arr && b.dep) m.s.single = false;
+      if (t != null && (b.arr || !m.s.arr)) m.t = t;
+      m.from = [key, ...m.from.filter(k => k !== key)];
+    };
     const zoned = s => ({ ...s, ...(s.arr ? { _arrTz: s._arrTz || zone(s) } : {}), ...(s.dep ? { _depTz: s._depTz || zone(s) } : {}) });
     // the table with the most times goes first and sets the days; the others line up with it (L&N 8: the New Orleans–Cincinnati table
     // before the Louisville–Cincinnati one, so New Orleans isn't put on the same day as Cincinnati). Ties keep their order.
@@ -340,7 +350,11 @@ const Core = (() => {
           else if (one(b) && !one(a) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0]))) { /* a already has both */ }
           // the same moment printed in two time zones (Chattahoochee: 4:35 Central on one table, 5:35 Eastern on another) agrees
           const differs = (f) => a[f] && b[f] && a[f] !== b[f] && (((toMin(a[f]) + tzOff(a) - toMin(b[f]) - tzOff(b)) % 1440) + 1440) % 1440 !== 0;
-          if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: same.from[0] }, other: { arr: b.arr, dep: b.dep, from: g.key } });
+          if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) {
+            const old = { arr: a.arr, dep: a.dep, from: same.from[0] };
+            if (prefer(same.from[0], g.key)) { takeOver(same, b, t, g.key); conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: g.key }, other: old }); }
+            else conflicts.push({ stationId: b.stationId, keep: old, other: { arr: b.arr, dep: b.dep, from: g.key } });
+          }
           if (!a.arr && b.arr) a._arrTz = zone(b);
           if (!a.dep && b.dep) a._depTz = zone(b);
           for (const f of ["arr", "dep", "mark", "miles", "notes", "tz", "days"]) if (!a[f] && b[f]) a[f] = b[f];
@@ -352,7 +366,13 @@ const Core = (() => {
           continue;
         }
         const near = merged.find(m => m.gi !== gi && m.s.stationId === x.s.stationId);
-        if (near && t != null && near.t != null && Math.abs(near.t - t) < 360) { if (x.s._k != null) (near.s._ks ||= []).push(x.s._k); conflicts.push({ stationId: x.s.stationId, keep: { arr: near.s.arr, dep: near.s.dep, from: near.from[0] }, other: { arr: x.s.arr, dep: x.s.dep, from: g.key } }); continue; }
+        if (near && t != null && near.t != null && Math.abs(near.t - t) < 360) {
+          if (x.s._k != null) (near.s._ks ||= []).push(x.s._k);
+          const old = { arr: near.s.arr, dep: near.s.dep, from: near.from[0] };
+          if (prefer(near.from[0], g.key)) { takeOver(near, x.s, t, g.key); conflicts.push({ stationId: x.s.stationId, keep: { arr: near.s.arr, dep: near.s.dep, from: g.key }, other: old }); }
+          else conflicts.push({ stationId: x.s.stationId, keep: old, other: { arr: x.s.arr, dep: x.s.dep, from: g.key } });
+          continue;
+        }
         merged.push({ s: zoned(x.s), t, from: [g.key], gi: groups.indexOf(g), i: x.i });
       }
     }

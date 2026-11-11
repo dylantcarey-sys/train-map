@@ -883,6 +883,16 @@ const Core = (() => {
     // tzOff.zone(stop) names a stop's zone; each merged time keeps the zone of the stop it came from (_arrTz/_depTz),
     // so a station where the zone changes (North Platte: in on Central time, out on Mountain) reads both right
     const zone = tzOff.zone || (() => "");
+    // tzOff.prefer(keyA, keyB): true when table B's times control over table A's (a newer table, or a numbered table over a condensed one)
+    const prefer = tzOff.prefer || (() => false);
+    // the controlling table's times replace the other's where they differ; the conflict is still reported, keeping the controlling times
+    const takeOver = (m, b, t, key) => {
+      if (b.arr) { m.s.arr = b.arr; m.s._arrTz = zone(b); }
+      if (b.dep) { m.s.dep = b.dep; m.s._depTz = zone(b); }
+      if (b.arr && b.dep) m.s.single = false;
+      if (t != null && (b.arr || !m.s.arr)) m.t = t;
+      m.from = [key, ...m.from.filter(k => k !== key)];
+    };
     const zoned = s => ({ ...s, ...(s.arr ? { _arrTz: s._arrTz || zone(s) } : {}), ...(s.dep ? { _depTz: s._depTz || zone(s) } : {}) });
     // the table with the most times goes first and sets the days; the others line up with it (L&N 8: the New Orleans–Cincinnati table
     // before the Louisville–Cincinnati one, so New Orleans isn't put on the same day as Cincinnati). Ties keep their order.
@@ -957,7 +967,11 @@ const Core = (() => {
           else if (one(b) && !one(a) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0]))) { /* a already has both */ }
           // the same moment printed in two time zones (Chattahoochee: 4:35 Central on one table, 5:35 Eastern on another) agrees
           const differs = (f) => a[f] && b[f] && a[f] !== b[f] && (((toMin(a[f]) + tzOff(a) - toMin(b[f]) - tzOff(b)) % 1440) + 1440) % 1440 !== 0;
-          if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: same.from[0] }, other: { arr: b.arr, dep: b.dep, from: g.key } });
+          if ((differs("arr") || differs("dep")) && !(one(b) && times(b).length === 1 && times(a).some(v => near(v, times(b)[0])))) {
+            const old = { arr: a.arr, dep: a.dep, from: same.from[0] };
+            if (prefer(same.from[0], g.key)) { takeOver(same, b, t, g.key); conflicts.push({ stationId: b.stationId, keep: { arr: a.arr, dep: a.dep, from: g.key }, other: old }); }
+            else conflicts.push({ stationId: b.stationId, keep: old, other: { arr: b.arr, dep: b.dep, from: g.key } });
+          }
           if (!a.arr && b.arr) a._arrTz = zone(b);
           if (!a.dep && b.dep) a._depTz = zone(b);
           for (const f of ["arr", "dep", "mark", "miles", "notes", "tz", "days"]) if (!a[f] && b[f]) a[f] = b[f];
@@ -969,7 +983,13 @@ const Core = (() => {
           continue;
         }
         const near = merged.find(m => m.gi !== gi && m.s.stationId === x.s.stationId);
-        if (near && t != null && near.t != null && Math.abs(near.t - t) < 360) { if (x.s._k != null) (near.s._ks ||= []).push(x.s._k); conflicts.push({ stationId: x.s.stationId, keep: { arr: near.s.arr, dep: near.s.dep, from: near.from[0] }, other: { arr: x.s.arr, dep: x.s.dep, from: g.key } }); continue; }
+        if (near && t != null && near.t != null && Math.abs(near.t - t) < 360) {
+          if (x.s._k != null) (near.s._ks ||= []).push(x.s._k);
+          const old = { arr: near.s.arr, dep: near.s.dep, from: near.from[0] };
+          if (prefer(near.from[0], g.key)) { takeOver(near, x.s, t, g.key); conflicts.push({ stationId: x.s.stationId, keep: { arr: near.s.arr, dep: near.s.dep, from: g.key }, other: old }); }
+          else conflicts.push({ stationId: x.s.stationId, keep: old, other: { arr: x.s.arr, dep: x.s.dep, from: g.key } });
+          continue;
+        }
         merged.push({ s: zoned(x.s), t, from: [g.key], gi: groups.indexOf(g), i: x.i });
       }
     }
@@ -1824,7 +1844,15 @@ const tableById = id => S.tables.find(x => x.id === id);
 const rowTzCache = new WeakMap();
 const rowTzOf = (s, tables) => { if (!s.rid) return ""; const tb = tables ? tables.get(s.tableId) : tableById(s.tableId); if (!tb?.rows) return ""; let m = rowTzCache.get(tb); if (!m) { m = new Map(tb.rows.filter(r => r.tz).map(r => [r.rid, r.tz])); rowTzCache.set(tb, m); } return m.get(s.rid) || ""; };
 const stopTz = (s, tables) => s.tz || rowTzOf(s, tables) || S.stById.get(s.stationId)?.tz || (tables ? tables.get(s.tableId) : tableById(s.tableId))?.tz || "ET";
-const tzOffFn = tables => Object.assign(s => Core.TZ_OFF[stopTz(s, tables)] ?? 0, { zone: s => stopTz(s, tables) });
+// which table's times control when two tables print different times for one stop: the more recently dated table
+// (both dated), else a numbered table over a condensed one; otherwise the table placed first keeps its times
+const tablePrefer = tables => (ka, kb) => {
+  const a = (tables ? tables.get(ka) : tableById(ka)), b = (tables ? tables.get(kb) : tableById(kb));
+  if (!a || !b) return false;
+  if (a.tableDate && b.tableDate && a.tableDate !== b.tableDate) return b.tableDate > a.tableDate;
+  return !!a.condensed && !b.condensed;
+};
+const tzOffFn = tables => Object.assign(s => Core.TZ_OFF[stopTz(s, tables)] ?? 0, { zone: s => stopTz(s, tables), prefer: tablePrefer(tables) });
 // the zone of one time at a stop: a merged stop can arrive in one zone and leave in another (North Platte, Huntington)
 const timeTz = (s, f, tables) => s["_" + f + "Tz"] || stopTz(s, tables);
 // the way a train reads on a table, from the rows of the stops entered so far: +1 down, -1 up, 0 can't tell
@@ -2026,7 +2054,7 @@ function otherTablesLine(tr) {
   const { conflicts } = Core.mergeStops(groupsFor(tr), tzOffFn());
   const conf = conflicts.map(c => `<li><b>${esc(S.stById.get(c.stationId)?.name || c.stationId)}</b>: ${esc(tlab(tableById(c.keep.from)))} shows ${esc([c.keep.arr, c.keep.dep].filter(Boolean).join("/"))}, ${esc(tnum(tableById(c.other.from)))} shows ${esc([c.other.arr, c.other.dep].filter(Boolean).join("/"))}</li>`).join("");
   return `<div class="alsoon small">Also on ${others.map(([k, t]) => `<button class="linkish" data-gotable="${esc(k)}">${esc(tlab(t))}</button> · ${tStops(tr, k).filter(s => s.stationId).length} stops`).join("; ")}. The stops from all its tables are combined in the export.
-    ${conf ? `<div class="conflicts"><b>Times that don't agree between tables</b> (the first table's times are used):<ul>${conf}</ul></div>` : ""}</div>`;
+    ${conf ? `<div class="conflicts"><b>Times that don't agree between tables</b> (the first table's times are used: the more recently dated table, else a numbered table over a condensed one):<ul>${conf}</ul></div>` : ""}</div>`;
 }
 
 // the whole run of a train, combined from all its tables: one row per stop, marks spelled out ("Flag stop to receive or discharge…"), and the tables that print each stop
@@ -3966,7 +3994,7 @@ async function buildCSV() {
       const viaHere = [...new Set(viaAt.get(s.stationId) || [])].join("; "); viaAt.delete(s.stationId);
       const st = S.stById.get(s.stationId); const t0 = tables.get(s.from[0]) || {};
       const rowMiles = (t0.rows || []).find(r => r.rid && r.rid === s.rid)?.miles || "";
-      const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`]; return `${kn ? "Known in source: " : ""}${tlab(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
+      const c = conflicts.filter(x => x.stationId === s.stationId).map(x => { const kn = (tr.knownIssues || {})[`times|${x.stationId}|${x.keep.from}|${x.other.from}`] || (tr.knownIssues || {})[`times|${x.stationId}|${x.other.from}|${x.keep.from}`]; return `${kn ? "Known in source: " : ""}${tlab(tables.get(x.other.from))} shows ${[x.other.arr, x.other.dep].filter(Boolean).join("/")}${kn?.note ? ` (${kn.note})` : ""}`; }).join("; ");
       rowTr.push(tr); rows.push([src.name, src.date, rrName(rr), rr, s.from.map(k => tno(tables.get(k))).join("; "), tl.map(t => t.title).filter(Boolean).join("; "), tl.map(t => t.tableDate || t.tableDateText).filter(Boolean).join("; "), tl.map(t => t.page).filter(Boolean).join("; "), t0.basis || tl[0]?.basis || "", `${rr} ${tr.trainNo || "(no number " + tr.id.slice(0, 4) + ")"}${runSuffix(tr, rr, allTr)}${sec ? " (" + sec + ")" : ""}`, tr.trainNo, tr.trainName, tr.alsoCalled, printed, tr.frequency, seq, s.stationId, st?.name || "", st?.town || "", st?.state || "", eff[i].arr, eff[i].dep, clock[i].arrDay, clock[i].depDay, clock[i].arrElapsed, clock[i].depElapsed, stopTz(s, tables), s.days || tr.frequency, s.mark, s.mark ? markMeaning(tables.get(s.from[0]) || t0, s.mark) : "", s.miles || rowMiles, s.notes, c, consistText(tr), tr.notes, link(links(tr, "from").filter(c => linkKind(c) === "cars")), link(links(tr, "to").filter(c => linkKind(c) === "cars")), tr.throughName, STATUS[lowest][1], s.origin ? "start" : s.terminus ? "end" : "", sec, s.section ? sec : (sec ? "shared" : ""), S.rrByAbbrev.get(rr)?.color || "", s.days || "", tr.lines || "", link(links(tr, "from").filter(c => linkKind(c) === "conn")), link(links(tr, "to").filter(c => linkKind(c) === "conn")), (tr.tags || []).join("; "), viaHere, namesText(tr), eff[i].arr ? timeTz(s, "arr", tables) : "", eff[i].dep ? timeTz(s, "dep", tables) : ""]);
     });
     }
@@ -4469,7 +4497,9 @@ function wireRRGuide(r) {
 
 // ---------- trains page: one train's full record from all its tables, and everything that doesn't agree ----------
 // Built fresh from the tables every time (nothing is stored here): fix things in the table they came from.
-let mtSel = "", mtFilter = "all", mtAllPicked = false, mtTable = "";
+// the train list's filter, table and status choices are remembered (in this browser) across selections and visits
+let mtSel = "", mtFilter = LS.get("mtFilter", "all"), mtAllPicked = LS.get("mtAllPicked", false), mtTable = LS.get("mtTable", "");
+const saveMtList = () => { LS.set("mtFilter", mtFilter); LS.set("mtAllPicked", mtAllPicked); LS.set("mtTable", mtTable); LS.set("mtStat", mtStat); };
 const mtRROpen = new Set(LS.get("mtRROpen", []));   // railroads opened in the Trains list (closed by default)
 function focusInTrain(o) {
   if (o.focus === "links") { const d = document.querySelector("details.more"); if (d) { d.open = true; const fs = [...d.querySelectorAll("legend")].find(l => /Through cars|Connections/.test(l.textContent)); (fs?.parentElement || d).scrollIntoView({ block: "center" }); } return; }
@@ -4485,7 +4515,7 @@ const toMinE = (s, f) => s[f] ? ((Core.toMin(s[f]) + (Core.TZ_OFF[timeTz(s, f)] 
 // everything that looks wrong about one train; each item says where to go to fix it
 const PROG = [["", "Not started"], ["working", "In progress"], ["check", "Needs checking"], ["done", "Done"], ["future", "Future railroad"]];
 const progOf = tr => futureRR(tr) ? "future" : tr.progress || ((tr.stops || []).some(s => s.stationId && (s.arr || s.dep)) ? "working" : "");
-let mtSort = LS.get("mtSort", "number"), mtStat = "any";
+let mtSort = LS.get("mtSort", "number"), mtStat = LS.get("mtStat", "any");
 // tables in Guide order, worked out once and reused until the table list changes
 let _rank = null, _rankOf = null, _rankN = -1;
 const guideRank = () => { if (_rankOf !== S.tables || _rankN !== S.tables.length || !_rank) { _rank = new Map(S.tables.slice().sort(guideOrder).map((t, i) => [t.id, i])); _rankOf = S.tables; _rankN = S.tables.length; } return _rank; };
@@ -4506,7 +4536,7 @@ function masterProblems(tr, byNo) {
   const { conflicts } = Core.mergeStops(groupsFor(tr), tzOffFn());
   for (const c of conflicts) {
     const a = [c.keep.arr, c.keep.dep].filter(Boolean).map(Core.fmt12).join(" / "), b = [c.other.arr, c.other.dep].filter(Boolean).map(Core.fmt12).join(" / ");
-    out.push({ kind: "times", key: `times|${c.stationId}|${c.keep.from}|${c.other.from}`, text: `${stName(c.stationId)}: ${tblName(c.keep.from)} shows ${a}, ${tblName(c.other.from)} shows ${b}.`,
+    out.push({ kind: "times", key: `times|${c.stationId}|${c.keep.from}|${c.other.from}`, alt: `times|${c.stationId}|${c.other.from}|${c.keep.from}`, text: `${stName(c.stationId)}: ${tblName(c.keep.from)} shows ${a}, ${tblName(c.other.from)} shows ${b}.`,
       fixes: [fix(`Open ${tblName(c.keep.from)}`, c.keep.from, { stationId: c.stationId }), fix(`Open ${tblName(c.other.from)}`, c.other.from, { stationId: c.stationId })] });
   }
   // 2. the checks the home page already runs (order, missing times, start/end)
@@ -4558,7 +4588,8 @@ function masterProblems(tr, byNo) {
   // problems marked as known inconsistencies in the source itself are kept, but set apart
   const seen = new Set(), known = tr.knownIssues || {};
   return out.filter(p => { const k = p.text; if (seen.has(k)) return false; seen.add(k); return true; })
-    .map(p => { const key = p.key || `${p.kind}|${p.text}`; return { ...p, key, known: !!known[key], sched: known[key]?.kind === "schedule", note: known[key]?.note || "" }; });
+    .map(p => { let key = p.key || `${p.kind}|${p.text}`; if (!known[key] && p.alt && known[p.alt]) key = p.alt;   // marked before the controlling table changed sides
+      return { ...p, key, known: !!known[key], sched: known[key]?.kind === "schedule", note: known[key]?.note || "" }; });
 }
 function renderTrainsPage() {
   if (S.page !== "trains") return; noteTableLeft();   // a delayed redraw must not pull the editor back from the desk
@@ -4600,6 +4631,7 @@ function renderTrainsPage() {
   };
   const relList = mtSel && !S.viewOnly ? relatedOf(mtSel) : null;
   const listHidden = !!mtSel && (S.viewOnly ? phoneMQ.matches : LS.get("mtListHide", false)) && !(mtFilter === "problems" && LS.get("mtAll", false));
+  if (mtFilter === "table" && mtSel && trainDoc(mtSel) && !trainDoc(mtSel).tables?.[mtTable]) mtTable = Object.keys(trainDoc(mtSel).tables || {}).find(k => k === S.tableId && tableById(k)) || Object.keys(trainDoc(mtSel).tables || {}).find(k => tableById(k)) || mtTable;
   if (mtFilter === "table" && !(mtTable && tableById(mtTable))) mtTable = (mtSel && Object.keys(trainDoc(mtSel)?.tables || {}).find(k => tableById(k))) || (tableById(S.tableId) ? S.tableId : "") || S.tables[0]?.id || "";
   const colOrd = t => t.tables?.[mtTable]?.order ?? 0;
   const tblList = mtTable ? trs.filter(t => t.tables?.[mtTable]).sort((a, b) => colOrd(a) - colOrd(b)) : [];
@@ -4702,23 +4734,23 @@ function renderTrainsPage() {
   wireSrc();
   const applyFind = () => { const q = $("mtFind").value.toLowerCase().trim(); el.querySelectorAll("#mtList li").forEach(li => li.hidden = q && !li.dataset.find.includes(q)); };
   $("mtFind").oninput = () => { LS.set("mtFind", $("mtFind").value); applyFind(); }; applyFind();
-  el.querySelectorAll('input[name="mtf"]').forEach(r => r.onchange = () => { mtFilter = r.value === "related" ? "all" : r.value; mtAllPicked = r.value === "all"; if (r.value === "all" || r.value === "related") LS.set("mtAll", false); renderTrainsPage(); });
-  if ($("mtTableSel")) $("mtTableSel").onchange = e => { mtTable = e.target.value; renderTrainsPage(); };
+  el.querySelectorAll('input[name="mtf"]').forEach(r => r.onchange = () => { mtFilter = r.value === "related" ? "all" : r.value; mtAllPicked = r.value === "all"; if (r.value === "all" || r.value === "related") LS.set("mtAll", false); saveMtList(); renderTrainsPage(); });
+  if ($("mtTableSel")) $("mtTableSel").onchange = e => { mtTable = e.target.value; saveMtList(); renderTrainsPage(); };
   if ($("trNextTbl")) $("trNextTbl").onclick = () => { mtSel = $("trNextTbl").dataset.next; renderTrainsPage(); scrollTo(0, 0); };
   $("mtSort").onchange = e => { mtSort = e.target.value; LS.set("mtSort", mtSort); renderTrainsPage(); };
-  $("mtStat").onchange = e => { mtStat = e.target.value; renderTrainsPage(); };
+  $("mtStat").onchange = e => { mtStat = e.target.value; saveMtList(); renderTrainsPage(); };
   if ($("trProg")) $("trProg").onchange = e => {
     const v = e.target.value, k = STATUS_OF_PROG[v] || "created";
     if (statusIdx(k) >= 2) { const why = endCheck(trainDoc(mtSel)); if (why) { e.target.value = trainDoc(mtSel).progress || ""; notice("Not yet: " + esc(why)); return; } }
     const w = edit(mtSel); if (v) w.progress = v; else delete w.progress;
     if (statusIdx(k) >= 2 && w.tables?.[S.tableId]?.deferRows) placeDeferredRows(w);
     renderTrainsPage(); };
-  if ($("trNext")) $("trNext").onclick = () => { mtSel = $("trNext").dataset.next; mtFilter = "all"; mtAllPicked = true; renderTrainsPage(); scrollTo(0, 0); };
+  if ($("trNext")) $("trNext").onclick = () => { mtSel = $("trNext").dataset.next; renderTrainsPage(); scrollTo(0, 0); };
   if ($("phUn")) $("phUn").onchange = e => { const w = edit(mtSel); if (e.target.checked) w.unnumbered = true; else delete w.unnumbered; renderTrainsPage(); };
   $("mtAll").onclick = () => { mtFilter = "problems"; LS.set("mtAll", true); renderTrainsPage(); };
   if ($("mtAll2")) $("mtAll2").onclick = () => $("mtAll").click();
   el.querySelectorAll("[data-rropen]").forEach(d => d.ontoggle = () => { if (d.open) mtRROpen.add(d.dataset.rropen); else mtRROpen.delete(d.dataset.rropen); LS.set("mtRROpen", [...mtRROpen]); });
-  el.querySelectorAll("[data-mtsel]").forEach(b => b.onclick = () => { mtSel = b.dataset.mtsel; S.wholeRun = true; LS.set("mtAll", false); if (!mtSel) { mtFilter = "all"; mtAllPicked = false; } renderTrainsPage(); window.scrollTo({ top: 0 }); });
+  el.querySelectorAll("[data-mtsel]").forEach(b => b.onclick = () => { mtSel = b.dataset.mtsel; S.wholeRun = true; LS.set("mtAll", false); renderTrainsPage(); window.scrollTo({ top: 0 }); });
   el.querySelectorAll("[data-mtgo]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.mtgo)));
   const setKnown = (id, key, val) => { const w = edit(id); w.knownIssues = { ...(w.knownIssues || {}) }; if (val) w.knownIssues[key] = { ...(w.knownIssues[key] || {}), ...val }; else delete w.knownIssues[key]; };
   el.querySelectorAll("[data-known]").forEach(b => b.onclick = () => { const o = JSON.parse(b.dataset.known); setKnown(o.id, o.key, { note: "", at: new Date().toISOString(), ...(o.kind ? { kind: o.kind } : {}) }); renderTrainsPage(); });
@@ -5399,7 +5431,7 @@ function applyPhoneMode() {
   $("btnPhoneEdit").onclick = () => { LS.set("phoneEdit", S.viewOnly); applyPhoneMode(); showPage(S.page || "home"); scrollTo(0, 0); };
 }
 phoneMQ.addEventListener?.("change", () => { applyPhoneMode(); showPage(S.page || "home"); });
-function openTrainRecord(id, tableId, filterTable, atTable) { mtSel = id; S.wholeRun = !atTable; if (tableId && trainDoc(id)?.tables?.[tableId]) { S.tableId = tableId; LS.set("table", tableId); } if (filterTable && tableId && tableById(tableId)) { mtFilter = "table"; mtTable = tableId; mtAllPicked = false; } else mtFilter = "all"; LS.set("mtAll", false); showPage("trains"); scrollTo(0, 0); setTimeout(() => document.querySelector(".mt-head")?.scrollIntoView({ block: "start" }), 50); }
+function openTrainRecord(id, tableId, filterTable, atTable) { mtSel = id; S.wholeRun = !atTable; if (tableId && trainDoc(id)?.tables?.[tableId]) { S.tableId = tableId; LS.set("table", tableId); } if (filterTable && tableId && tableById(tableId)) { mtFilter = "table"; mtTable = tableId; mtAllPicked = false; saveMtList(); } LS.set("mtAll", false); showPage("trains"); scrollTo(0, 0); setTimeout(() => document.querySelector(".mt-head")?.scrollIntoView({ block: "start" }), 50); }
 // a table as printed: stations down the side, one column per train, times as text
 // columns for the read-only table view: trains that run on from one another on this table share a column.
 // Automatic: a through-car link or a connection where one train ends at the station where the other starts (on this table).
