@@ -52,7 +52,8 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 ## Entry conventions (agreed with Dylan)
 
 - Weekday service is "Monday through Friday"; holidays are ignored. Alternate-day service: "Alternate days (from Apr 1, 1971)".
-- When two tables disagree, use the more recently dated table and note it on the train; a disagreement that's in the Guide itself is marked as a known inconsistency.
+- When two tables disagree, use the more recently dated table and note it on the train; a disagreement that's in the Guide itself is marked as a known inconsistency. With no newer dated table, a numbered table wins over a condensed one. The Whole run does this itself (`prefer` in `tzOffFn`, used by `mergeStops`).
+- Bus connections printed in a train's column (Kalispell ▲, Helena "a", Tacoma ♮) go in the table notes, not as stops.
 - Through cars (cars run through) are kept separate from connections (passengers change). Links go on both trains.
 - Trains with no equipment printed carry "Coaches" ("Coaches only"). Equipment endpoints go in From/To; a dash means both directions.
 - Timing, schedule and transfer marks go in marks; baggage-only symbols go in notes.
