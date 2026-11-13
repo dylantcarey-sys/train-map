@@ -3222,7 +3222,11 @@ function dialog(html, okLabel, onOk, onCancel) {
   ov.hidden = false; notePresence(true, ov.querySelector("h2")?.textContent);
   const close = () => { ov.hidden = true; ov.innerHTML = ""; notePresence(false); };
   $("dCancel").onclick = () => { close(); onCancel?.(); };
-  $("dOk").onclick = async () => { const r = await onOk(); if (typeof r === "string") { $("dErr").textContent = r; return; } close(); };
+  // one save at a time: a second click (or Enter) while it's still saving would add everything twice
+  let busy = false;
+  $("dOk").onclick = async () => { if (busy) return; busy = true; const b = $("dOk"), lab = b.textContent; b.disabled = true; b.textContent = "Saving…";
+    let r; try { r = await onOk(); } finally { busy = false; if (b.isConnected) { b.disabled = false; b.textContent = lab; } }
+    if (typeof r === "string") { $("dErr").textContent = r; return; } close(); };
   ov.onkeydown = e => { if (e.key === "Escape") { close(); onCancel?.(); } };
   setTimeout(() => ov.querySelector("input, select, textarea")?.focus(), 0);
 }
