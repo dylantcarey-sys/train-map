@@ -121,6 +121,7 @@
     <details open>
       <summary>Trains</summary>
       <div class="sec">
+        <div class="row" style="gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap"><button type="button" id="rrAll">Show all</button><button type="button" id="rrNone">Hide all</button><span class="hint" id="rrHidden" style="margin:0"></span></div>
         <div id="rrChecks"></div>
         <input type="search" id="trainSearch" placeholder="Find a train (number or name)" style="margin-top:6px">
         <select id="lineFilter" title="Show only trains whose route uses this rail line" style="margin-top:6px;width:100%"><option value="">Any line</option></select>
@@ -1014,6 +1015,11 @@ require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/layers/Graphics
     const names = new Map(S.trips.map(t => [t.rr, t.rrName]));
     $("rrChecks").innerHTML = rrs.map(r => `<label class="chk"><input type="checkbox" data-rr="${esc(r)}" ${S.rrOff.has(r) ? "" : "checked"}><span class="sw" style="background:${S.colors.get(r)}"></span><button type="button" class="rrname" data-only="${esc(r)}" title="Show only ${esc(r)} (click again to show every railroad)">${esc(r)} <span class="hint" style="margin:0">${esc(names.get(r) || "")}</span></button></label>`).join("");
     const after = () => { renderRRChecks(); renderList(); drawLines(); if ($("onlyWatchedLines").checked) drawStations(); render(); };
+    const off = rrs.filter(r => S.rrOff.has(r)).length;
+    $("rrHidden").textContent = off ? `${off} of ${rrs.length} railroads hidden` : "";
+    $("rrAll").disabled = !off; $("rrNone").disabled = off === rrs.length;
+    $("rrAll").onclick = () => { S.rrOff = new Set(); after(); };
+    $("rrNone").onclick = () => { S.rrOff = new Set(rrs); after(); };
     $("rrChecks").querySelectorAll("[data-rr]").forEach(c => c.onchange = () => { c.checked ? S.rrOff.delete(c.dataset.rr) : S.rrOff.add(c.dataset.rr); after(); });
     // clicking a railroad's name shows only that railroad; clicking it again (when it's the only one shown) shows them all
     $("rrChecks").querySelectorAll("[data-only]").forEach(b => b.onclick = e => { e.preventDefault(); const r = b.dataset.only; const only = rrs.every(x => x === r ? !S.rrOff.has(x) : S.rrOff.has(x)); S.rrOff = new Set(only ? [] : rrs.filter(x => x !== r)); after(); });
