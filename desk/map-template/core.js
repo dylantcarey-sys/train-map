@@ -62,6 +62,12 @@ const MapCore = (() => {
       const days = (rd[2].match(/\d{1,2}/g) || []).map(Number).filter(d => d >= 1 && d <= 31);
       if (yr && days.length) out.dates = new Set(days.map(d => `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`));
     }
+    // seasonal service, from the first station: "June 16 to September 9" (runs only then), "until June 15 and after September 9" (not between)
+    const md = (m, d) => year && MONTHS.includes(m) ? `${year}-${String(MONTHS.indexOf(m) + 1).padStart(2, "0")}-${String(+d).padStart(2, "0")}` : null;
+    const rg = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})(?:,? \d{4})? (?:to|through|thru|until|–|-) (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b/);
+    const ua = s.match(/\buntil (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b.*?\bafter (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b/);
+    if (ua) { const a = md(ua[1], ua[2]), b = md(ua[3], ua[4]); if (a && b) out.season = { out: true, from: a, to: b }; }   // not running after a, up to and including b
+    else if (rg) { const a = md(rg[1], rg[2]), b = md(rg[3], rg[4]); if (a && b) out.season = { out: false, from: a, to: b }; }   // running a to b
     return out;
   }
   // does a train (or the run of it that left on this date) run on `iso`?
@@ -69,13 +75,24 @@ const MapCore = (() => {
     if (!iso) return true;
     if (t.days && !t.days.has(weekdayOf(iso))) return false;
     if (t.dates && !t.dates.has(iso)) return false;
+    if (t.season) { const inside = t.season.out ? iso > t.season.from && iso <= t.season.to : iso >= t.season.from && iso <= t.season.to; if (t.season.out ? inside : !inside) return false; }
     if (t.every) { const d = daysBetween(t.everyFrom || iso, iso); if (((d % t.every) + t.every) % t.every) return false; }
     return true;
   }
   // printed times that change from a date. PC Table 3 (April 1971): Michigan doesn't observe advance time, so from
   // April 25 the times at its Central-time stops are an hour later and those in Michigan an hour earlier than printed.
+  // a stop's ■ covers the Central and Mountain time printed there, not a Pacific time at the same stop (Jasper: ar ■18:45 M.S.T., lv 19:00 P.S.T.)
+  const cnSq = s => /■/.test(s.mark || "") ? { arr: (s.arrTz || s.tz) === "PT" ? 0 : 60, dep: (s.depTz || s.tz) === "PT" ? 0 : 60 } : 0;
+  // CN prints local clock time: from April 25 to October 30 that's daylight time in Ontario, Quebec, Manitoba and B.C. (not in
+  // Saskatchewan or Alberta), an hour ahead of the standard time the map runs on
+  const cnDst = s => { const f = z => z === "ET" || z === "PT" || (z === "CT" && /^(MB|ON)$/i.test(s.state || "")) ? -60 : 0; return { arr: f(s.arrTz || s.tz), dep: f(s.depTz || s.tz) }; };
+  // a rule's shift gives minutes for the whole stop, or { arr, dep } for each time
   const DATE_SHIFTS = [
-    { rr: "PC", table: "3", from: "1971-04-25", until: "1971-10-31", shift: s => s.tz === "CT" ? 60 : String(s.state).toUpperCase() === "MI" ? -60 : 0, note: "From April 25, times at the Central-time stops are an hour later and times in Michigan an hour earlier than printed (Michigan doesn't observe advance time)." }
+    { rr: "PC", table: "3", from: "1971-04-25", until: "1971-10-31", shift: s => s.tz === "CT" ? 60 : String(s.state).toUpperCase() === "MI" ? -60 : 0, note: "From April 25, times at the Central-time stops are an hour later and times in Michigan an hour earlier than printed (Michigan doesn't observe advance time)." },
+    // CN Table 1 (March 1971): ■ "During period February 1 to April 24, inclusive, and after October 30, add one hour to these times"
+    { rr: "CN", table: "1", from: "1971-02-01", until: "1971-04-25", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." },
+    { rr: "CN", table: "1", from: "1971-04-25", until: "1971-10-31", shift: cnDst, note: "From April 25 to October 30 the times printed for Ontario, Quebec, Manitoba and British Columbia are daylight time, an hour ahead of standard time." },
+    { rr: "CN", table: "1", from: "1971-10-31", until: "", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." }
   ];
   // the rules in force on a date, as a key: when it changes, trains need their times worked out again
   // table names come through as "3 — New York-Buffalo-..."
@@ -108,12 +125,13 @@ const MapCore = (() => {
       if (t.reversed) t.stops.reverse();
       t.shiftNote = "";
       if (opts.date) { const rules = DATE_SHIFTS.filter(r => t.rr === r.rr && onTable(t.tables, r.table) && opts.date >= r.from && (!r.until || opts.date < r.until));
-        for (const r of rules) { let any = false; for (const s of t.stops) if (onTable(s.tables, r.table)) { const m = r.shift(s); if (m) { s.shift = (s.shift || 0) + m; any = true; } } if (any) t.shiftNote = r.note; } }
+        for (const r of rules) { let any = false; for (const s of t.stops) if (onTable(s.tables, r.table)) { const m = r.shift(s); const a = typeof m === "object" ? m.arr || 0 : m || 0, d = typeof m === "object" ? m.dep || 0 : m || 0; if (a || d) { s.shiftArr = (s.shiftArr || 0) + a; s.shiftDep = (s.shiftDep || 0) + d; any = true; } } if (any) t.shiftNote = r.note; } }
       unroll(t);
       t.days = parseDays(t.freq);
       const sv = parseService(t.freq, String(t.sourceDate).slice(0, 4));
       if (sv.every) { t.every = sv.every; t.everyFrom = sv.from || String(t.sourceDate).slice(0, 10) || null; }
       if (sv.dates) { t.dates = sv.dates; t.days = null; }
+      if (sv.season) t.season = sv.season;
       for (const s of t.stops) s.daySet = s.sdays ? parseDays(s.sdays) : null;   // days this stop is made (its own calendar day)
       t.tables = [...t.tables];
       out.push(t);
@@ -124,7 +142,7 @@ const MapCore = (() => {
   function unroll(t) {
     let prev = null, add = 0;
     const step = (hhmm, tz, shift = 0) => { const m = toMin(hhmm); if (m == null) return null; let et = m + shift + (TZ_OFF[tz] ?? 0) + add; if (prev != null && et < prev - 5) { add += 1440; et += 1440; } prev = et; return et; };
-    for (const s of t.stops) { s.arrAbs = step(s.arr, s.arrTz || s.tz, s.shift); s.depAbs = step(s.dep, s.depTz || s.tz, s.shift); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
+    for (const s of t.stops) { s.arrAbs = step(s.arr, s.arrTz || s.tz, s.shiftArr); s.depAbs = step(s.dep, s.depTz || s.tz, s.shiftDep); if (s.arrAbs == null) s.arrAbs = s.depAbs; if (s.depAbs == null) s.depAbs = s.arrAbs; }
     // a minute's stop at every regular station given one time, so trains visibly pause (not at "on signal" / "on notice" stops)
     const flag = s => /on signal|on notice|notice to (the )?(agent|conductor)/i.test(s.markMeaning || "");
     for (let i = 1; i < t.stops.length - 1; i++) {
