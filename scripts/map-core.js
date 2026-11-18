@@ -102,7 +102,10 @@ const MapCore = (() => {
     { rr: "CN", table: "1", from: "1971-02-01", until: "1971-04-25", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." },
     { rr: "CN", table: "1", from: "1971-04-25", until: "1971-10-31", shift: cnDst, group: "cn-dst", note: "From April 25 to October 30 the times printed for Ontario, Quebec, Manitoba and British Columbia are daylight time, an hour ahead of standard time." },
     { rr: "CN", table: "1", from: "1971-10-31", until: "", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." },
-    ...["4", "5", "7", "10", "12", "13", "14", "15", "16", "17", "18", "20", "20a", "21"].map(table => ({ rr: "CN", table, from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, group: "cn-dst", note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." })),
+    ...["4", "5", "7", "10", "12", "13", "14", "15", "16", "17", "18", "20", "20a", "21", "22"].map(table => ({ rr: "CN", table, from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, group: "cn-dst", note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." })),
+    { rr: "ONR", table: "22", from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, group: "cn-dst", note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." },
+    // CN Tables 23-27 (Manitoba, Saskatchewan, Alberta, B.C.): same reading as Table 1 — daylight time in Manitoba and B.C., none in Saskatchewan or Alberta
+    ...["23", "24", "25", "27"].map(table => ({ rr: "CN", table, from: "1971-04-25", until: "1971-10-31", shift: cnDst, group: "cn-dst", note: "From April 25 to October 30 the times printed for Manitoba and British Columbia are run as daylight time, an hour earlier by standard time." })),
     { rr: "CN", table: "10", from: "1971-06-26", until: "1971-09-10", shift: cnZ, note: "Times marked z are 15 minutes later from June 26 to September 9." },
     // GTW Table 19: Michigan times (a) are printed for summer, when Michigan's standard time matched Chicago's daylight time
     ...["19", "21"].flatMap(table => [
