@@ -86,13 +86,20 @@ const MapCore = (() => {
   // CN prints local clock time: from April 25 to October 30 that's daylight time in Ontario, Quebec, Manitoba and B.C. (not in
   // Saskatchewan or Alberta), an hour ahead of the standard time the map runs on
   const cnDst = s => { const f = z => z === "ET" || z === "PT" || (z === "CT" && /^(MB|ON)$/i.test(s.state || "")) ? -60 : 0; return { arr: f(s.arrTz || s.tz), dep: f(s.depTz || s.tz) }; };
+  // CN's eastern tables (Tables 4-14: the Maritimes, Quebec and northern Ontario) print the winter schedule in standard time; Dylan's
+  // reading is that the trains kept the same clock times under daylight time from April 25 to October 30 (Atlantic and Eastern)
+  const cnDstEast = s => { const f = z => z === "AT" || z === "ET" ? -60 : 0; return { arr: f(s.arrTz || s.tz), dep: f(s.depTz || s.tz) }; };
+  // CN Table 10: z "From June 26 to September 9 add 15 minutes to time shown" (No. 18, Truro-Sydney)
+  const cnZ = s => /(^|\s)z(\s|$)/.test(s.mark || "") ? 15 : 0;
   // a rule's shift gives minutes for the whole stop, or { arr, dep } for each time
   const DATE_SHIFTS = [
     { rr: "PC", table: "3", from: "1971-04-25", until: "1971-10-31", shift: s => s.tz === "CT" ? 60 : String(s.state).toUpperCase() === "MI" ? -60 : 0, note: "From April 25, times at the Central-time stops are an hour later and times in Michigan an hour earlier than printed (Michigan doesn't observe advance time)." },
     // CN Table 1 (March 1971): ■ "During period February 1 to April 24, inclusive, and after October 30, add one hour to these times"
     { rr: "CN", table: "1", from: "1971-02-01", until: "1971-04-25", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." },
     { rr: "CN", table: "1", from: "1971-04-25", until: "1971-10-31", shift: cnDst, note: "From April 25 to October 30 the times printed for Ontario, Quebec, Manitoba and British Columbia are daylight time, an hour ahead of standard time." },
-    { rr: "CN", table: "1", from: "1971-10-31", until: "", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." }
+    { rr: "CN", table: "1", from: "1971-10-31", until: "", shift: cnSq, note: "Times marked ■ are an hour later than printed from February 1 to April 24 and after October 30." },
+    ...["4", "5", "7", "10", "12", "13", "14"].map(table => ({ rr: "CN", table, from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." })),
+    { rr: "CN", table: "10", from: "1971-06-26", until: "1971-09-10", shift: cnZ, note: "Times marked z are 15 minutes later from June 26 to September 9." }
   ];
   // the rules in force on a date, as a key: when it changes, trains need their times worked out again
   // table names come through as "3 — New York-Buffalo-..."
@@ -125,7 +132,7 @@ const MapCore = (() => {
       if (t.reversed) t.stops.reverse();
       t.shiftNote = "";
       if (opts.date) { const rules = DATE_SHIFTS.filter(r => t.rr === r.rr && onTable(t.tables, r.table) && opts.date >= r.from && (!r.until || opts.date < r.until));
-        for (const r of rules) { let any = false; for (const s of t.stops) if (onTable(s.tables, r.table)) { const m = r.shift(s); const a = typeof m === "object" ? m.arr || 0 : m || 0, d = typeof m === "object" ? m.dep || 0 : m || 0; if (a || d) { s.shiftArr = (s.shiftArr || 0) + a; s.shiftDep = (s.shiftDep || 0) + d; any = true; } } if (any) t.shiftNote = r.note; } }
+        for (const r of rules) { let any = false; for (const s of t.stops) if (onTable(s.tables, r.table) && !(s.shiftedBy ||= new Set()).has(r.shift)) { s.shiftedBy.add(r.shift); const m = r.shift(s); const a = typeof m === "object" ? m.arr || 0 : m || 0, d = typeof m === "object" ? m.dep || 0 : m || 0; if (a || d) { s.shiftArr = (s.shiftArr || 0) + a; s.shiftDep = (s.shiftDep || 0) + d; any = true; } } if (any) t.shiftNote = r.note; } }
       unroll(t);
       t.days = parseDays(t.freq);
       const sv = parseService(t.freq, String(t.sourceDate).slice(0, 4));
