@@ -391,7 +391,7 @@ const Core = (() => {
   // For each stop: which day of the run (1 = the day the train starts) its arrival and departure fall on,
   // and minutes since the train left its first stop. Uses Eastern time internally so zone changes don't
   // look like midnight; a time earlier than the one before it means the train ran past midnight.
-  const TZ_OFF = { AT: -60, ET: 0, CT: 60, MT: 120, PT: 180 };
+  const TZ_OFF = { AT: -60, ET: 0, CT: 60, MT: 120, PT: 180, AHT: 300 };   // AHT: Alaska-Hawaii standard (UTC-10)
   // tzOf(i, "arr" | "dep"): the zone of that one time (a stop's arrival and departure can be in different zones)
   function dayClock(times, tzOf) {
     let prev = null, add = 0, start = null; const out = [];

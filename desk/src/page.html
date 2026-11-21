@@ -634,12 +634,12 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   quiet(document);
   new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.("input")) quiet(n.parentNode || n); else quiet(n); } }).observe(document.documentElement, { childList: true, subtree: true });
 })();
-window.__deskHook = () => ({ allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
 const FREQ = ["Daily", "Daily except Sunday", "Daily except Saturday", "Daily except Monday", "Monday through Friday", "Sunday only", "Saturday only", "Saturday and Sunday only"];
-const TZS = ["AT", "ET", "CT", "MT", "PT"];
+const TZS = ["AT", "ET", "CT", "MT", "PT", "AHT"];
 const BASIS = ["Standard time", "War Time (1942–45)", "Daylight saving time", "Not stated"];
 const STATUS = [["created", "Not started"], ["adding", "In progress"], ["added", "Needs checking"], ["complete", "Done"]];
 const PROG_OF_STATUS = { created: "", adding: "working", added: "check", complete: "done" }, STATUS_OF_PROG = { "": "created", working: "adding", check: "added", done: "complete" };
@@ -1436,7 +1436,7 @@ function sameTrainMatch(tr) {
   const rr = trRR(tr);
   for (const id of new Set([...S.trains.keys(), ...S.work.keys()])) {
     if (id === tr.id) continue; const o = trainDoc(id);
-    if (!o || o._deleted || (tr.notSame || []).includes(id) || (o.notSame || []).includes(tr.id) || o.setupOf === tr.id || tr.setupOf === o.id || (tr.setupOf && tr.setupOf === o.setupOf)) continue;
+    if (!o || o._deleted || nsOf(tr).includes(id) || nsOf(o).includes(tr.id) || o.setupOf === tr.id || tr.setupOf === o.id || (tr.setupOf && tr.setupOf === o.setupOf)) continue;
     if (o.trainNo === tr.trainNo && trRR(o) === rr) return o;
   }
   return null;
@@ -1539,7 +1539,9 @@ function appearanceNote(tr) {
   const kids = trainsInTable().filter(x => x.setupOf === tr.id);
   return kids.length ? `<div class="small muted" style="margin:0 0 6px">Also printed on this table as: ${kids.map(k => `<button class="linkish" data-openapp="${esc(k.id)}">${esc(k.trainName || "second appearance")}${k.frequency && k.frequency !== "Daily" ? " (" + esc(k.frequency) + ")" : ""}</button>`).join(", ")}</div>` : "";
 }
-function markDifferent(aId, bId) { const a = edit(aId); a.notSame = [...new Set([...(a.notSame || []), bId])]; const b = edit(bId); b.notSame = [...new Set([...(b.notSame || []), aId])]; }
+// notSame: the ids of the other records with this number (some early records carry just true)
+const nsOf = t => Array.isArray(t?.notSame) ? t.notSame : [];
+function markDifferent(aId, bId) { const a = edit(aId); a.notSame = [...new Set([...nsOf(a), bId])]; const b = edit(bId); b.notSame = [...new Set([...nsOf(b), aId])]; }
 function matchBanner(tr) {
   const o = sameTrainMatch(tr); if (!o) return "";
   const where = Object.keys(o.tables || {}).map(k => tableById(k)).filter(Boolean).map(t => `${esc(tlab(t))}`).join(", ") || "another table";
@@ -3477,7 +3479,7 @@ function viaStation(name, stops, i) {
 // daily except Fridays and Sundays at 12:30 pm and on Fridays and Sundays at 4:40 pm), their days
 function runSuffix(tr, rr, allTr) {
   if (!tr.trainNo) return "";
-  const peers = (tr.notSame || []).map(o => allTr.find(y => y.id === o)).filter(x => x && trRR(x) === rr && x.trainNo === tr.trainNo);
+  const peers = nsOf(tr).map(o => allTr.find(y => y.id === o)).filter(x => x && trRR(x) === rr && x.trainNo === tr.trainNo);
   if (!peers.length) return "";
   const nm = tr.trainName || "";
   return peers.some(x => (x.trainName || "") === nm) ? ` ${nm ? nm + " " : ""}(${tr.frequency || "Daily"})` : " " + (nm || tr.id.slice(0, 4));
@@ -4269,6 +4271,74 @@ function masterProblems(tr, byNo) {
     .map(p => { let key = p.key || `${p.kind}|${p.text}`; if (!known[key] && p.alt && known[p.alt]) key = p.alt;   // marked before the controlling table changed sides
       return { ...p, key, known: !!known[key], sched: known[key]?.kind === "schedule", note: known[key]?.note || "" }; });
 }
+// ---------- finishing a guide (agreed with Dylan, Nov 21, 2026) ----------
+// One pass over the open source: links that name an unnumbered or twice-used number get the train they mean; trains with no
+// equipment get "Coaches only" (or the cars of an identical run that has them); "Except Sunday" reads "Daily except Sunday";
+// every train with nothing real left to fix (a link that can't work, stops out of order, missing times) is marked Done; every table is finished.
+// Differences in times between tables don't hold a train back.
+const finBlocks = p => !p.known && p.kind !== "times";
+function finishPlan() {
+  const trs = allTrainsHere(), own = trs.filter(t => !t.copyOf && !futureRR(t)), plan = { links: new Map(), equip: new Map(), freq: new Map(), ns: new Map(), done: [], held: [], tables: [] };
+  const sameNo = (a, b) => trRR(a) === trRR(b) && String(a.trainNo || "") === String(b.trainNo || "");
+  const opp = { throughTo: "throughFrom", throughFrom: "throughTo" };
+  for (const t of own) for (const side of ["throughTo", "throughFrom"]) {
+    const ls = t[side] || []; if (!ls.length) continue;
+    const out = structuredClone(ls), used = new Set(ls.map(l => l?.trainId).filter(Boolean)); let changed = false;
+    for (const l of out) {
+      if (!l || (l.trainId && trainDoc(l.trainId))) continue;
+      const c = own.filter(o => !o.setupOf && trRR(o) === l.rr && String(o.trainNo || "") === String(l.trainNo || ""));
+      if (c.length === 1 && l.trainNo) continue;   // the number finds it
+      const back = c.filter(o => !used.has(o.id) && (o[opp[side]] || []).some(b => b && b.stationId === l.stationId && (b.trainId === t.id || (b.rr === trRR(t) && String(b.trainNo || "") === String(t.trainNo || "")))));
+      if (back.length === 1 || (back.length > 1 && back.every(o => !String(o.trainNo || "")))) { l.trainId = back[0].id; used.add(back[0].id); changed = true; }
+    }
+    if (changed) plan.links.set(t.id, { ...(plan.links.get(t.id) || {}), [side]: out });
+  }
+  for (const t of own) {
+    if ((t.equipment || []).length || (t.tags || []).includes("mixed")) continue;
+    const twins = own.filter(o => o !== t && sameNo(o, t) && (o.trainName || "") === (t.trainName || "") && (o.equipment || []).length && Object.keys(o.tables || {}).some(k => t.tables?.[k]));
+    const one = twins.length && twins.every(o => JSON.stringify(o.equipment) === JSON.stringify(twins[0].equipment));
+    plan.equip.set(t.id, one ? structuredClone(twins[0].equipment) : [{ type: "Coaches", desc: "Coaches only" }]);
+  }
+  // an early record marked notSame with just true gets the ids of the other records with its number
+  for (const t of own) if (t.notSame && !Array.isArray(t.notSame)) plan.ns.set(t.id, own.filter(o => o !== t && !o.setupOf && sameNo(o, t)).map(o => o.id));
+  for (const t of own) { const m = String(t.frequency || "").match(/^except (sunday|saturday|monday)$/i); if (m) plan.freq.set(t.id, "Daily except " + m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()); }
+  const byNo = new Map(trs.filter(t => t.trainNo).map(t => [`${trRR(t)}|${t.trainNo}`, t]));
+  for (const t of own) { if (progOf(t) === "done") continue; const ps = masterProblems(t, byNo).filter(finBlocks); (ps.length ? plan.held : plan.done).push(ps.length ? { t, ps } : t); }
+  plan.tables = S.tables.filter(t => t.status !== "done");
+  return plan;
+}
+async function runFinish(plan) {
+  const fixIds = new Set([...plan.links.keys(), ...plan.equip.keys(), ...plan.freq.keys(), ...plan.ns.keys()]);
+  for (const id of fixIds) {
+    const w = edit(id); clearTimeout(timers.get(id));
+    if (plan.links.has(id)) Object.assign(w, structuredClone(plan.links.get(id)));
+    if (plan.equip.has(id)) w.equipment = structuredClone(plan.equip.get(id));
+    if (plan.freq.has(id)) w.frequency = plan.freq.get(id);
+    if (plan.ns.has(id)) w.notSame = [...plan.ns.get(id)];
+  }
+  // with the links fixed, look again at what's still open: a link that now finds its train no longer holds either one back
+  const after = finishPlan(); plan.done = after.done; plan.held = after.held;
+  for (const t of plan.done) { const w = edit(t.id); clearTimeout(timers.get(t.id)); w.progress = "done"; for (const k of Object.keys(w.tables || {})) if (tableById(k)) w.tables[k].status = "complete"; }
+  const ids = new Set([...fixIds, ...plan.done.map(t => t.id)]);
+  let n = 0; const total = ids.size + plan.tables.length;
+  for (const id of ids) { await flush(id); if (++n % 20 === 0) { notice(`Finishing the guide… ${n} of ${total} saved`); await new Promise(r => setTimeout(r, 150)); } }
+  for (const t of plan.tables) { const tb = { ...t, status: "done" }; const i = S.tables.findIndex(x => x.id === t.id); if (i >= 0) S.tables[i] = tb; await saveTable(tb); if (++n % 20 === 0) { notice(`Finishing the guide… ${n} of ${total} saved`); await new Promise(r => setTimeout(r, 150)); } }
+  return n;
+}
+function finishDialog() {
+  const plan = finishPlan(), src = S.sources.find(x => x.id === S.sourceId);
+  const held = plan.held.map(({ t, ps }) => `<li><b>${esc(trLabel(t))}</b> ${esc(t.trainName || "")}<div class="small muted">${esc(ps[0].text)}${ps.length > 1 ? ` (and ${ps.length - 1} more)` : ""}</div></li>`).join("");
+  dialog(`<h2>Finish ${esc(src?.name || "this guide")}</h2>
+    <ul class="small">
+      <li><b>${plan.done.length}</b> train${plan.done.length === 1 ? "" : "s"} marked Done (time differences between tables don't hold a train back)</li>
+      <li><b>${plan.tables.length}</b> table${plan.tables.length === 1 ? "" : "s"} marked finished</li>
+      <li><b>${plan.equip.size}</b> train${plan.equip.size === 1 ? "" : "s"} with no equipment get “Coaches only” (or the cars of an identical run; mixed trains are left alone)</li>
+      <li><b>${plan.links.size}</b> train${plan.links.size === 1 ? "" : "s"} whose links only named a number get the exact train</li>
+      <li><b>${plan.freq.size}</b> “Except …” frequenc${plan.freq.size === 1 ? "y reads" : "ies read"} “Daily except …”</li>
+    </ul>
+    ${plan.held.length ? `<p class="small"><b>${plan.held.length}</b> stay as they are, with something still to fix:</p><ul class="small" style="max-height:30vh;overflow:auto">${held}</ul>` : `<p class="small">Nothing is left to fix.</p>`}`,
+    "Finish the guide", async () => { const n = await runFinish(plan); notice(`Finished: ${n} saved.`); renderTrainsPage(); });
+}
 function renderTrainsPage() {
   if (S.page !== "trains") return; noteTableLeft();   // a delayed redraw must not pull the editor back from the desk
   const el = $("trPage"); dockEntry(null);
@@ -4400,7 +4470,7 @@ function renderTrainsPage() {
       </div>` : ""}</div>`;
   }
   el.innerHTML = `<div class="card"><div class="mt-top"><h2>Trains</h2>${srcPick}
-      <button class="small-btn ${nProb ? "probbtn" : ""}" id="mtAll" aria-pressed="${mtFilter === "problems" && LS.get("mtAll", false)}" ${nProb || nKnown ? "" : "disabled"}>${nProb ? `Show all ${nProb} problem${nProb === 1 ? "" : "s"}` : nKnown ? `No problems · ${nKnown} known in the source` : "No problems found"}</button></div></div>
+      <button class="small-btn ${nProb ? "probbtn" : ""}" id="mtAll" aria-pressed="${mtFilter === "problems" && LS.get("mtAll", false)}" ${nProb || nKnown ? "" : "disabled"}>${nProb ? `Show all ${nProb} problem${nProb === 1 ? "" : "s"}` : nKnown ? `No problems · ${nKnown} known in the source` : "No problems found"}</button>${S.viewOnly ? "" : `<button class="small-btn" id="mtFinish" title="Mark the guide's trains and tables done and fill the agreed defaults">Finish this guide…</button>`}</div></div>
     <div class="rrwrap ${listHidden ? "mtcollapsed" : ""}">
       <div class="card rrlist mtlist" ${listHidden ? "hidden" : ""}>${S.viewOnly ? "" : `<button class="primary" id="mtNewTrain" style="width:100%;margin-bottom:6px" title="Start trains by number: this is where each train is entered once">＋ New train…</button>`}<input type="search" id="mtFind" placeholder="Find by number or name" style="width:100%;margin-bottom:6px" value="${esc(LS.get("mtFind", ""))}">
         <div class="row small" style="gap:6px;margin-bottom:6px;flex-wrap:wrap"><select id="mtStat" aria-label="Status">${[["any", "Any status"], ["none", "Not started"], ["working", "In progress"], ["check", "Needs checking"], ["done", "Done"]].map(([v, l]) => `<option value="${v}" ${mtStat === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="muted">${shown.length} train${shown.length === 1 ? "" : "s"}, by railroad and number</span></div>
@@ -4423,6 +4493,7 @@ function renderTrainsPage() {
   if ($("trNext")) $("trNext").onclick = () => { mtSel = $("trNext").dataset.next; renderTrainsPage(); scrollTo(0, 0); };
   if ($("phUn")) $("phUn").onchange = e => { const w = edit(mtSel); if (e.target.checked) w.unnumbered = true; else delete w.unnumbered; renderTrainsPage(); };
   $("mtAll").onclick = () => { mtFilter = "problems"; LS.set("mtAll", true); renderTrainsPage(); };
+  if ($("mtFinish")) $("mtFinish").onclick = finishDialog;
   if ($("mtAll2")) $("mtAll2").onclick = () => $("mtAll").click();
   el.querySelectorAll("[data-rropen]").forEach(d => d.ontoggle = () => { if (d.open) mtRROpen.add(d.dataset.rropen); else mtRROpen.delete(d.dataset.rropen); LS.set("mtRROpen", [...mtRROpen]); });
   el.querySelectorAll("[data-mtsel]").forEach(b => b.onclick = () => { mtSel = b.dataset.mtsel; S.wholeRun = true; LS.set("mtAll", false); renderTrainsPage(); window.scrollTo({ top: 0 }); });
