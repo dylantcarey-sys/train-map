@@ -106,6 +106,8 @@ const MapCore = (() => {
     { rr: "ONR", table: "22", from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, group: "cn-dst", note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." },
     // CN Tables 23-27 (Manitoba, Saskatchewan, Alberta, B.C.): same reading as Table 1 — daylight time in Manitoba and B.C., none in Saskatchewan or Alberta
     ...["23", "24", "25", "27"].map(table => ({ rr: "CN", table, from: "1971-04-25", until: "1971-10-31", shift: cnDst, group: "cn-dst", note: "From April 25 to October 30 the times printed for Manitoba and British Columbia are run as daylight time, an hour earlier by standard time." })),
+    // Algoma Central (October 1970 table, Eastern Standard time): same reading as CN's eastern tables
+    { rr: "ACR", table: "Sault Ste. Marie-Hearst", from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." },
     { rr: "CN", table: "10", from: "1971-06-26", until: "1971-09-10", shift: cnZ, note: "Times marked z are 15 minutes later from June 26 to September 9." },
     // GTW Table 19: Michigan times (a) are printed for summer, when Michigan's standard time matched Chicago's daylight time
     ...["19", "21"].flatMap(table => [
