@@ -3,7 +3,7 @@ const MapCore = (() => {
   const R = 6378137;
   const toMerc = ([lon, lat]) => { const la = Math.max(Math.min(lat, 85.05112878), -85.05112878); return [R * lon * Math.PI / 180, R * Math.log(Math.tan(Math.PI / 4 + la * Math.PI / 360))]; };
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  const TZ_OFF = { AT: -60, ET: 0, CT: 60, MT: 120, PT: 180 };   // minutes to add to local time to get Eastern
+  const TZ_OFF = { AT: -60, ET: 0, CT: 60, MT: 120, PT: 180, AHT: 300 };   // AHT: Alaska-Hawaii standard (UTC-10). minutes to add to local time to get Eastern
   const toMin = s => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})$/); return m ? +m[1] * 60 + +m[2] : null; };
   const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -66,8 +66,10 @@ const MapCore = (() => {
     const md = (m, d) => year && MONTHS.includes(m) ? `${year}-${String(MONTHS.indexOf(m) + 1).padStart(2, "0")}-${String(+d).padStart(2, "0")}` : null;
     const rg = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})(?:,? \d{4})? (?:to|through|thru|until|–|-) (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b/);
     const ua = s.match(/\buntil (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b.*?\bafter (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b/);
+    const un = s.match(/\buntil (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})\b/);
     if (ua) { const a = md(ua[1], ua[2]), b = md(ua[3], ua[4]); if (a && b) out.season = { out: true, from: a, to: b }; }   // not running after a, up to and including b
     else if (rg) { const a = md(rg[1], rg[2]), b = md(rg[3], rg[4]); if (a && b) out.season = { out: false, from: a, to: b }; }   // running a to b
+    else if (un) { const b = md(un[1], un[2]); if (b) out.season = { out: false, from: `${year}-01-01`, to: b }; }   // "Monday through Friday until May 2": running up to b
     return out;
   }
   // does a train (or the run of it that left on this date) run on `iso`?
@@ -109,6 +111,14 @@ const MapCore = (() => {
     // Algoma Central (October 1970 table, Eastern Standard time): same reading as CN's eastern tables
     { rr: "ACR", table: "Sault Ste. Marie-Hearst", from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." },
     { rr: "CN", table: "10", from: "1971-06-26", until: "1971-09-10", shift: cnZ, note: "Times marked z are 15 minutes later from June 26 to September 9." },
+    // the rest of Canada (pages 524-543): tables printed in standard time in the fall of 1970, read the same way as CN's eastern tables
+    // (Atlantic and Eastern run an hour earlier by standard time April 25-October 30), and those printing B.C. or Manitoba
+    // times read like CN Table 1 (Alberta and Saskatchewan kept standard time). Tables with no number are matched by title.
+    ...[["CP", ["2", "5", "6", "7", "8", "9", "10", "13", "15", "16"]], ["THB", ["5", "Toronto, Hamilton, Buffalo and the East"]], ["CP", ["Toronto, Hamilton, Buffalo and the East"]],
+      ["DAR", ["Halifax-Yarmouth"]], ["CP", ["Digby-Saint John-Montreal-Toronto"]], ["CN", ["Digby-Saint John-Montreal-Toronto"]],
+      ["ONR", ["Toronto-North Bay-Timmins-Cochrane-Hearst", "Cochrane-Moosonee", "Englehart-Noranda"]], ["CN", ["Toronto-North Bay-Timmins-Cochrane-Hearst"]],
+      ["CGT", ["Mont Joli-Matane"]], ["NJR", ["Montreal-Rouses Point"]]].flatMap(([rr, tables]) => tables.map(table => ({ rr, table, from: "1971-04-25", until: "1971-10-31", shift: cnDstEast, group: "cn-dst", note: "From April 25 to October 30 the printed (standard) times are run as daylight time, an hour earlier by standard time." }))),
+    ...[["CP", "1"], ["EN", "Victoria-Courtenay"], ["PGE", "1"], ["GWWD", "St. Boniface-Indian Bay"]].map(([rr, table]) => ({ rr, table, from: "1971-04-25", until: "1971-10-31", shift: cnDst, group: "cn-dst", note: "From April 25 to October 30 the times printed for Ontario, Quebec, Manitoba and British Columbia are run as daylight time, an hour earlier by standard time." })),
     // GTW Table 19: Michigan times (a) are printed for summer, when Michigan's standard time matched Chicago's daylight time
     ...["19", "21"].flatMap(table => [
       { rr: "GTW", table, from: "1971-02-01", until: "1971-04-25", shift: gtwA, group: "gtw-a", note: "Michigan times (a, ♆) are an hour later than printed from February 1 to April 24 and after October 30." },
