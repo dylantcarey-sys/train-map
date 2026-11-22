@@ -4020,9 +4020,10 @@ function milesExpr(v) {
 }
 function milesSumDialog(title, parts0, onDone) {
   let parts = (parts0 && parts0.length ? parts0 : [{ line: "", miles: "" }]).map(p => ({ ...p }));
-  const total = () => milesFmt(parts.reduce((a, p) => a + (parseFloat(p.miles) || 0), 0));
+  const val = v => { const x = milesExpr(v); return x ? parseFloat(x.total) : (parseFloat(v) || 0); };   // a row can be "168.6-148.9" (a branch counted in main-line mileposts)
+  const total = () => milesFmt(parts.reduce((a, p) => a + val(p.miles), 0));
   dialog(`<h2>Route miles: ${esc(title)}</h2>
-    <p class="small muted" style="margin:0 0 6px">One line per main line, branch or spur, as the Guide lists them. Enter in a miles box moves to the next line (and starts a new one at the end).</p>
+    <p class="small muted" style="margin:0 0 6px">One line per main line, branch or spur, as the Guide lists them. A branch whose first station isn't at 0 is usually counted from its junction: use its last figure. One counted in main-line mileposts can be typed as a subtraction (168.6-148.9). Enter in a miles box moves to the next line (and starts a new one at the end).</p>
     <table class="sheet small"><thead><tr><th>Line (optional)</th><th>Miles</th><th></th></tr></thead><tbody id="msRows"></tbody></table>
     <p style="margin:8px 0 0"><b>Total: <span id="msTot"></span> miles</b></p>`, "Use total", () => { onDone(total(), parts.filter(p => String(p.miles).trim() || p.line.trim())); });
   const draw = focus => {
@@ -4031,6 +4032,7 @@ function milesSumDialog(title, parts0, onDone) {
     $("msRows").querySelectorAll("[data-msl]").forEach(x => x.oninput = () => { parts[+x.dataset.msl].line = x.value; });
     $("msRows").querySelectorAll("[data-msm]").forEach(x => {
       x.oninput = () => { parts[+x.dataset.msm].miles = x.value.trim(); $("msTot").textContent = total(); };
+      x.onchange = () => { const e = milesExpr(x.value); if (e) { const i = +x.dataset.msm; if (!parts[i].line.trim()) parts[i].line = x.value.trim(); else if (!parts[i].line.includes("(")) parts[i].line += ` (${x.value.trim()})`; parts[i].miles = e.total; x.value = e.total; const l = $("msRows").querySelector(`[data-msl="${i}"]`); if (l) l.value = parts[i].line; } };
       x.onkeydown = e => { if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); const i = +x.dataset.msm;
         if (i === parts.length - 1) { if (!x.value.trim()) { $("dOk").click(); return; } parts.push({ line: "", miles: "" }); draw(["msm", i + 1]); } else $("msRows").querySelector(`[data-msm="${i + 1}"]`)?.focus(); };
     });
