@@ -349,14 +349,14 @@ input.hasmoon::placeholder, textarea.hasmoon::placeholder { color: var(--muted);
 .rrlist li button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--rule); background: none; padding: 7px 8px; font: inherit; color: var(--ink); cursor: pointer; }
 .rrlist li button[aria-current="true"] { background: var(--accent-soft); }
 @media (max-width: 760px) { .rrwrap { grid-template-columns: 1fr; } }
-/* Records (Dylan, Nov 22): the railroad list sits above the record, compact and in columns, so both get the full width */
+/* Records (Dylan, Nov 22): the railroad list sits above the record, one tight row per railroad with its details to the right of the name, so both get the full width */
 .rrwrap.rrstack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.rrstack .rrlist { padding: 6px; }
-.rrstack .rrlist ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 6px; max-height: 26vh; }
-.rrstack .rrlist li button { padding: 3px 6px; line-height: 1.25; }
-.rrstack .rrlist li button b { font-size: .92em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.rrstack .rrlist li button span.small { font-size: .78em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.rrstack .rrlist li button span.small:not(:last-child) { display: none; }
+.rrstack .rrlist { padding: 4px 6px; }
+.rrstack .rrlist ul { max-height: 30vh; }
+.rrstack .rrlist li button { flex-direction: row; align-items: baseline; gap: 10px; padding: 2px 6px; line-height: 1.3; white-space: nowrap; overflow: hidden; }
+.rrstack .rrlist li button b { font-size: .92em; flex: none; }
+.rrstack .rrlist li button span.small { font-size: .8em; overflow: hidden; text-overflow: ellipsis; }
+.rrstack .rrlist li button span.small:last-child { flex: 1 1 auto; min-width: 0; }
 .mtlist li button { gap: 1px; }
 .mtlist li.mtgrp { padding: 10px 8px 3px; border-bottom: 1px solid var(--rule-strong); font-size: 13px; }
 .probs li.known { border-left-color: var(--rule-strong); background: var(--sheet); }
@@ -3483,7 +3483,7 @@ function tablesLinesDialog(r) {
     const lines = u.map(x => { const e = milesExpr(x.miles); const l = { ...(x._i != null && old[x._i] ? old[x._i] : {}), tableNo: x.no, page: x.page, tableTitle: x.title, name: x.line, from: x.from, to: x.to, miles: e ? e.total : x.miles };
       for (const k of ["page", "tableTitle"]) if (!l[k]) delete l[k]; return l; });
     const g = { ...(rrGuide.get(key) || g0), lines };
-    if (fr) g.freightOnly = true; else delete g.freightOnly;
+    if (fr) { g.freightOnly = true; delete g.noTimes; } else delete g.freightOnly;
     if (lines.some(l => String(l.miles || "").trim())) { g.milesFromLines = true; g.miles = linesMiles(g); }
     delete g.milesParts;
     try {
@@ -4520,7 +4520,7 @@ async function renderRailroads() {
   el.innerHTML = `
     <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><div class="row" style="gap:12px;align-items:baseline"><h2 style="margin:0">Railroads</h2>${rrViewSwitch()}</div><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}</label>` : ""}<label class="row small" style="gap:6px" title="List railroads by their pages in this guide instead of by name"><input type="checkbox" id="rrByPage" ${byPage ? "checked" : ""}> Guide order</label><label class="row small" style="gap:6px" title="Hide railroads whose only trains in this guide are mixed trains"><input type="checkbox" id="rrHideMixed" ${hideMixed ? "checked" : ""}> Hide mixed-only</label><label class="row small" style="gap:6px" title="Hide railroads that are freight only in this guide (marked freight only, or passenger service ended before its date), to find the next passenger railroad"><input type="checkbox" id="rrHideFreight" ${hideFreight ? "checked" : ""}> Hide freight only</label>${hiddenN ? `<span class="small muted">${hiddenN} hidden</span>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
     <div class="rrwrap rrstack">
-      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}${x.nickname ? `<span class="muted small">“${esc(x.nickname)}”</span>` : ""}<span class="muted small">${esc(x.abbrev)}${pgOf(x) ? ` · p. ${pgOf(x)[0]}${pgOf(x)[1] !== pgOf(x)[0] ? "–" + pgOf(x)[1] : ""}` : ""}${rrFreightOn(x, onDate) ? " · freight only" : ""}${rrGuide.get(`${S.sourceId}|${x.id}`)?.noTimes ? " · no timetables in this guide" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
+      <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}${x.nickname ? `<span class="muted small">“${esc(x.nickname)}”</span>` : ""}<span class="muted small">${esc(x.abbrev)}${pgOf(x) ? ` · p. ${pgOf(x)[0]}${pgOf(x)[1] !== pgOf(x)[0] ? "–" + pgOf(x)[1] : ""}` : ""}${rrFreightOn(x, onDate) ? " · freight only" : ""}${rrGuide.get(`${S.sourceId}|${x.id}`)?.noTimes && !rrFreightOn(x, onDate) ? " · no timetables in this guide" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2>${onDate && rrNameOn(r, onDate) && rrNameOn(r, onDate) !== r.common ? `<span class="small muted" title="Its formal name on the guide's date">${esc(src0.dateText || onDate)}: ${esc(rrNameOn(r, onDate))}</span>` : ""}<span class="small muted" id="rrSaved"></span></div>
         <div class="rrtabs" role="tablist">${[["rr", "Railroad"], ...S.sources.filter(x => x.id === S.sourceId || rrStats.some(d => d.src.id === x.id && d.tables.length)).sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(x => ["g:" + x.id, x.name.replace(/^Official Guide\s+/i, "")])].map(([k, l]) => `<button role="tab" data-rrtab="${esc(k)}" aria-selected="${rrTabNow === k}">${esc(l)}${k.startsWith("g:") && u.some(y => "g:" + y.src.id === k) ? ` <span class="muted small">· ${(n => n + (n === 1 ? " table" : " tables"))(u.find(y => "g:" + y.src.id === k).ts.length)}</span>` : ""}</button>`).join("")}</div>
@@ -4902,6 +4902,7 @@ async function carrySection(src, r) {
   const { pages: _p, ...theirs } = doc.data(), key = `${S.sourceId}|${r.id}`;
   const mine = Object.fromEntries(Object.entries(rrGuide.get(key) || {}).filter(([, v]) => Array.isArray(v) ? v.length : typeof v === "boolean" ? v : String(v || "").trim()));
   const body = { ...structuredClone(theirs), ...mine };
+  if (body.freightOnly || rrFreightOn(r, curSource()?.date || "", S.sourceId)) delete body.noTimes;
   await S.db.doc(`sources/${S.sourceId}/rrpages/${r.id}`).set(body); rrGuide.set(key, body);
   notice(`Copied ${rrLabel(r)}'s section details from ${src.name}.`); renderRailroads();
 }
@@ -4991,8 +4992,8 @@ function wireRRGuide(r) {
   const g = () => { const x = { ...(rrGuide.get(key) || {}) }; x.lines = structuredClone(x.lines || []); return x; };
   const put = (x, redraw) => { if (x.milesFromLines) x.miles = linesMiles(x); rrGuide.set(key, x); save(redraw); if (redraw) renderRailroads(); };
   el.querySelectorAll("[data-rrg]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x[inp.dataset.rrg] = inp.value; put(x); }));
-  if ($("rrNoTimes")) $("rrNoTimes").onchange = e => { const x = g(); if (e.target.checked) x.noTimes = true; else delete x.noTimes; put(x, true); };
-  if ($("rrFrOnly")) $("rrFrOnly").onchange = e => { const x = g(); if (e.target.checked) x.freightOnly = true; else delete x.freightOnly; put(x, true); };
+  if ($("rrNoTimes")) $("rrNoTimes").onchange = e => { const x = g(); if (e.target.checked) { x.noTimes = true; delete x.freightOnly; } else delete x.noTimes; put(x, true); };
+  if ($("rrFrOnly")) $("rrFrOnly").onchange = e => { const x = g(); if (e.target.checked) { x.freightOnly = true; delete x.noTimes; } else delete x.freightOnly; put(x, true); };
   el.querySelectorAll("[data-ln]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.ln][inp.dataset.lk] = inp.value; put(x); }));
   const lnTb = el.querySelector(".rrlines tbody"); if (lnTb) sheetKeys(lnTb, "input[data-ln]");
   el.querySelectorAll(".lnst tbody").forEach(tb => sheetKeys(tb, "input[data-sn]"));
