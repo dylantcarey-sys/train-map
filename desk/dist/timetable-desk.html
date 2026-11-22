@@ -1689,7 +1689,8 @@ function renderContext() {
   $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table", t.marksTodo && `<button class="linkish" id="tsMarks" style="color:var(--warn,#b45309)" title="Added with several tables at once: enter this table's explanation of signs">Reference marks not entered yet</button>`].filter(Boolean).join(" · ") : "";
   if ($("tsMarks")) $("tsMarks").onclick = () => tableDialog(curTable());
   if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); LS.set("rrTab", "g:" + S.sourceId); showPage("railroads"); };
-  $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') : "";
+  $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') + (S.db && trainsInTable().length ? ` <button class="small-btn" id="btnTblDone" title="Mark every train on this table Done at once (a table copied as printed from another guide, say)">✓ Mark trains done…</button>` : "") : "";
+  if ($("btnTblDone")) $("btnTblDone").onclick = () => markTableTrainsDone(t);
   if ($("selTStatus")) { $("selTStatus").disabled = !S.db; $("selTStatus").onchange = e => { setTableStatus(t.id, e.target.value); renderContext(); }; }
   const nx = t && nextTableAfter(S.tables, t.id), pv = t && prevTableBefore(S.tables, t.id);
   $("btnNextTable").disabled = nx ? false : (!S.sourceId || !S.db); $("btnNextTable").textContent = nx ? "Next table ›" : "＋ New table"; $("btnNextTable").title = !t ? "Start the first table in this source" : nx ? `Open ${tableName(nx)}${nx.page ? ", page " + nx.page : ""}` : "No later table entered yet: start the next one (any railroad)";
@@ -1712,6 +1713,28 @@ const tableName = t => `${t.rr || "?"} · ${tlab(t)}`;
 const TSTATUS = [["todo", "Not started"], ["working", "In progress"], ["done", "Completed"]];
 const tStatusOf = (t, nTrains) => t.status || (nTrains ? "working" : "todo");
 const tStatusSelect = (t, nTrains, attrs) => `<select ${attrs} class="tstat ts-${tStatusOf(t, nTrains)}" aria-label="Status of this table">${TSTATUS.map(([k, l]) => `<option value="${k}" ${k === tStatusOf(t, nTrains) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+// mark every train on a table Done at once (Dylan, Nov 22: LIRR Tables 2–3 copied as printed from April). This table's entry is marked complete
+// for each train; the train itself becomes Done when all its tables in this guide are complete (a train still open on another table says so).
+function markTableTrainsDone(t) {
+  const ids = [...new Set(trainsInTable().map(x => x.id))].map(id => trainDoc(id)).filter(x => x && !x.copyOf);
+  const open = ids.filter(x => tStatus(x) !== "complete" || x.tables?.[t.id]?.status !== "complete");
+  const other = x => Object.keys(x.tables || {}).filter(k => k !== t.id && tableById(k) && x.tables[k].status !== "complete");
+  const held = open.filter(x => other(x).length);
+  dialog(`<h2>Mark the trains on ${esc(tableName(t))} done</h2>
+    <p>${open.length ? `<b>${open.length}</b> of ${ids.length} train${ids.length === 1 ? "" : "s"} on this table will be marked Done here.` : `All ${ids.length} trains on this table are already Done.`}${held.length ? ` ${held.length} of them ${held.length === 1 ? "is" : "are"} also on other tables not marked done yet (${esc(held.slice(0, 4).map(trLabel).join(", "))}${held.length > 4 ? "…" : ""}): ${held.length === 1 ? "it stays" : "they stay"} open until those are done too.` : ""}</p>
+    <label class="row small" style="gap:6px"><input type="checkbox" id="tdTable" ${t.status === "done" ? "" : "checked"}> Mark ${esc(tableName(t))} completed too</label>`, "Mark done", async () => {
+    const alsoTable = $("tdTable")?.checked; let n = 0;
+    for (const x of open) {
+      const w = edit(x.id); clearTimeout(timers.get(x.id));
+      if (w.tables?.[t.id]) w.tables[t.id].status = "complete";
+      if (!Object.keys(w.tables || {}).some(k => tableById(k) && w.tables[k].status !== "complete")) w.progress = "done";
+      await flush(x.id); n++;
+      if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${open.length}`;
+    }
+    if (alsoTable && t.status !== "done") setTableStatus(t.id, "done");
+    notice(`${n} train${n === 1 ? "" : "s"} marked Done on ${esc(tableName(t))}.`); render();
+  });
+}
 function setTableStatus(id, v) {
   const cur = S.tables.find(x => x.id === id); if (!cur) return;
   remember(`${tablesPath()}/${id}`, cur);
