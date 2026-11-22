@@ -4009,6 +4009,36 @@ async function renderPagesSheet(el, src, onDate) {
     inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); const all = [...el.querySelectorAll("[data-pg]")], i = all.indexOf(inp); (all[i + (e.shiftKey ? -1 : 1)] || inp).focus(); } });
   });
 }
+// route miles as a sum (Dylan, Nov 22, 2026): a railroad's mileage in the Guide is often its main line plus branches and spurs.
+// The box takes "12.4+3.1+0.8" (added up on leaving it), and Σ opens a small window to list each line and its miles; the lines are kept (milesParts) so it reopens with them.
+const milesFmt = n => String(Math.round(n * 100) / 100);
+function milesExpr(v) {
+  const t = String(v || "").trim(); if (!/^[\d.\s+\-]+$/.test(t) || !/\d\s*[+\-]\s*[\d.]/.test(t)) return null;
+  const parts = t.match(/[+\-]?\s*[\d.]+/g) || []; let sum = 0;
+  for (const x of parts) { const n = parseFloat(x.replace(/\s/g, "")); if (!isFinite(n)) return null; sum += n; }
+  return { total: milesFmt(sum), parts: parts.map(x => ({ line: "", miles: x.replace(/[\s+]/g, "") })) };
+}
+function milesSumDialog(title, parts0, onDone) {
+  let parts = (parts0 && parts0.length ? parts0 : [{ line: "", miles: "" }]).map(p => ({ ...p }));
+  const total = () => milesFmt(parts.reduce((a, p) => a + (parseFloat(p.miles) || 0), 0));
+  dialog(`<h2>Route miles: ${esc(title)}</h2>
+    <p class="small muted" style="margin:0 0 6px">One line per main line, branch or spur, as the Guide lists them. Enter in a miles box moves to the next line (and starts a new one at the end).</p>
+    <table class="sheet small"><thead><tr><th>Line (optional)</th><th>Miles</th><th></th></tr></thead><tbody id="msRows"></tbody></table>
+    <p style="margin:8px 0 0"><b>Total: <span id="msTot"></span> miles</b></p>`, "Use total", () => { onDone(total(), parts.filter(p => String(p.miles).trim() || p.line.trim())); });
+  const draw = focus => {
+    $("msRows").innerHTML = parts.map((p, i) => `<tr><td><input data-msl="${i}" value="${esc(p.line)}" placeholder="e.g. Conneaut branch" autocomplete="off" style="width:18em"></td><td><input data-msm="${i}" value="${esc(p.miles)}" inputmode="decimal" autocomplete="off" style="width:6em"></td><td class="rowbtns"><button class="ghost danger" tabindex="-1" data-msx="${i}" aria-label="Remove line">✕</button></td></tr>`).join("");
+    $("msTot").textContent = total();
+    $("msRows").querySelectorAll("[data-msl]").forEach(x => x.oninput = () => { parts[+x.dataset.msl].line = x.value; });
+    $("msRows").querySelectorAll("[data-msm]").forEach(x => {
+      x.oninput = () => { parts[+x.dataset.msm].miles = x.value.trim(); $("msTot").textContent = total(); };
+      x.onkeydown = e => { if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); const i = +x.dataset.msm;
+        if (i === parts.length - 1) { if (!x.value.trim()) { $("dOk").click(); return; } parts.push({ line: "", miles: "" }); draw(["msm", i + 1]); } else $("msRows").querySelector(`[data-msm="${i + 1}"]`)?.focus(); };
+    });
+    $("msRows").querySelectorAll("[data-msx]").forEach(b => b.onclick = () => { parts.splice(+b.dataset.msx, 1); if (!parts.length) parts.push({ line: "", miles: "" }); draw(); });
+    if (focus) $("msRows").querySelector(`[data-${focus[0]}="${focus[1]}"]`)?.focus();
+  };
+  draw(["msm", 0]);
+}
 async function renderFreightSheet(el, src0, onDate) {
   const src = src0; if (!src) { el.innerHTML = `<div class="card">Open a guide first.</div>`; return; }
   const G = r => rrGuide.get(`${src.id}|${r.id}`) || {};
@@ -4021,14 +4051,14 @@ async function renderFreightSheet(el, src0, onDate) {
   const row = (r, x) => `<tr data-frrow="${esc(r ? r.id : "")}">
       <td>${cell(r ? r.id : "", "pages", x.pages, "Page", "5em")}</td><td>${cell(r ? r.id : "", "name", x.name, r ? "" : "Type a railroad to add it", "22em")}</td>
       <td>${cell(r ? r.id : "", "abbrev", x.abbrev, r ? "" : "auto", "5.5em", r && usedSet.has(r.abbrev))}${r?.mark ? ` <span class="muted small" title="Reporting mark (another railroad has it as its code)">${esc(r.mark)}</span>` : ""}</td><td>${cell(r ? r.id : "", "rrType", x.rrType, "Terminal…", "8em")}</td><td>${cell(r ? r.id : "", "geography", x.geography, "e.g. Aberdeen–Star", "18em")}</td>
-      <td>${cell(r ? r.id : "", "states", x.states, "N.C.", "7em")}</td><td>${cell(r ? r.id : "", "miles", x.miles, "Mi.", "5em")}</td>
+      <td>${cell(r ? r.id : "", "states", x.states, "N.C.", "7em")}</td><td style="white-space:nowrap">${cell(r ? r.id : "", "miles", x.miles, "Mi.", "5em")}${r ? `<button class="ghost" tabindex="-1" data-frsum="${esc(r.id)}" title="Add up the lines: main line, branches, spurs${r && G(r).milesParts?.length ? ` (${G(r).milesParts.length} lines entered)` : ""}" aria-label="Add up route miles">Σ</button>` : ""}</td>
       <td class="rowbtns" style="white-space:nowrap">${r ? `<button class="ghost" tabindex="-1" data-fropen="${esc(r.id)}" title="Open its record" aria-label="Open its record">↗</button>${G(r).freightOnly ? `<button class="ghost danger" tabindex="-1" data-frdel="${esc(r.id)}" title="${usedSet.has(r.abbrev) ? "Take it off this sheet (the railroad stays)" : "Take it off this sheet; a railroad with nothing else entered is deleted (Undo brings it back)"}" aria-label="Remove">✕</button>` : ""}` : ""}</td></tr>`;
   const vals = r0 => { const r = { ...r0, ...(frPend.get(r0.id) || {}) }; return { pages: G(r).pages || "", name: r.name || r.common || "", abbrev: r.abbrev, rrType: r.rrType || "", geography: r.geography || "", states: r.states || "", miles: G(r).miles || "" }; };
   el.innerHTML = `
     <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><div class="row" style="gap:12px;align-items:baseline"><h2 style="margin:0">Railroads</h2>${rrViewSwitch()}</div><span class="small muted" id="frSaved"></span></div></div>
     <div class="card">
       <h2 style="margin:0 0 4px">Freight-only railroads in ${esc(src.name)}</h2>
-      <p class="small muted" style="margin:0 0 8px">One row per railroad the Guide lists with no passenger trains. Type in the last row to add one; changes save as you type. Enter moves down a row, and a new row starts on the page of the one above. Name, place and states go on the railroad's record; miles and pages are this guide's. Railroads whose passenger service ended before ${esc(src.dateText || onDate || "this guide")} show here too.</p>
+      <p class="small muted" style="margin:0 0 8px">One row per railroad the Guide lists with no passenger trains. Route miles can be typed as a sum (12.4+3.1), or use Σ to list the main line and each branch. Type in the last row to add one; changes save as you type. Enter moves down a row, and a new row starts on the page of the one above. Name, place and states go on the railroad's record; miles and pages are this guide's. Railroads whose passenger service ended before ${esc(src.dateText || onDate || "this guide")} show here too.</p>
       ${S.viewOnly ? `<table class="sheet small"><thead><tr><th>Pages</th><th>Railroad</th><th>Code</th><th>Type</th><th>Where it runs</th><th>States</th><th>Miles</th></tr></thead><tbody>${rows.map(r => { const x = vals(r); return `<tr><td>${esc(x.pages)}</td><td>${esc(x.name)}</td><td>${esc(x.abbrev)}</td><td>${esc(x.rrType)}</td><td>${esc(x.geography)}</td><td>${esc(x.states)}</td><td>${esc(x.miles)}</td></tr>`; }).join("") || `<tr><td colspan="7" class="muted">None listed yet.</td></tr>`}</tbody></table>` : `
       <div style="overflow:auto"><table class="sheet small" id="frTable"><thead><tr><th>Pages</th><th>Railroad (as printed)</th><th title="The code used on tables; made from the name if left blank">Code</th><th title="Terminal, Switching, Freight... pick one or type your own; commas for more than one">Type</th><th>Where it runs</th><th>States</th><th>Route miles</th><th></th></tr></thead>
         <tbody>${rows.map(r => row(r, vals(r))).join("")}${row(null, { ...frBlank, pages: frBlank.pages || (rows.length ? G(rows[rows.length - 1]).pages || "" : "") })}</tbody></table></div>
@@ -4054,7 +4084,7 @@ async function renderFreightSheet(el, src0, onDate) {
     const same = S.railroads.find(x => [x.name, x.common, ...(x.otherNames || "").split(/\n/)].some(n => n && n.trim().toLowerCase() === name.toLowerCase()));
     if (same) {   // already a railroad: put it on this guide's sheet
       const key = `${src.id}|${same.id}`; const g = { ...(rrGuide.get(key) || {}), freightOnly: true };
-      if (frBlank.pages) g.pages = frBlank.pages; if (frBlank.miles) g.miles = frBlank.miles;
+      if (frBlank.pages) g.pages = frBlank.pages; if (frBlank.miles) g.miles = frBlank.miles; if (frBlank.milesParts?.length) g.milesParts = frBlank.milesParts;
       remember(`sources/${src.id}/rrpages/${same.id}`, rrGuide.get(key) || null); rrGuide.set(key, g);
       for (const k of ["rrType", "geography", "states"]) if (frBlank[k] && !same[k]) same[k] = frBlank[k];
       saveOne(same, true); notice(`${esc(rrLabel(same))} was already a railroad (${esc(same.abbrev)}); it's on the sheet now.`);
@@ -4067,7 +4097,7 @@ async function renderFreightSheet(el, src0, onDate) {
     if (taken(ab)) { const other = S.railroads.find(x => x.abbrev.toLowerCase() === ab.toLowerCase()); mark = ab; let n = 2; while (taken(ab + n)) n++; ab = ab + n; notice(`${mark} is also ${rrLabel(other)}'s code, so this one is ${ab} in the Desk, with reporting mark ${mark}.`); }
     let id = ab.replace(/[^A-Za-z0-9]/g, "") || uid(); if (S.railroads.some(x => x.id === id)) id += "-" + uid().slice(0, 4);
     const body = { abbrev: ab, name, ...(mark ? { mark } : {}), ...(frBlank.rrType ? { rrType: frBlank.rrType } : {}), ...(frBlank.geography ? { geography: frBlank.geography } : {}), ...(frBlank.states ? { states: frBlank.states } : {}) };
-    const g = { freightOnly: true, ...(frBlank.pages ? { pages: frBlank.pages } : {}), ...(frBlank.miles ? { miles: frBlank.miles } : {}) };
+    const g = { freightOnly: true, ...(frBlank.pages ? { pages: frBlank.pages } : {}), ...(frBlank.miles ? { miles: frBlank.miles } : {}), ...(frBlank.milesParts?.length ? { milesParts: frBlank.milesParts } : {}) };
     remember(`railroads/${id}`, null); remember(`sources/${src.id}/rrpages/${id}`, null);
     // shown at once (so typing carries on into its next box); saved behind
     rrGuide.set(`${src.id}|${id}`, g); if (!S.railroads.some(x => x.id === id)) S.railroads.push({ ...body, id }); frNew.push(id);
@@ -4104,10 +4134,34 @@ async function renderFreightSheet(el, src0, onDate) {
       trs[i + 1]?.querySelector(`[data-frk="${k}"]`)?.focus();
     });
   });
+  // miles: "12.4+3.1" adds up on leaving the box; a plain number typed over a sum drops the lines kept for it
+  const setMiles = (id, total, parts) => {
+    if (!id) { frBlank.miles = total; frBlank.milesParts = parts; return; }
+    const r = S.railroads.find(x => x.id === id); if (!r) return; const key = `${src.id}|${id}`;
+    remember(`sources/${src.id}/rrpages/${id}`, rrGuide.get(key) || null);
+    const g = { ...(rrGuide.get(key) || {}), miles: total }; if (parts?.length) g.milesParts = parts; else delete g.milesParts;
+    rrGuide.set(key, g); saveOne(r, true);
+  };
+  el.querySelectorAll('[data-frk="miles"]').forEach(inp => inp.addEventListener("change", () => {
+    const id = inp.dataset.fr, x = milesExpr(inp.value);
+    if (x) { inp.value = x.total; setMiles(id, x.total, x.parts); msg(`Route miles ${x.total} (${x.parts.map(p => p.miles).join(" + ")}); Σ shows the lines.`); }
+    else if (id && rrGuide.get(`${src.id}|${id}`)?.milesParts && milesFmt(rrGuide.get(`${src.id}|${id}`).milesParts.reduce((a, p) => a + (parseFloat(p.miles) || 0), 0)) !== inp.value.trim()) setMiles(id, inp.value.trim(), null);
+    else if (!id) frBlank.milesParts = null;
+  }));
+  el.querySelectorAll("[data-frsum]").forEach(b => b.onclick = () => {
+    const id = b.dataset.frsum, r = id && S.railroads.find(x => x.id === id);
+    const parts = id ? rrGuide.get(`${src.id}|${id}`)?.milesParts : frBlank.milesParts;
+    const cur = (id ? rrGuide.get(`${src.id}|${id}`)?.miles : frBlank.miles) || "";
+    milesSumDialog(r ? rrLabel(r) : (frBlank.name.trim() || "new railroad"), parts?.length ? parts : (cur ? [{ line: "", miles: cur }] : null), (total, ps) => {
+      setMiles(id, total, ps);
+      if (id) { const f = el.querySelector(`[data-fr="${CSS.escape(id)}"][data-frk="miles"]`); if (f) f.value = total; }
+      setTimeout(() => { if (id) { renderFreightSheet(el, src0, onDate); focusCell(id, "miles"); } else { const f = el.querySelector('[data-fr=""][data-frk="miles"]'); if (f) { f.value = total; f.focus(); } } }, 0);
+    });
+  });
   el.querySelectorAll("[data-fropen]").forEach(b => b.onclick = () => { rrSel = b.dataset.fropen; LS.set("rrSel", rrSel); LS.set("rrView", "list"); LS.set("rrTab", "g:" + src.id); renderRailroads(); });
   el.querySelectorAll("[data-frdel]").forEach(b => b.onclick = async () => {
     const r = S.railroads.find(x => x.id === b.dataset.frdel); if (!r) return; const key = `${src.id}|${r.id}`; const g = { ...(rrGuide.get(key) || {}) };
-    const bare = !usedSet.has(r.abbrev) && Object.keys(r).every(k => ["id", "abbrev", "name", "rrType", "geography", "states"].includes(k)) && Object.keys(g).every(k => ["freightOnly", "pages", "miles"].includes(k));
+    const bare = !usedSet.has(r.abbrev) && Object.keys(r).every(k => ["id", "abbrev", "name", "rrType", "geography", "states"].includes(k)) && Object.keys(g).every(k => ["freightOnly", "pages", "miles", "milesParts"].includes(k));
     remember(`railroads/${r.id}`, { ...r }); remember(`sources/${src.id}/rrpages/${r.id}`, rrGuide.get(key) || null);
     try {
       if (bare) { await S.db.doc(`sources/${src.id}/rrpages/${r.id}`).delete(); await S.db.doc(`railroads/${r.id}`).delete(); rrGuide.delete(key); S.railroads = S.railroads.filter(x => x.id !== r.id); notice(`${esc(rrLabel(r))} deleted. Undo brings it back.`); }
