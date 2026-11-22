@@ -4334,6 +4334,7 @@ async function renderRailroads() {
   const src0 = S.sources.find(x => x.id === S.sourceId), onDate = src0?.date || "", onlyActive = LS.get("rrActive", true) && !!onDate;
   await loadRRPages(S.sourceId);
   if (LS.get("rrView", "list") === "sheet") return renderFreightSheet(el, src0, onDate);
+  if (LS.get("rrView", "list") === "pages") return renderPagesSheet(el, src0, onDate);
   const pgOf = r => rrPageRange(S.sourceId, r), byPage = LS.get("rrByPage", false);
   const all = [...S.railroads].sort((a, b) => byPage ? ((pgOf(a)?.[0] ?? 1e9) - (pgOf(b)?.[0] ?? 1e9)) || rrLabel(a).localeCompare(rrLabel(b)) : rrLabel(a).localeCompare(rrLabel(b)));
   if (!rrStats) { el.innerHTML = `<div class="card">Gathering railroads…</div>`; try { rrStats = await homeData(); } catch { rrStats = []; } }
@@ -4419,7 +4420,7 @@ async function renderRailroads() {
 // ---------- freight-only railroads: one quick sheet per guide ----------
 // railroads the Guide lists with no passenger trains: name as printed, where it runs, states, route miles, pages.
 // Name, place and states go on the railroad record (all guides); miles and pages on its section for this guide (rrpages), with freightOnly.
-const rrViewSwitch = () => { const v = LS.get("rrView", "list"); return `<div class="rrtabs" role="tablist" style="margin:0;border:0">${[["list", "Records"], ["sheet", "Freight-only sheet"]].map(([k, l]) => `<button role="tab" data-rrview="${k}" aria-selected="${v === k}" style="border-radius:6px;border-bottom:1px solid var(--rule)">${l}</button>`).join("")}</div>`; };
+const rrViewSwitch = () => { const v = LS.get("rrView", "list"); return `<div class="rrtabs" role="tablist" style="margin:0;border:0">${[["list", "Records"], ["pages", "Pages from the index"], ["sheet", "Freight-only sheet"]].map(([k, l]) => `<button role="tab" data-rrview="${k}" aria-selected="${v === k}" style="border-radius:6px;border-bottom:1px solid var(--rule)">${l}</button>`).join("")}</div>`; };
 const wireRRView = el => el.querySelectorAll("[data-rrview]").forEach(b => b.onclick = () => { LS.set("rrView", b.dataset.rrview); renderRailroads(); });
 // a code for the tables from the name: initials, leaving out Railroad/Railway/Company and small words (Aberdeen and Rockfish Railroad -> AR)
 function rrCodeFor(name) {
@@ -4431,6 +4432,42 @@ function rrCodeFor(name) {
 }
 let frBlank = { pages: "", name: "", abbrev: "", rrType: "", geography: "", states: "", miles: "" }, frTimers = new Map();
 const frNew = [], frPend = new Map();   // frPend: sheet edits not saved yet, kept apart so a database refresh in between can't drop them   // railroads added on the sheet this visit: kept at the bottom, in the order typed, so the row you're on doesn't move
+// every railroad's pages in the open guide, typed from the Guide's index in one sheet (Dylan, Nov 21, 2026):
+// pages set Guide order, Home's next railroad and the page of each new or copied table. The nearest other guide's pages are shown alongside.
+async function renderPagesSheet(el, src, onDate) {
+  if (!src) { el.innerHTML = `<div class="card">Open a guide first.</div>`; return; }
+  const other = carrySource(); await loadRRPages(src.id); if (other) await loadRRPages(other.id);
+  const G = (sid, r) => rrGuide.get(`${sid}|${r.id}`) || {};
+  const q = (LS.get("pgFind", "") || "").toLowerCase(), all = LS.get("pgAll", false);
+  const nm = r => r.name || r.common || r.abbrev;
+  const rows = S.railroads.filter(r => all || G(src.id, r).pages || (other && G(other.id, r).pages) || (r.kind !== "freight" && rrActiveOn(r, onDate)))
+    .filter(r => !q || `${nm(r)} ${r.common || ""} ${r.abbrev}`.toLowerCase().includes(q))
+    .sort((a, b) => nm(a).replace(/^the\s+/i, "").localeCompare(nm(b).replace(/^the\s+/i, "")));
+  const n = S.railroads.filter(r => G(src.id, r).pages).length;
+  el.innerHTML = `
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><div class="row" style="gap:12px;align-items:baseline"><h2 style="margin:0">Railroads</h2>${rrViewSwitch()}</div><span class="small muted" id="pgSaved"></span></div></div>
+    <div class="card">
+      <h2 style="margin:0 0 4px">Pages in ${esc(src.name)}</h2>
+      <p class="small muted" style="margin:0 0 8px">Type each railroad's pages from the Guide's index ("140" or "140–143"); they save as you type, and Enter or Tab moves down. Alphabetical, like the index${other ? `; ${esc(other.name)}'s pages are alongside for reference` : ""}. A railroad missing from the list: tick “All railroads”, or add it on Records.</p>
+      <div class="row" style="gap:10px;margin-bottom:6px"><input id="pgFind" placeholder="Find a railroad" value="${esc(LS.get("pgFind", ""))}" autocomplete="off" style="width:16em"><label class="row small" style="gap:4px"><input type="checkbox" id="pgAll" ${all ? "checked" : ""}> All railroads (freight and inactive too)</label><span class="small muted">${n} with pages in this guide</span></div>
+      <div style="overflow:auto"><table class="sheet small" id="pgTable"><thead><tr><th>Railroad</th><th>Code</th><th>Pages here</th>${other ? `<th>In ${esc(other.name.replace(/^Official Guide,?\s*/i, ""))}</th>` : ""}</tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(nm(r))}${r.common && r.name && r.common !== r.name ? ` <span class="muted">(${esc(r.common)})</span>` : ""}</td><td>${esc(r.abbrev)}</td><td>${S.viewOnly ? esc(G(src.id, r).pages || "") : `<input data-pg="${esc(r.id)}" value="${esc(G(src.id, r).pages || "")}" autocomplete="off" style="width:7em">`}</td>${other ? `<td class="muted">${esc(G(other.id, r).pages || "")}</td>` : ""}</tr>`).join("")}
+      </tbody></table></div></div>`;
+  wireRRView(el);
+  $("pgFind").oninput = e => { LS.set("pgFind", e.target.value); clearTimeout(rrTimer); rrTimer = setTimeout(() => { renderRailroads().then(() => { const f = $("pgFind"); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }); }, 250); };
+  $("pgAll").onchange = e => { LS.set("pgAll", e.target.checked); renderRailroads(); };
+  if (S.viewOnly) return;
+  const timers = new Map();
+  el.querySelectorAll("[data-pg]").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const id = inp.dataset.pg, key = `${src.id}|${id}`, body = { ...(rrGuide.get(key) || {}) };
+      if (inp.value.trim()) body.pages = inp.value.trim().replace(/\s*-\s*/g, "–"); else delete body.pages;
+      rrGuide.set(key, body); $("pgSaved").textContent = "Saving…"; clearTimeout(timers.get(id));
+      timers.set(id, setTimeout(async () => { try { await S.db.doc(`sources/${src.id}/rrpages/${id}`).set(rrGuide.get(key)); $("pgSaved").textContent = "Saved"; } catch { $("pgSaved").textContent = "Couldn't save"; } }, 500));
+    });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); const all = [...el.querySelectorAll("[data-pg]")], i = all.indexOf(inp); (all[i + (e.shiftKey ? -1 : 1)] || inp).focus(); } });
+  });
+}
 async function renderFreightSheet(el, src0, onDate) {
   const src = src0; if (!src) { el.innerHTML = `<div class="card">Open a guide first.</div>`; return; }
   const G = r => rrGuide.get(`${src.id}|${r.id}`) || {};
@@ -5563,7 +5600,9 @@ async function renderHome() {
   const nStops = all.reduce((a, x) => a + (x.tr.stops || []).filter(s => s.stationId && !s.pass).length, 0) + sumOf("nStops");
   const stUsed = new Set(all.flatMap(x => (x.tr.stops || []).map(s => s.stationId).filter(Boolean)));
   const statusOf = tr => tStatus(tr);
-  const counts = Object.fromEntries(STATUS_KEYS.map(k => [k, 0])); all.forEach(x => { if (Object.keys(x.tr.tables || {}).length) counts[statusOf(x.tr)]++; });
+  const byIdIn = new Map(data.map(d => [d.src.id, new Map(d.trains.map(t => [t.id, t]))]));
+  const statusIn = x => { const o = x.tr.copyOf && byIdIn.get(x.src.id)?.get(x.tr.copyOf); return o && o.id !== x.tr.id ? tStatus(o) : statusOf(x.tr); };
+  const counts = Object.fromEntries(STATUS_KEYS.map(k => [k, 0])); all.forEach(x => { if (Object.keys(x.tr.tables || {}).length && !x.tr.setupOf && counts[statusIn(x)] !== undefined) counts[statusIn(x)]++; });
   summed.forEach(d => STATUS_KEYS.forEach(k => counts[k] += (d.summary.byStatus || {})[k] || 0));
   // keep this guide's summary up to date, so other guides' Home pages can show it without reading every train
   const cur = data.find(d => d.src.id === S.sourceId && !d.summary);
