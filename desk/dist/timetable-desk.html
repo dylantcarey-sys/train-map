@@ -5670,6 +5670,7 @@ async function renderHome() {
   // totals
   const summed = data.filter(d => d.summary), sumOf = k => summed.reduce((a, d) => a + (d.summary[k] || 0), 0);
   const started = data.filter(d => d.tables.length && !d.summary);
+  await Promise.all(started.map(d => loadRRPages(d.src.id).catch(() => {})));
   const nTables = data.reduce((a, d) => a + d.tables.length, 0) + sumOf("nTables");
   const nTrains = all.filter(x => Object.keys(x.tr.tables || {}).length && !x.tr.setupOf).length + sumOf("nTrains");
   const nStops = all.reduce((a, x) => a + (x.tr.stops || []).filter(s => s.stationId && !s.pass).length, 0) + sumOf("nStops");
@@ -5748,7 +5749,9 @@ async function renderHome() {
     };
     // tables grouped by railroad, each group folds open or shut
     const firstPg = rr => Math.min(...d.tables.filter(t => (t.rr || "") === rr).map(pageNo));
-    const rrs = [...new Set(d.tables.map(t => t.rr || ""))].sort((a, b) => firstPg(a) - firstPg(b) || a.localeCompare(b));
+    // a railroad that's freight only in this guide and has no trains isn't listed: Home is for the passenger railroads (Dylan, Nov 22, 2026)
+    const frOnly = rr => { const r = S.rrByAbbrev?.get(rr); return !!r && rrFreightOn(r, d.src.date || "", d.src.id) && !d.trains.some(tr => trRR(tr) === rr); };
+    const rrs = [...new Set(d.tables.map(t => t.rr || ""))].filter(rr => !frOnly(rr)).sort((a, b) => firstPg(a) - firstPg(b) || a.localeCompare(b));
     const rows = rrs.map(rr => {
       const ts = d.tables.filter(t => (t.rr || "") === rr).sort(guideOrder), gk = d.src.id + "|" + rr, shut = !opened.has(gk);
       const nTr = d.trains.filter(tr => ts.some(t => tr.tables?.[t.id])).length;
