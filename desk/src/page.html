@@ -642,6 +642,13 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   quiet(document);
   new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.("input")) quiet(n.parentNode || n); else quiet(n); } }).observe(document.documentElement, { childList: true, subtree: true });
 })();
+// moving into a box by keyboard (Tab, Enter, arrows) selects what's in it, so typing replaces it (Dylan, Nov 22); a click still puts the caret where you click
+{ let lastPointer = 0;
+  document.addEventListener("pointerdown", () => { lastPointer = Date.now(); }, true);
+  document.addEventListener("focusin", e => { const el = e.target;
+    if (!(el instanceof HTMLInputElement) || !/^(text|search|)$/.test(el.type) || el.readOnly || Date.now() - lastPointer < 400) return;
+    if (!el.closest("#entry, .sheet, .rrlines, #tlRows, #bkRows, #msRows")) return;
+    setTimeout(() => { if (document.activeElement === el && el.value) { try { el.select(); } catch {} } }, 0); }, true); }
 window.__deskHook = () => ({ carrySource, milesSumDialog, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
@@ -1237,6 +1244,9 @@ function renderContext() {
   if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); LS.set("rrTab", "g:" + S.sourceId); showPage("railroads"); };
   $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') + (S.db && trainsInTable().length ? ` <button class="small-btn" id="btnTblDone" title="Mark every train on this table Done at once (a table copied as printed from another guide, say)">✓ Mark trains done…</button>` : "") : "";
   if ($("btnTblDone")) $("btnTblDone").onclick = () => markTableTrainsDone(t);
+  // a follow-up left on the table (Dylan, Nov 22: April PC tables missing their connecting trains): shown until cleared
+  if (t?.followUp) { $("tableSummary").insertAdjacentHTML("beforeend", ` <span class="pill" style="background:#fdf0d5;color:#5a4300" title="${esc(t.followUp)}">⚑ Follow-up: ${esc(t.followUp.length > 90 ? t.followUp.slice(0, 90) + "…" : t.followUp)}</span>${S.db ? ` <button class="linkish small" id="tsFollowDone">Done</button>` : ""}`);
+    if ($("tsFollowDone")) $("tsFollowDone").onclick = async () => { const cur = curTable(); if (!cur) return; remember(`${tablesPath()}/${cur.id}`, cur); const tb = structuredClone(cur); delete tb.followUp; const i = S.tables.findIndex(x => x.id === cur.id); if (i >= 0) S.tables[i] = tb; await saveTable(tb); notice("Follow-up cleared."); renderContext(); }; }
   if ($("selTStatus")) { $("selTStatus").disabled = !S.db; $("selTStatus").onchange = e => { setTableStatus(t.id, e.target.value); renderContext(); }; }
   const nx = t && nextTableAfter(S.tables, t.id), pv = t && prevTableBefore(S.tables, t.id);
   $("btnNextTable").disabled = nx ? false : (!S.sourceId || !S.db); $("btnNextTable").textContent = nx ? "Next table ›" : "＋ New table"; $("btnNextTable").title = !t ? "Start the first table in this source" : nx ? `Open ${tableName(nx)}${nx.page ? ", page " + nx.page : ""}` : "No later table entered yet: start the next one (any railroad)";
@@ -2864,6 +2874,7 @@ function tableDialog(existing) {
       ${existing ? "" : `<fieldset id="dRosterBox" style="grid-column:1/-1" hidden><legend>Trains of this railroad not yet on a table</legend><p class="small muted" style="margin:0 0 4px">Trains of this railroad that aren't on a table yet. Tick the ones this table prints; they become its columns.</p><div id="dRosterList" style="max-height:180px;overflow:auto"></div></fieldset>`}
       <label class="row small" style="grid-column:1/-1;gap:6px;align-items:flex-start"><input type="checkbox" id="dCondensed" ${t.condensed ? "checked" : ""}> <span><b>Condensed table</b> <span class="muted">(a summary box, like the Condensed Schedule of Florida Train). Not every leg shows an arrival or departure time or a train number, so missing times aren't flagged on this table.</span></span></label>
       <label class="f" style="grid-column:1/-1"><span>Table notes</span><textarea id="dTNotes" rows="2" placeholder="Other footnotes for this table">${esc(t.notes || "")}</textarea></label>
+      <label class="f" style="grid-column:1/-1"><span>Follow-up</span><textarea id="dTFollow" rows="2" placeholder="Something still to do on this table, e.g. connecting trains printed on it aren't entered yet (shows on the table and in Home's Needs a look until cleared)">${esc(t.followUp || "")}</textarea></label>
     </div>
     <p class="small muted">The time zone fills in for stations that don't have one in the station list. Each station's own zone is used where it has one.</p>`, existing ? "Save" : "Start table", async () => {
     let rr = $("dRR").value;
@@ -2882,7 +2893,8 @@ function tableDialog(existing) {
     readMarks();
     const cleanMarks = marks.map(m => ({ mark: m.mark.trim(), meaning: m.meaning.trim() })).filter(m => m.mark);
     LS.set("lastMarks", cleanMarks);
-    const body = { ...(existing || { rows: [] }), hosted: $("dHosted").checked, condensed: $("dCondensed").checked, marks: cleanMarks, rr, tableNo: no, page: $("dPage").value.trim(), title: $("dTitle").value.trim(), tableDateText: dt, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: $("dTz").value, basis: $("dBasis").value, notes: $("dTNotes").value };
+    const body = { ...(existing || { rows: [] }), hosted: $("dHosted").checked, condensed: $("dCondensed").checked, marks: cleanMarks, rr, tableNo: no, page: $("dPage").value.trim(), title: $("dTitle").value.trim(), tableDateText: dt, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: $("dTz").value, basis: $("dBasis").value, notes: $("dTNotes").value, followUp: $("dTFollow").value.trim() };
+    if (!body.followUp) delete body.followUp;
     const id = existing?.id || `${rr.replace(/[^A-Za-z0-9]/g, "")}-${no.replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`;
     delete body.id; delete body.part; delete body.marksTodo; LS.set("rr", rr);
     if (!existing) { body.createdAt = new Date().toISOString(); LS.set("lastTz", body.tz); }
@@ -4407,7 +4419,7 @@ async function carryTable(src, t, mode) {
   if (S.tables.some(x => x.id === t.id)) return 0;
   const d = carryCache.get(src.id); if (!d) return 0;
   const { id: _i, ...tb } = structuredClone(t);
-  delete tb.status; delete tb.page; delete tb.updatedAt;
+  delete tb.status; delete tb.page; delete tb.updatedAt; delete tb.followUp;
   if (mode === "start") for (const k of ["tableDate", "tableDatePrecision", "tableDateText"]) delete tb[k];
   const r = S.railroads.find(x => x.abbrev === t.rr), pr = r && rrPageRange(S.sourceId, r); if (pr) tb.page = String(pr[0]);
   tb.carriedFrom = { source: src.id, mode }; tb.createdAt = new Date().toISOString();
@@ -5461,6 +5473,7 @@ async function renderHome() {
   const attn = [];
   for (const d of data) { const tm = new Map(d.tables.map(t => [t.id, t]));
     for (const tr of d.trains.filter(t => !t.copyOf && !futureRR(t, d.tables))) for (const is of trainIssues(tr, tm).filter(is => !(tr.knownIssues || {})[`check|${is.table}|${is.text}`])) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id, mode: "train" }))}'>${trL(tr)}</button> <span class="small muted">${esc(tm.get(is.table) ? `${tm.get(is.table).rr} ${tlab(tm.get(is.table))}` : "")}${data.filter(x => x.tables.length).length > 1 ? " · " + esc(d.src.name) : ""}</span> — ${esc(is.text)}${is.fix === "reverse" ? ` <button class="small-btn" data-rev='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id }))}'>Put stops in time order</button>` : ""}</li>`); }
+  for (const d of data) for (const t of d.tables.filter(t => String(t.followUp || "").trim())) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}'>${tLabel(t)}</button> <span class="small muted">${esc(d.src.name)}</span> — ⚑ ${esc(t.followUp)}</li>`);
   for (const d of data) for (const t of d.tables.filter(t => !String(t.page || "").trim())) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}' data-editpage="1">${tLabel(t)}</button> — no Guide page number entered, so it can't be put in Guide order. Open it and use Edit table to add the page.</li>`);
   for (const d of data) { const rrs = new Set(d.trains.map(t => trRR(t))), nos = new Set(d.trains.map(t => `${trRR(t)}|${t.trainNo}`));
     for (const tr of d.trains) for (const x of (tr.linkTodos || [])) if (x && x.text && x.rr && (x.trainNo ? nos.has(`${x.rr}|${x.trainNo}`) : rrs.has(x.rr)))
