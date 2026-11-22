@@ -4392,6 +4392,7 @@ async function renderRailroads() {
     try { await S.db.doc(`railroads/${id}`).set(body); S.rrByAbbrev = new Map(S.railroads.map(r => [r.abbrev, r])); notice(`Short name changed to ${esc(v)}.`); renderRailroads(); } catch { notice("Couldn't save the new short name."); }
   };
   el.querySelectorAll("[data-gotbl]").forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.gotbl)));
+  el.querySelectorAll("[data-rrnav]").forEach(b => b.onclick = () => { rrSel = b.dataset.rrnav; LS.set("rrSel", rrSel); LS.set("rrTab", "g:" + S.sourceId); renderRailroads(); $("rrPage")?.scrollIntoView?.({ block: "start" }); });
   wireRRGuide(r);
   $("rrFind").oninput = e => { const q = e.target.value.toLowerCase(); el.querySelectorAll("#rrList li").forEach(li => li.hidden = q && !li.textContent.toLowerCase().includes(q)); };
   $("rrAdd").onclick = () => dialog(`<h2>Add a railroad</h2><div class="fields"><label class="f" style="grid-column:1/-1"><span>Business name</span><input id="dRRName2" placeholder="e.g. Napierville Junction Railway"></label><label class="f"><span>Code on tables</span><input id="dRRAb2" placeholder="e.g. NJ"></label></div>`, "Add", async () => {
@@ -4753,6 +4754,19 @@ function wireCarry(r) {
 }
 
 // the railroad in the guide open now: its general pages (stored per guide) and every train's consist in one list
+// guide tab navigation (Dylan, Nov 22): previous/next railroad in Guide order (skipping freight-only ones when Records hides them), and this railroad's timetables in this guide
+function rrGuideNav(r, src) {
+  const hideFr = LS.get("rrHideFreight", false);
+  const list = S.railroads.filter(x => rrPageRange(src.id, x) && (x.id === r.id || !hideFr || !rrFreightOn(x, src.date || "", src.id)))
+    .sort((a, b) => rrPageRange(src.id, a)[0] - rrPageRange(src.id, b)[0] || rrLabel(a).localeCompare(rrLabel(b)));
+  const i = list.findIndex(x => x.id === r.id), prev = i > 0 ? list[i - 1] : null, next = i >= 0 ? list[i + 1] : null;
+  const pg = x => { const p = rrPageRange(src.id, x); return p ? `p. ${p[0]}${p[1] !== p[0] ? "–" + p[1] : ""}` : ""; };
+  const tbls = S.tables.filter(t => t.rr === r.abbrev).sort(guideOrder);
+  const nav = i < 0 ? `<span class="small muted">No pages entered for this guide, so it has no place in Guide order yet.</span>`
+    : `${prev ? `<button class="small-btn" data-rrnav="${esc(prev.id)}" title="${esc(pg(prev))}">← ${esc(rrLabel(prev))}</button>` : ""}<span class="small muted">${esc(pg(r))}${hideFr ? " · skipping freight only" : ""}</span>${next ? `<button class="small-btn primary" data-rrnav="${esc(next.id)}" title="${esc(pg(next))}">Next in the Guide: ${esc(rrLabel(next))} →</button>` : `<span class="small muted">last in the Guide</span>`}`;
+  return `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 6px">${nav}</div>
+    ${tbls.length ? `<div class="row small" style="gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px"><b>Timetables:</b>${tbls.map(t => `<button class="small-btn" data-gotbl='${esc(JSON.stringify({ source: src.id, table: t.id, train: "", mode: "grid" }))}' title="Open ${esc(tlab(t))}${t.page ? ", p. " + esc(t.page) : ""}">${t.status === "done" ? "✓ " : ""}${esc(tlab(t))}${t.page ? ` <span class="muted">p. ${esc(t.page)}</span>` : ""}</button>`).join("")}</div>` : ""}`;
+}
 function rrGuideHTML(r) {
   const src = S.sources.find(x => x.id === S.sourceId); if (!src) return "";
   const key = `${src.id}|${r.id}`;
@@ -4762,6 +4776,7 @@ function rrGuideHTML(r) {
   const eqLine = e => [e.type, e.desc].filter(Boolean).join(" — ") + (e.from || e.to ? ` (${[e.from, e.to].filter(Boolean).map(stName).join("–")})` : "") + (e.days ? ` [${e.days}]` : "");
   const firstTable = t => Object.keys(t.tables || {}).find(k => tableById(k)) || "";
   return `<h2 style="margin-top:8px">${esc(rrNameOn(r, src.date) || rrLabel(r))} in ${esc(src.name)}</h2>
+    ${rrGuideNav(r, src)}
     ${carryHTML(r)}
     ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
       : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : k === "miles" && g.milesFromLines ? `<input value="${esc(g.miles || "")}" readonly title="The sum of the lines below (untick “Route miles = the sum of the lines” to type it)" style="background:var(--accent-soft)">` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
@@ -4794,7 +4809,8 @@ function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
   const cell = (j, k, v, ph, w) => `<input data-sn="${i}" data-sj="${j}" data-sk="${k}" value="${esc(v || "")}" placeholder="${esc(ph)}" autocomplete="off" style="width:${w}">`;
   return `<div style="padding:4px 0 8px 12px">
-    ${st.length ? `<table class="sheet small"><thead><tr><th>Miles</th><th>Station</th><th>City</th><th>State</th><th></th></tr></thead><tbody>${st.map((x, j) => `<tr><td>${cell(j, "miles", x.miles, "Mi.", "4.5em")}</td><td>${cell(j, "name", x.name, "Station", "14em")}</td><td>${cell(j, "city", x.city, "City", "11em")}</td><td>${cell(j, "state", x.state, "St.", "3.5em")}</td><td class="rowbtns"><button class="ghost danger" data-sdel="${i}" data-sj="${j}" aria-label="Remove station">✕</button></td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">No stations listed for this line.</p>`}
+    ${st.length ? (() => { const hasF = st.some(x => x.freq != null), hasN = st.some(x => x.note || x.stationId);   // a station list with frequencies (LIRR Table 1): Every, and the layer station or a note
+      return `<table class="sheet small"><thead><tr><th>Miles</th><th>Station</th><th>City</th><th>State</th>${hasF ? `<th title="Approximate frequency of rail service, as printed">Every</th>` : ""}${hasN ? `<th>Station layer / note</th>` : ""}<th></th></tr></thead><tbody>${st.map((x, j) => `<tr><td>${cell(j, "miles", x.miles, "Mi.", "4.5em")}</td><td>${cell(j, "name", x.name, "Station", "14em")}</td><td>${cell(j, "city", x.city, "City", "11em")}</td><td>${cell(j, "state", x.state, "St.", "3.5em")}</td>${hasF ? `<td>${cell(j, "freq", x.freq, "", "5em")}</td>` : ""}${hasN ? `<td class="small ${x.stationId ? "" : "muted"}">${x.stationId ? `✓ ${esc(stName(x.stationId))} <span class="muted">${esc(x.stationId)}</span>` : ""}${x.note ? `${x.stationId ? " · " : ""}${esc(x.note)}` : ""}</td>` : ""}<td class="rowbtns"><button class="ghost danger" data-sdel="${i}" data-sj="${j}" aria-label="Remove station">✕</button></td></tr>`).join("")}</tbody></table>`; })() : `<p class="small muted" style="margin:0">No stations listed for this line.</p>`}
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn" data-sadd="${i}">＋ Add a station</button><button class="small-btn" data-spaste="${i}" title="Paste rows from a spreadsheet: miles, station, city, state">Paste rows…</button>${t ? `<button class="small-btn" data-sfrom="${i}" title="Use the stations on ${esc(tlab(t))}, in its row order, with their miles">Copy from ${esc(tlab(t))}</button>` : ""}</div></div>`;
 }
 function wireRRGuide(r) {
