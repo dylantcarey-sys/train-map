@@ -3405,6 +3405,48 @@ function tableDialog(existing) {
 // table name) and the line's name, from, to and miles. Freight only: the rows are lines only (tableNo, page, tableTitle on each line), no timetables
 // and no dates; empty timetables already entered for those tables can be removed. Otherwise a table not entered yet is created as a timetable
 // (date and zone from its first row). Lines keep their stations and anything else they had.
+// best guess at a line's name and ends from its table's name (Dylan, Nov 22): "Main Line - Searsport to St. Leonard, ME" → Main Line, Searsport–St. Leonard;
+// "Branch Line - Patten Branch, Patten Junction to Patten, ME" → Patten Branch; "Chicago and Los Angeles" → Chicago–Los Angeles; "Conneaut Branch" → name only
+function guessLine(title) {
+  const t0 = String(title || "").trim().replace(/\s+/g, " "); if (!t0) return { name: "", from: "", to: "" };
+  const ST = /,\s*(?:[A-Z]{2}|[A-Z][a-z]{1,4}\.|[A-Z]\.\s?[A-Z]\.)$/;
+  const clean = x => String(x || "").trim().replace(ST, "").replace(/^(?:between|from)\s+/i, "").replace(/[,;:\s]+$/, "").trim();
+  let t = t0.replace(ST, ""), name = "";
+  // a generic heading first ("Main Line - …", "Branch Line - …"): Main Line is the name unless a named branch follows
+  const gm = t.match(/^(Main Line|Branch Lines?|Branch)\s*(?:[-–—:.,]\s*)(.+)$/i);
+  if (gm) { t = gm[2].trim(); if (/^main/i.test(gm[1])) name = "Main Line"; }
+  // a named line or branch, then its ends: "Patten Branch, Patten Junction to Patten", "Hazleton Branch. M. & H. Jct.-Penn Haven", "Easton & Northern R.R. Branch Easton-Belfast"
+  const nm = t.match(/^(.*?\b(?:Branch|Line|Extension|Division|Subdivision|Secondary|Cut-?\s?[Oo]ff|Spur|Belt))\.?(?:\s*[,:]\s*|\s+[-–—]\s+|\.\s+|\s+)(.+)$/);
+  if (nm && !/^(?:to|and)\b/i.test(nm[2])) { name = nm[1].trim(); t = nm[2].trim(); }
+  else if (/\b(?:Branch|Line|Extension|Division|Subdivision|Secondary|Cut-?\s?[Oo]ff|Spur|Belt)$/.test(t)) return { name: name && name !== "Main Line" ? name : clean(t), from: "", to: "" };
+  // the ends: " to ", a spaced dash, an unspaced hyphen between places, or " and "; with three or more points the first and last
+  let parts = null;
+  if (/\s+to\s+/i.test(t)) parts = t.split(/\s+to\s+/i);
+  else if (/\s[-–—]\s/.test(t)) parts = t.split(/\s[-–—]\s/);
+  else if (/[A-Za-z.)]-[A-Z]/.test(t)) parts = t.split(/(?<=[A-Za-z.)])-(?=[A-Z])/);
+  else if (/\s+and\s+/i.test(t)) parts = t.split(/\s+and\s+/i);
+  let from = "", to = "";
+  if (parts && parts.length >= 2) { from = clean(parts[0]).split(/,\s*/)[0]; to = clean(parts[parts.length - 1]); }
+  return { name: name || clean(gm ? t : t0.replace(ST, "")), from, to };
+}
+// arrow keys and Enter move between the boxes of a sheet: ↑/↓ and Enter to the same box a row up or down, ← at the start or → at the end of a box to the one beside it
+function sheetKeys(root, sel, { enter = true } = {}) {
+  root.querySelectorAll(sel).forEach(inp => inp.addEventListener("keydown", e => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const tr = inp.closest("tr"); if (!tr) return;
+    const rowsOf = () => [...tr.parentElement.querySelectorAll(":scope > tr")].filter(x => x.querySelector(sel));
+    const cells = x => [...x.querySelectorAll(sel)];
+    let target = null;
+    if ((e.key === "Enter" && enter) || e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const rs = rowsOf(), i = rs.indexOf(tr), c = cells(tr).indexOf(inp), next = rs[i + (e.key === "ArrowUp" ? -1 : 1)];
+      if (next) target = cells(next)[Math.min(c, cells(next).length - 1)];
+    } else if (e.key === "ArrowLeft" && inp.selectionStart === 0 && inp.selectionEnd === 0) target = cells(tr)[cells(tr).indexOf(inp) - 1];
+    else if (e.key === "ArrowRight" && inp.selectionStart === inp.value.length && inp.selectionEnd === inp.value.length) target = cells(tr)[cells(tr).indexOf(inp) + 1];
+    else return;
+    if (!target) { if (e.key === "Enter") e.preventDefault(); return; }
+    e.preventDefault(); e.stopPropagation(); target.focus(); target.select?.();
+  }));
+}
 function tablesLinesDialog(r) {
   const src = curSource(); if (!src || !S.db) return;
   const key = `${src.id}|${r.id}`, g0 = rrGuide.get(key) || {};
@@ -3424,7 +3466,7 @@ function tablesLinesDialog(r) {
     <label class="row" style="gap:6px;margin:0 0 6px"><input type="checkbox" id="tlFr" ${fr ? "checked" : ""}> <b>Freight only in this guide</b> <span class="small muted">: the tables are station lists, so they're kept as lines (no timetables, no dates)</span></label>
     <p class="small muted" style="margin:0 0 6px">One row per line or branch. A table with several lines gets a row for each: ＋ on a row adds another line under the same table. Enter moves down a row; Tab moves across. Miles can be a sum or subtraction (168.6-148.9). Stations can be added later from the railroad's page.</p>
     <div style="max-height:56vh;overflow:auto"><table class="sheet small" id="tlTable"><thead><tr><th>Page</th><th>Table</th><th>Table name</th><th>Line or branch</th><th>From</th><th>To</th><th>Miles</th><th class="tl-tt">Table date</th><th class="tl-tt">Zone</th><th></th></tr></thead><tbody id="tlRows"></tbody></table></div>
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><button type="button" class="small-btn" id="tlAddT">＋ Add a table</button><span class="small muted" id="tlCount"></span></div>
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><button type="button" class="small-btn" id="tlAddT">＋ Add a table</button><button type="button" class="small-btn" id="tlFill" title="Best guess from each table's name: “Main Line - Searsport to St. Leonard” gives Main Line, Searsport, St. Leonard. Only empty boxes are filled">Fill blanks from table names</button><span class="small muted" id="tlCount"></span></div>
     <label class="row small" id="tlDelBox" style="gap:6px;margin:6px 0 0" hidden><input type="checkbox" id="tlDel" checked> <span id="tlDelTxt"></span></label>`, "Save", async () => {
     read(); fr = $("tlFr").checked; const delEmpty = fr && $("tlDel")?.checked;
     const u = used(); if (!u.length) return "Fill in at least one row.";
@@ -3475,10 +3517,14 @@ function tablesLinesDialog(r) {
       if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); read(); const i = +el.dataset.tl;
       if (i === rows.length - 1) rows.push(blank(rows[i])); draw({ i: i + 1, k: el.dataset.tlk });
     }));
+    sheetKeys($("tlRows"), "input[data-tlk]", { enter: false });
+    document.querySelectorAll('#tlRows input[data-tlk="title"]').forEach(el => el.addEventListener("change", () => { read(); const i = +el.dataset.tl, gss = guessLine(rows[i].title);
+      for (let j = i; j < rows.length && (j === i || (rows[j].no === rows[i].no && rows[j].title === rows[i].title)); j++) { const x = rows[j]; if (j === i || !x.line) for (const k of ["line", "from", "to"]) { const v = k === "line" ? gss.name : gss[k]; if (v && !x[k]) { x[k] = v; const f = document.querySelector(`#tlRows [data-tl="${j}"][data-tlk="${k}"]`); if (f) f.value = v; } } } }));
     document.querySelectorAll("[data-tlsub]").forEach(b => b.onclick = () => { read(); const i = +b.dataset.tlsub, x = rows[i]; rows.splice(i + 1, 0, { ...blank(x), page: x.page, no: x.no, title: x.title, tz: x.tz }); draw({ i: i + 1, k: "line" }); });
     document.querySelectorAll("[data-tldel]").forEach(b => b.onclick = () => { read(); rows.splice(+b.dataset.tldel, 1); draw(); });
     if (focus) { const f = document.querySelector(`#tlRows [data-tl="${focus.i}"][data-tlk="${focus.k}"]`); f?.focus(); f?.select?.(); }
   }
+  $("tlFill").onclick = () => { read(); let n = 0; for (const x of rows) { const t = x.title || tblFor(x.no, "")?.title || ""; const gss = guessLine(t); for (const k of ["line", "from", "to"]) { const v = k === "line" ? gss.name : gss[k]; if (v && !x[k]) { x[k] = v; n++; } } } draw(); $("tlCount").textContent += n ? ` · ${n} box${n === 1 ? "" : "es"} filled from table names` : " · nothing to fill"; };
   $("tlAddT").onclick = () => { read(); rows.push(blank(rows[rows.length - 1])); draw({ i: rows.length - 1, k: "no" }); };
   $("tlFr").onchange = () => status();
   draw({ i: rows.length - 1, k: rows[rows.length - 1].no ? "line" : "no" });
@@ -4921,7 +4967,7 @@ function rrLinesHTML(r, g) {
       <td class="rowbtns"><button class="ghost" data-lnsub="${i}" title="Add another line or branch under ${l.tableNo ? "Table " + esc(l.tableNo) : "this table"}" aria-label="Add a line under the same table">＋</button><button class="ghost" data-lnmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-lnmove="${i}" data-by="1" aria-label="Move down" ${i < lines.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-lndel="${i}" aria-label="Remove line">✕</button></td></tr>
       ${open ? `<tr class="lnst"><td colspan="7">${rrStationsHTML(l, i, t)}</td></tr>` : ""}`; }).join("")}</tbody></table>` : ""}
     ${lines.length ? `<label class="row small" style="gap:6px;margin:6px 0 0"><input type="checkbox" id="lnSum" ${g.milesFromLines ? "checked" : ""}> Route miles = the sum of these lines <span class="muted">(${esc(linesMiles(g))} mi.${g.milesFromLines ? "" : g.miles ? `; route miles typed now: ${esc(g.miles)}` : ""})</span></label>` : ""}
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn primary" id="lnSheet" title="One sheet for this railroad's tables and lines in this guide: page, table, line name, from, to and miles; freight-only railroads get lines without timetables">＋ Tables and lines…</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn primary" id="lnSheet" title="One sheet for this railroad's tables and lines in this guide: page, table, line name, from, to and miles; freight-only railroads get lines without timetables">＋ Tables and lines…</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${lines.some(l => !l.name || !l.from || !l.to) ? `<button class="small-btn" id="lnGuess" title="Best guess from each line's table name: “Main Line - Searsport to St. Leonard” gives Main Line, Searsport, St. Leonard. Only empty boxes are filled">Fill blanks from table names</button>` : ""}${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
 }
 function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
@@ -4948,6 +4994,12 @@ function wireRRGuide(r) {
   if ($("rrNoTimes")) $("rrNoTimes").onchange = e => { const x = g(); if (e.target.checked) x.noTimes = true; else delete x.noTimes; put(x, true); };
   if ($("rrFrOnly")) $("rrFrOnly").onchange = e => { const x = g(); if (e.target.checked) x.freightOnly = true; else delete x.freightOnly; put(x, true); };
   el.querySelectorAll("[data-ln]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.ln][inp.dataset.lk] = inp.value; put(x); }));
+  const lnTb = el.querySelector(".rrlines tbody"); if (lnTb) sheetKeys(lnTb, "input[data-ln]");
+  el.querySelectorAll(".lnst tbody").forEach(tb => sheetKeys(tb, "input[data-sn]"));
+  if ($("lnGuess")) $("lnGuess").onclick = () => { const x = g(); let n = 0;
+    for (const l of x.lines || []) { const t = l.tableTitle || (l.tableNo ? S.tables.find(tt => tt.rr === r.abbrev && String(tt.tableNo).trim().toLowerCase() === String(l.tableNo).trim().toLowerCase())?.title : "") || ""; const gss = guessLine(t);
+      if (gss.name && !String(l.name || "").trim()) { l.name = gss.name; n++; } if (gss.from && !String(l.from || "").trim()) { l.from = gss.from; n++; } if (gss.to && !String(l.to || "").trim()) { l.to = gss.to; n++; } }
+    put(x, true); notice(n ? `Filled ${n} box${n === 1 ? "" : "es"} from table names (best guess; check them).` : "Nothing to fill: the lines already have names and ends, or their tables have no names."); };
   // miles typed as a sum or subtraction become the figure on leaving the box (the working goes into the line's name if it has none); the sum line redraws
   el.querySelectorAll("[data-ln][data-lk=miles]").forEach(inp => inp.addEventListener("change", () => { const x = g(), l = x.lines[+inp.dataset.ln], e = milesExpr(inp.value); if (e) { if (!String(l.name || "").trim()) l.name = `(${inp.value.trim()})`; l.miles = e.total; } put(x); redrawKeep(); }));
   if ($("lnSum")) $("lnSum").onchange = e => { const x = g(); if (e.target.checked) x.milesFromLines = true; else delete x.milesFromLines; put(x, true); };
