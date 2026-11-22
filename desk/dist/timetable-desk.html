@@ -4468,12 +4468,10 @@ const RR_KINDS = [["", "Passenger and freight"], ["passenger", "Passenger only"]
 const kindLabel = v => (RR_KINDS.find(k => k[0] === (v || "")) || RR_KINDS[0])[1];
 // a railroad's pages for one guide: general equipment, notes common to its schedules, page numbers (sources/<guide>/rrpages/<railroad id>)
 const RRG_FIELDS = [
-  ["offices", "Executive and general offices", "As printed, e.g. 139 West Van Buren Street, Chicago, Ill. 60605", 2],
-  ["otherOffices", "General offices in other places", "e.g. Rock Island Building, Des Moines, Iowa", 2],
+  ["offices", "Offices", "As printed, executive, general and other offices, e.g. 139 West Van Buren Street, Chicago, Ill. 60605", 3],
   ["miles", "Route miles", "e.g. 7,500", 1],
   ["pages", "Guide pages", "e.g. 140–143 (sets its place in the Guide's order)", 1],
   ["subsidiaries", "Subsidiary railroads", "One per line, e.g. Warren & Ouachita Valley Railway Co.", 2],
-  ["equipment", "General equipment and consist notes", "The railroad's own equipment section, when it isn't tied to one table (e.g. the B&O's): trains, cars and where they run", 6],
   ["footnotes", "Notes common to all its schedules", "e.g. baggage rules, reservations, children's fares", 3],
   ["notes", "Other notes for this guide", "", 3],
 ];
