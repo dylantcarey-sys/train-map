@@ -634,7 +634,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   quiet(document);
   new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.("input")) quiet(n.parentNode || n); else quiet(n); } }).observe(document.documentElement, { childList: true, subtree: true });
 })();
-window.__deskHook = () => ({ finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ carrySource, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -4084,6 +4084,93 @@ function rrPeriodsHTML(r, onDate) {
     <button class="small-btn" id="pdAdd" style="margin-top:6px">＋ Add a formal name</button>`}`;
 }
 
+// ---------- carrying a railroad's tables over from the nearest other guide (Dylan, Nov 21, 2026) ----------
+// Guides a few months apart print mostly the same tables. A table and its trains are copied with the same ids, so trains
+// that run across several tables come together again as each table is copied, and links, columns and rows still match.
+// "Same table": copied as printed (check it against the book). "Start from it": copied with its date cleared, to update.
+const carryCache = new Map();   // source id -> { tables, trains } (null while loading)
+const isoDays = s => Date.parse((s || "").slice(0, 10) + "T00:00:00Z") / 864e5;
+function carrySource() {
+  const cur = curSource(); if (!cur?.date) return null;
+  return S.sources.filter(s => s.id !== cur.id && s.date && (s.kind || "guide") === (cur.kind || "guide")).sort((a, b) => Math.abs(isoDays(a.date) - isoDays(cur.date)) - Math.abs(isoDays(b.date) - isoDays(cur.date)))[0] || null;
+}
+function carryData(src) {
+  if (!carryCache.has(src.id)) {
+    carryCache.set(src.id, null);
+    Promise.all([S.db.collection(`sources/${src.id}/tables`).get(), S.db.collection(`sources/${src.id}/trains`).get()])
+      .then(([tq, rq]) => carryCache.set(src.id, { tables: tq.docs.map(d => ({ id: d.id, ...d.data() })), trains: rq.docs.map(d => ({ id: d.id, ...d.data() })) }))
+      .catch(() => carryCache.set(src.id, { tables: [], trains: [], err: true }))
+      .finally(() => { if (S.page === "railroads") renderRailroads(); });
+  }
+  return carryCache.get(src.id);
+}
+// a table the other guide dates on or before this guide's date was already in force when this guide was printed
+const carryLikelySame = (t, cur, src) => src.date > cur.date && !!t.tableDate && t.tableDate.slice(0, 10) <= cur.date.slice(0, 10);
+function carryHTML(r) {
+  const cur = curSource(), src = carrySource(); if (S.viewOnly || !src) return "";
+  const d = carryData(src);
+  if (!d) return `<p class="small muted">Looking for ${esc(rrLabel(r))}'s tables in ${esc(src.name)}…</p>`;
+  const theirs = d.tables.filter(t => t.rr === r.abbrev).sort(guideOrder); if (!theirs.length) return "";
+  const nTr = t => d.trains.filter(x => x.tables?.[t.id] && !x.copyOf).length;
+  const here = t => S.tables.find(x => x.id === t.id);
+  const todo = theirs.filter(t => !here(t)), likely = todo.filter(t => carryLikelySame(t, cur, src));
+  const short = src.name.replace(/^Official Guide,?\s*/i, "");
+  return `<details class="card" style="margin:8px 0" ${todo.length ? "open" : ""}><summary><b>Copy tables from ${esc(src.name)}</b> <span class="small muted">${theirs.length - todo.length} of ${theirs.length} copied</span></summary>
+    <p class="small muted" style="margin:6px 0">For each table in the book: if it's the same as in ${esc(short)}, copy it as it is and check it against the page; if it changed, start from ${esc(short)}'s and correct it. A table dated on or before ${esc(cur.dateText || cur.date)} in ${esc(short)} was probably already in force (marked “likely the same”). Copied tables take the first page of the railroad's pages here; set each one's page as you go.</p>
+    <table class="sheet small"><thead><tr><th>Table</th><th>Date in ${esc(short)}</th><th>Trains</th><th></th></tr></thead><tbody>${theirs.map(t => { const h = here(t); return `<tr><td>${esc(tlab(t))}${t.page ? ` <span class="muted">p. ${esc(t.page)}</span>` : ""}</td><td>${esc(t.tableDateText || t.tableDate || "no date")}${carryLikelySame(t, cur, src) ? ` <span class="pill">likely the same</span>` : ""}</td><td>${nTr(t)}</td>
+      <td style="white-space:nowrap">${h ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: h.id, train: "", mode: "grid" }))}'>${h.carriedFrom?.mode === "start" ? "Started from it: open to update" : "Copied: open to check"}</button>` : `<button class="small-btn" data-carry="${esc(t.id)}" data-cm="same" title="The table is the same in this guide: copy it and its trains as they are">Same table</button> <button class="small-btn" data-carry="${esc(t.id)}" data-cm="start" title="The table changed: copy it and its trains as a starting point, with its date cleared">Start from it</button>`}</td></tr>`; }).join("")}</tbody></table>
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${likely.length > 1 ? `<button class="small-btn" id="carryLikely">Copy the ${likely.length} “likely the same” tables</button>` : ""}<button class="small-btn" id="carrySec" title="Offices, route miles, equipment, notes and lines from ${esc(short)}; what you've typed here stays, and pages aren't copied">Copy the railroad's section details from ${esc(short)}</button></div></details>`;
+}
+async function carryTable(src, t, mode) {
+  if (S.tables.some(x => x.id === t.id)) return 0;
+  const d = carryCache.get(src.id); if (!d) return 0;
+  const { id: _i, ...tb } = structuredClone(t);
+  delete tb.status; delete tb.page; delete tb.updatedAt;
+  if (mode === "start") for (const k of ["tableDate", "tableDatePrecision", "tableDateText"]) delete tb[k];
+  const r = S.railroads.find(x => x.abbrev === t.rr), pr = r && rrPageRange(S.sourceId, r); if (pr) tb.page = String(pr[0]);
+  tb.carriedFrom = { source: src.id, mode }; tb.createdAt = new Date().toISOString();
+  await S.db.doc(`${tablesPath()}/${t.id}`).set(tb);
+  const ids = [];
+  for (const o of d.trains) {
+    const e = o.tables?.[t.id]; if (!e) continue;
+    const stops = (o.stops || []).filter(s => s.tableId === t.id).map(s => structuredClone(s));
+    const entry = { ...structuredClone(e), status: mode === "same" ? "added" : "adding" };
+    const have = trainDoc(o.id);
+    if (have && !have._deleted) { const w = edit(o.id); w.tables = { ...(w.tables || {}), [t.id]: entry }; w.stops = [...(w.stops || []).filter(s => s.tableId !== t.id), ...stops]; }
+    else {
+      const others = Object.keys(o.tables || {}).filter(k => k !== t.id);
+      const ki = Object.fromEntries(Object.entries(o.knownIssues || {}).filter(([k]) => !others.some(x => k.includes(x))));
+      const { tables: _t, stops: _s, progress: _p, updatedAt: _u, knownIssues: _k, id: _d, ...rest } = structuredClone(o);
+      remember(`${trainsPath()}/${o.id}`, null);
+      S.work.set(o.id, { ...rest, id: o.id, createdAt: new Date().toISOString(), carriedFrom: src.id, tables: { [t.id]: entry }, stops, ...(Object.keys(ki).length ? { knownIssues: ki } : {}) });
+      edit(o.id);
+    }
+    ids.push(o.id);
+  }
+  for (const id of ids) { clearTimeout(timers.get(id)); await flush(id); }
+  return ids.length;
+}
+async function carrySection(src, r) {
+  const doc = await S.db.doc(`sources/${src.id}/rrpages/${r.id}`).get().catch(() => null);
+  if (!doc?.exists) { notice(`${rrLabel(r)} has no section details in ${src.name}.`); return; }
+  const { pages: _p, ...theirs } = doc.data(), key = `${S.sourceId}|${r.id}`;
+  const mine = Object.fromEntries(Object.entries(rrGuide.get(key) || {}).filter(([, v]) => Array.isArray(v) ? v.length : typeof v === "boolean" ? v : String(v || "").trim()));
+  const body = { ...structuredClone(theirs), ...mine };
+  await S.db.doc(`sources/${S.sourceId}/rrpages/${r.id}`).set(body); rrGuide.set(key, body);
+  notice(`Copied ${rrLabel(r)}'s section details from ${src.name}.`); renderRailroads();
+}
+function wireCarry(r) {
+  const el = $("rrPage"), src = carrySource(); if (!el || !src) return;
+  const go = async (ts, mode, btn) => {
+    if (btn) btn.disabled = true; let n = 0, k = 0;
+    for (const t of ts) { notice(`Copying ${tlab(t)}${ts.length > 1 ? ` (${++k} of ${ts.length})` : ""}…`); n += await carryTable(src, t, mode); }
+    notice(`Copied ${ts.length} table${ts.length === 1 ? "" : "s"} and ${n} train column${n === 1 ? "" : "s"} from ${src.name}.`); renderRailroads();
+  };
+  el.querySelectorAll("[data-carry]").forEach(b => b.onclick = () => { const t = carryCache.get(src.id)?.tables.find(x => x.id === b.dataset.carry); if (t) go([t], b.dataset.cm, b); });
+  if ($("carryLikely")) $("carryLikely").onclick = e => { const cur = curSource(), d = carryCache.get(src.id); go(d.tables.filter(t => t.rr === r.abbrev && !S.tables.some(x => x.id === t.id) && carryLikelySame(t, cur, src)).sort(guideOrder), "same", e.target); };
+  if ($("carrySec")) $("carrySec").onclick = () => carrySection(src, r);
+}
+
 // the railroad in the guide open now: its general pages (stored per guide) and every train's consist in one list
 function rrGuideHTML(r) {
   const src = S.sources.find(x => x.id === S.sourceId); if (!src) return "";
@@ -4094,6 +4181,7 @@ function rrGuideHTML(r) {
   const eqLine = e => [e.type, e.desc].filter(Boolean).join(" — ") + (e.from || e.to ? ` (${[e.from, e.to].filter(Boolean).map(stName).join("–")})` : "") + (e.days ? ` [${e.days}]` : "");
   const firstTable = t => Object.keys(t.tables || {}).find(k => tableById(k)) || "";
   return `<h2 style="margin-top:8px">${esc(rrNameOn(r, src.date) || rrLabel(r))} in ${esc(src.name)}</h2>
+    ${carryHTML(r)}
     ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
       : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
     ${g === null || S.viewOnly ? "" : `<label class="row small" style="gap:6px;margin:8px 0 0"><input type="checkbox" id="rrNoTimes" ${g.noTimes ? "checked" : ""}> Has passenger service, but prints no timetables in this guide <span class="muted">(its trains won't show as waiting to be entered)</span></label>
@@ -4129,6 +4217,7 @@ function rrStationsHTML(l, i, t) {
 }
 function wireRRGuide(r) {
   const el = $("rrPage"); if (!r) return;
+  wireCarry(r);
   const key = `${S.sourceId}|${r.id}`;
   const save = (now) => {
     $("rrSaved").textContent = "Saving…"; clearTimeout(rrgTimer);
@@ -4321,8 +4410,8 @@ async function runFinish(plan) {
   for (const t of plan.done) { const w = edit(t.id); clearTimeout(timers.get(t.id)); w.progress = "done"; for (const k of Object.keys(w.tables || {})) if (tableById(k)) w.tables[k].status = "complete"; }
   const ids = new Set([...fixIds, ...plan.done.map(t => t.id)]);
   let n = 0; const total = ids.size + plan.tables.length;
-  for (const id of ids) { await flush(id); if (++n % 20 === 0) { notice(`Finishing the guide… ${n} of ${total} saved`); await new Promise(r => setTimeout(r, 150)); } }
-  for (const t of plan.tables) { const tb = { ...t, status: "done" }; const i = S.tables.findIndex(x => x.id === t.id); if (i >= 0) S.tables[i] = tb; await saveTable(tb); if (++n % 20 === 0) { notice(`Finishing the guide… ${n} of ${total} saved`); await new Promise(r => setTimeout(r, 150)); } }
+  for (const id of ids) { await flush(id); if (++n % 5 === 0) { const msg = `Finishing the guide… ${n} of ${total} saved`; notice(msg); if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${total}`; await new Promise(r => setTimeout(r, 150)); } }
+  for (const t of plan.tables) { const tb = { ...t, status: "done" }; const i = S.tables.findIndex(x => x.id === t.id); if (i >= 0) S.tables[i] = tb; await saveTable(tb); if (++n % 5 === 0) { const msg = `Finishing the guide… ${n} of ${total} saved`; notice(msg); if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${total}`; await new Promise(r => setTimeout(r, 150)); } }
   return n;
 }
 function finishDialog() {
