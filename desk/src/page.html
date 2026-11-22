@@ -349,6 +349,14 @@ input.hasmoon::placeholder, textarea.hasmoon::placeholder { color: var(--muted);
 .rrlist li button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--rule); background: none; padding: 7px 8px; font: inherit; color: var(--ink); cursor: pointer; }
 .rrlist li button[aria-current="true"] { background: var(--accent-soft); }
 @media (max-width: 760px) { .rrwrap { grid-template-columns: 1fr; } }
+/* Records (Dylan, Nov 22): the railroad list sits above the record, compact and in columns, so both get the full width */
+.rrwrap.rrstack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.rrstack .rrlist { padding: 6px; }
+.rrstack .rrlist ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 6px; max-height: 26vh; }
+.rrstack .rrlist li button { padding: 3px 6px; line-height: 1.25; }
+.rrstack .rrlist li button b { font-size: .92em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.rrstack .rrlist li button span.small { font-size: .78em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.rrstack .rrlist li button span.small:not(:last-child) { display: none; }
 .mtlist li button { gap: 1px; }
 .mtlist li.mtgrp { padding: 10px 8px 3px; border-bottom: 1px solid var(--rule-strong); font-size: 13px; }
 .probs li.known { border-left-color: var(--rule-strong); background: var(--sheet); }
@@ -2931,6 +2939,88 @@ function tableDialog(existing) {
 // a table's reference marks: saved list, else marks written in its notes ("f - Stops only on signal …"), else the defaults
 // several tables of one railroad at once, to plan its section: number, page, name, date, time zone (and condensed).
 // Marks and trains wait until you open each table (its summary line says the marks aren't entered yet).
+// Tables and lines (Dylan, Nov 22): one sheet for a railroad's section in this guide. One row per line, with its table (page first, table number,
+// table name) and the line's name, from, to and miles. Freight only: the rows are lines only (tableNo, page, tableTitle on each line), no timetables
+// and no dates; empty timetables already entered for those tables can be removed. Otherwise a table not entered yet is created as a timetable
+// (date and zone from its first row). Lines keep their stations and anything else they had.
+function tablesLinesDialog(r) {
+  const src = curSource(); if (!src || !S.db) return;
+  const key = `${src.id}|${r.id}`, g0 = rrGuide.get(key) || {};
+  const mine = S.tables.filter(t => t.rr === r.abbrev).sort(guideOrder);
+  const sameNo = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+  const tblFor = (no, title) => mine.find(t => sameNo(t.tableNo, no) && (!title || !t.title || sameNo(t.title, title))) || null;
+  const lastTz = mine[mine.length - 1]?.tz || LS.get("lastTz", "") || "ET";
+  const pr = rrPageRange(src.id, r);
+  let fr = !!g0.freightOnly || rrFreightOn(r, src.date || "", src.id);
+  let rows = (g0.lines || []).map((l, i) => { const t = tblFor(l.tableNo, l.tableTitle); return { page: l.page || t?.page || "", no: l.tableNo || "", title: l.tableTitle || t?.title || "", line: l.name || "", from: l.from || "", to: l.to || "", miles: l.miles || "", date: "", tz: t?.tz || lastTz, _i: i }; });
+  for (const t of mine) if (!(g0.lines || []).some(l => tblFor(l.tableNo, l.tableTitle) === t)) rows.push({ page: t.page || "", no: t.tableNo || "", title: t.title || "", line: "", from: "", to: "", miles: "", date: "", tz: t.tz || lastTz });
+  const blank = prev => ({ page: prev?.page || (pr ? String(pr[0]) : ""), no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", title: "", line: "", from: "", to: "", miles: "", date: "", tz: prev?.tz || lastTz });
+  if (!rows.length) rows.push(blank(null));
+  const used = () => rows.filter(x => ["page", "no", "title", "line", "from", "to", "miles"].some(k => String(x[k] || "").trim()));
+  const emptyTbls = () => mine.filter(t => !(t.rows || []).length && !trainsInTableOf(t.id).length && used().some(x => sameNo(x.no, t.tableNo)));
+  dialog(`<h2>${esc(rrLabel(r))}: tables and lines in ${esc(src.name)}</h2>
+    <label class="row" style="gap:6px;margin:0 0 6px"><input type="checkbox" id="tlFr" ${fr ? "checked" : ""}> <b>Freight only in this guide</b> <span class="small muted">: the tables are station lists, so they're kept as lines (no timetables, no dates)</span></label>
+    <p class="small muted" style="margin:0 0 6px">One row per line or branch. A table with several lines gets a row for each: ＋ on a row adds another line under the same table. Enter moves down a row; Tab moves across. Miles can be a sum or subtraction (168.6-148.9). Stations can be added later from the railroad's page.</p>
+    <div style="max-height:56vh;overflow:auto"><table class="sheet small" id="tlTable"><thead><tr><th>Page</th><th>Table</th><th>Table name</th><th>Line or branch</th><th>From</th><th>To</th><th>Miles</th><th class="tl-tt">Table date</th><th class="tl-tt">Zone</th><th></th></tr></thead><tbody id="tlRows"></tbody></table></div>
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><button type="button" class="small-btn" id="tlAddT">＋ Add a table</button><span class="small muted" id="tlCount"></span></div>
+    <label class="row small" id="tlDelBox" style="gap:6px;margin:6px 0 0" hidden><input type="checkbox" id="tlDel" checked> <span id="tlDelTxt"></span></label>`, "Save", async () => {
+    read(); fr = $("tlFr").checked; const delEmpty = fr && $("tlDel")?.checked;
+    const u = used(); if (!u.length) return "Fill in at least one row.";
+    for (const [i, x] of u.entries()) if (x.miles && !milesExpr(x.miles) && isNaN(parseFloat(x.miles))) return `Row ${i + 1}: miles should be a number (or a sum like 12.4+3.1).`;
+    // new timetables (not freight only): one per table number and name not entered yet
+    const made = [];
+    if (!fr) {
+      const seen = new Set();
+      for (const x of u) { if (!x.no && !x.title) continue; const k = `${x.no}|${x.title}`.toLowerCase(); if (seen.has(k) || tblFor(x.no, x.title)) continue; seen.add(k);
+        const pd = x.date ? Core.parseMonthDate(x.date) : null; if (x.date && !pd) return `Table ${x.no || x.title}: type the date like September 24, 1944 (or leave it blank).`;
+        made.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: false, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz || lastTz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + made.length).toISOString() }); }
+    }
+    const old = g0.lines || [];
+    const lines = u.map(x => { const e = milesExpr(x.miles); const l = { ...(x._i != null && old[x._i] ? old[x._i] : {}), tableNo: x.no, page: x.page, tableTitle: x.title, name: x.line, from: x.from, to: x.to, miles: e ? e.total : x.miles };
+      for (const k of ["page", "tableTitle"]) if (!l[k]) delete l[k]; return l; });
+    const g = { ...(rrGuide.get(key) || g0), lines };
+    if (fr) g.freightOnly = true; else delete g.freightOnly;
+    if (lines.some(l => String(l.miles || "").trim())) { g.milesFromLines = true; g.miles = linesMiles(g); }
+    delete g.milesParts;
+    try {
+      remember(`sources/${src.id}/rrpages/${r.id}`, rrGuide.get(key) || null);
+      await S.db.doc(`sources/${src.id}/rrpages/${r.id}`).set(g); rrGuide.set(key, g);
+      for (const body of made) { const id = `${r.abbrev.replace(/[^A-Za-z0-9]/g, "")}-${String(body.tableNo).replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`; await S.db.doc(`${tablesPath()}/${id}`).set(body); }
+      let nDel = 0; if (delEmpty) for (const t of emptyTbls()) { await S.db.doc(`${tablesPath()}/${t.id}`).delete(); nDel++; }
+      notice(`Saved ${lines.length} line${lines.length === 1 ? "" : "s"}${made.length ? `, ${made.length} new timetable${made.length === 1 ? "" : "s"}` : ""}${nDel ? `; removed ${nDel} empty timetable${nDel === 1 ? "" : "s"} (now lines)` : ""}.`);
+    } catch { return "Couldn't save. Nothing may have changed: close this and try again."; }
+    if (made.length) LS.set("lastTz", made[made.length - 1].tz);
+    setTimeout(() => { rrStats = null; if (S.page === "railroads") renderRailroads(); renderContext(); }, 400);
+  });
+  const cell = (i, k, w, ph) => `<input data-tl="${i}" data-tlk="${k}" value="${esc(rows[i][k] || "")}" placeholder="${ph}" autocomplete="off" style="width:${w}">`;
+  const COLS = ["page", "no", "title", "line", "from", "to", "miles", "date"];
+  function read() { document.querySelectorAll("#tlRows [data-tl]").forEach(el => { const x = rows[+el.dataset.tl]; if (x) x[el.dataset.tlk] = el.value.trim(); }); }
+  function status() {
+    const n = used().length, nt = new Set(used().filter(x => x.no || x.title).map(x => `${x.no}|${x.title}`.toLowerCase())).size;
+    $("tlCount").textContent = n ? `${n} line${n === 1 ? "" : "s"} on ${nt} table${nt === 1 ? "" : "s"}` : "";
+    fr = $("tlFr").checked; document.querySelectorAll("#tlTable .tl-tt").forEach(c => c.hidden = fr);
+    const e = fr ? emptyTbls() : []; $("tlDelBox").hidden = !e.length;
+    if (e.length) $("tlDelTxt").textContent = `Remove the ${e.length} empty timetable${e.length === 1 ? "" : "s"} already entered for these tables (${e.slice(0, 5).map(tlab).join(", ")}${e.length > 5 ? "…" : ""}): they're kept as lines instead`;
+  }
+  function draw(focus) {
+    $("tlRows").innerHTML = rows.map((x, i) => { const same = i > 0 && rows[i - 1].no === x.no && rows[i - 1].title === x.title && (x.no || x.title);
+      return `<tr ${same ? `style="background:var(--accent-soft)"` : ""}><td>${cell(i, "page", "3.5em", "Page")}</td><td>${cell(i, "no", "3.5em", "No.")}</td><td>${cell(i, "title", "13em", "e.g. Main Line")}</td><td>${cell(i, "line", "12em", "e.g. Conneaut Branch")}</td><td>${cell(i, "from", "9em", "From")}</td><td>${cell(i, "to", "9em", "To")}</td><td>${cell(i, "miles", "5em", "Mi.")}</td>
+      <td class="tl-tt">${tblFor(x.no, x.title) ? `<span class="muted">entered</span>` : cell(i, "date", "8em", "e.g. October, 1970")}</td><td class="tl-tt">${tblFor(x.no, x.title) ? "" : `<select data-tl="${i}" data-tlk="tz" aria-label="Time zone">${TZS.map(z => `<option ${z === x.tz ? "selected" : ""}>${z}</option>`).join("")}</select>`}</td>
+      <td class="rowbtns"><button type="button" class="ghost" data-tlsub="${i}" title="Another line under the same table" aria-label="Add a line under this table">＋</button><button type="button" class="ghost danger" data-tldel="${i}" aria-label="Remove row" ${rows.length === 1 ? "disabled" : ""}>✕</button></td></tr>`; }).join("");
+    status();
+    document.querySelectorAll("#tlRows [data-tl]").forEach(el => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => { read(); status(); }));
+    document.querySelectorAll("#tlRows input[data-tlk]").forEach(el => el.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); read(); const i = +el.dataset.tl;
+      if (i === rows.length - 1) rows.push(blank(rows[i])); draw({ i: i + 1, k: el.dataset.tlk });
+    }));
+    document.querySelectorAll("[data-tlsub]").forEach(b => b.onclick = () => { read(); const i = +b.dataset.tlsub, x = rows[i]; rows.splice(i + 1, 0, { ...blank(x), page: x.page, no: x.no, title: x.title, tz: x.tz }); draw({ i: i + 1, k: "line" }); });
+    document.querySelectorAll("[data-tldel]").forEach(b => b.onclick = () => { read(); rows.splice(+b.dataset.tldel, 1); draw(); });
+    if (focus) { const f = document.querySelector(`#tlRows [data-tl="${focus.i}"][data-tlk="${focus.k}"]`); f?.focus(); f?.select?.(); }
+  }
+  $("tlAddT").onclick = () => { read(); rows.push(blank(rows[rows.length - 1])); draw({ i: rows.length - 1, k: "no" }); };
+  $("tlFr").onchange = () => status();
+  draw({ i: rows.length - 1, k: rows[rows.length - 1].no ? "line" : "no" });
+}
 function bulkTablesDialog(r) {
   const src = curSource(); if (!src || !S.db) return;
   const mine = S.tables.filter(t => t.rr === r.abbrev).sort(guideOrder);
@@ -3921,7 +4011,7 @@ async function renderRailroads() {
   const keepTop = $("rrList")?.scrollTop ?? rrListTop, keepFind = $("rrFind")?.value ?? rrListFind;
   el.innerHTML = `
     <div class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><div class="row" style="gap:12px;align-items:baseline"><h2 style="margin:0">Railroads</h2>${rrViewSwitch()}</div><div class="row" style="gap:10px;align-items:center">${onDate ? `<label class="row small" style="gap:6px" title="Hide railroads whose dates show they weren't running then. Railroads with tables or trains in this guide always show."><input type="checkbox" id="rrActive" ${onlyActive ? "checked" : ""}> Only those running in ${esc(src0.dateText || onDate)}</label>` : ""}<label class="row small" style="gap:6px" title="List railroads by their pages in this guide instead of by name"><input type="checkbox" id="rrByPage" ${byPage ? "checked" : ""}> Guide order</label><label class="row small" style="gap:6px" title="Hide railroads whose only trains in this guide are mixed trains"><input type="checkbox" id="rrHideMixed" ${hideMixed ? "checked" : ""}> Hide mixed-only</label><label class="row small" style="gap:6px" title="Hide railroads that are freight only in this guide (marked freight only, or passenger service ended before its date), to find the next passenger railroad"><input type="checkbox" id="rrHideFreight" ${hideFreight ? "checked" : ""}> Hide freight only</label>${hiddenN ? `<span class="small muted">${hiddenN} hidden</span>` : ""}<input type="search" id="rrFind" placeholder="Find a railroad" style="width:220px"><button class="small-btn" id="rrAdd">＋ Add a railroad</button></div></div></div>
-    <div class="rrwrap">
+    <div class="rrwrap rrstack">
       <div class="card rrlist"><ul id="rrList">${list.map(x => `<li><button data-rr="${esc(x.id)}" aria-current="${x.id === rrSel}"><b>${x.color ? `<span class="rrsw" style="background:${esc(x.color)}"></span>` : ""}${esc(rrLabel(x))}</b>${x.common && x.name ? `<span class="muted small">${esc(x.name)}</span>` : ""}${x.nickname ? `<span class="muted small">“${esc(x.nickname)}”</span>` : ""}<span class="muted small">${esc(x.abbrev)}${pgOf(x) ? ` · p. ${pgOf(x)[0]}${pgOf(x)[1] !== pgOf(x)[0] ? "–" + pgOf(x)[1] : ""}` : ""}${rrFreightOn(x, onDate) ? " · freight only" : ""}${rrGuide.get(`${S.sourceId}|${x.id}`)?.noTimes ? " · no timetables in this guide" : ""}${onDate && !rrActiveOn(x, onDate) ? " · not running then" : ""}${mixedOnly(x.abbrev) ? " · mixed only" : ""}${x.from || x.to ? " · " + esc([x.from, x.to].filter(Boolean).join(" – ")) : ""}${nUsed(x.abbrev) ? " · " + nUsed(x.abbrev) + " trains" : ""}</span></button></li>`).join("")}</ul></div>
       <div class="card rredit">${r ? `
         <div class="row" style="justify-content:space-between;align-items:baseline"><h2 class="rec-title">${esc(rrLabel(r))}</h2>${onDate && rrNameOn(r, onDate) && rrNameOn(r, onDate) !== r.common ? `<span class="small muted" title="Its formal name on the guide's date">${esc(src0.dateText || onDate)}: ${esc(rrNameOn(r, onDate))}</span>` : ""}<span class="small muted" id="rrSaved"></span></div>
@@ -4365,11 +4455,11 @@ function rrLinesHTML(r, g) {
     ${S.viewOnly ? (lines.length ? `<table class="sheet small"><thead><tr><th>Table</th><th>Line</th><th>Miles</th><th>From</th><th>To</th><th>Stations</th></tr></thead><tbody>${lines.map(l => `<tr><td>${esc(l.tableNo || "")}</td><td>${esc(l.name || "")}</td><td>${esc(l.miles || "")}</td><td>${esc(l.from || "")}</td><td>${esc(l.to || "")}</td><td>${(l.stations || []).length || ""}</td></tr>`).join("")}</tbody></table>` : `<p class="small muted">No lines entered.</p>`) : `
     ${lines.length ? `<table class="sheet small rrlines"><thead><tr><th>Table</th><th>Line or branch</th><th>Miles</th><th>From</th><th>To</th><th></th><th></th></tr></thead><tbody>${lines.map((l, i) => { const t = deskT(l), open = rrOpenLines.has(i); return `<tr>
       <td>${inp(i, "tableNo", l.tableNo, "No.", "4.5em")}</td><td>${inp(i, "name", l.name, "e.g. Searsport Branch", "12em")}</td><td>${inp(i, "miles", l.miles, "Miles", "5em")}</td><td>${inp(i, "from", l.from, "From", "12em")}</td><td>${inp(i, "to", l.to, "To", "12em")}</td>
-      <td style="white-space:nowrap">${t && lines.findIndex(o => deskT(o) === t) !== i ? `<span class="muted">″ ${esc(tlab(t))}</span>` : t ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: t.id, train: "", mode: "grid" }))}'>${esc(tlab(t))}</button>` : `<span class="muted">${l.tableNo ? "no table entered" : "no passenger table"}</span>`} · <button class="linkish" data-lnst="${i}">${open ? "Hide stations" : `Stations${(l.stations || []).length ? ` (${l.stations.length})` : ""}`}</button></td>
+      <td style="white-space:nowrap">${t && lines.findIndex(o => deskT(o) === t) !== i ? `<span class="muted">″ ${esc(tlab(t))}</span>` : t ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: t.id, train: "", mode: "grid" }))}'>${esc(tlab(t))}</button>` : `<span class="muted">${l.tableTitle || l.page ? esc([l.tableTitle, l.page ? "p. " + l.page : ""].filter(Boolean).join(", ")) : l.tableNo ? "no table entered" : "no passenger table"}</span>`} · <button class="linkish" data-lnst="${i}">${open ? "Hide stations" : `Stations${(l.stations || []).length ? ` (${l.stations.length})` : ""}`}</button></td>
       <td class="rowbtns"><button class="ghost" data-lnsub="${i}" title="Add another line or branch under ${l.tableNo ? "Table " + esc(l.tableNo) : "this table"}" aria-label="Add a line under the same table">＋</button><button class="ghost" data-lnmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-lnmove="${i}" data-by="1" aria-label="Move down" ${i < lines.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-lndel="${i}" aria-label="Remove line">✕</button></td></tr>
       ${open ? `<tr class="lnst"><td colspan="7">${rrStationsHTML(l, i, t)}</td></tr>` : ""}`; }).join("")}</tbody></table>` : ""}
     ${lines.length ? `<label class="row small" style="gap:6px;margin:6px 0 0"><input type="checkbox" id="lnSum" ${g.milesFromLines ? "checked" : ""}> Route miles = the sum of these lines <span class="muted">(${esc(linesMiles(g))} mi.${g.milesFromLines ? "" : g.miles ? `; route miles typed now: ${esc(g.miles)}` : ""})</span></label>` : ""}
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn primary" id="lnSheet" title="One sheet for this railroad's tables and lines in this guide: page, table, line name, from, to and miles; freight-only railroads get lines without timetables">＋ Tables and lines…</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
 }
 function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
@@ -4407,6 +4497,7 @@ function wireRRGuide(r) {
   el.querySelectorAll("[data-sn]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.lines[+inp.dataset.sn].stations[+inp.dataset.sj][inp.dataset.sk] = inp.value; put(x); }));
   if ($("lnNewTable")) $("lnNewTable").onclick = () => { LS.set("rr", r.abbrev); goTo({ then: () => tableDialog(null) }); };
   if ($("lnBulk")) $("lnBulk").onclick = () => bulkTablesDialog(r);
+  if ($("lnSheet")) $("lnSheet").onclick = () => tablesLinesDialog(r);
   if ($("lnAdd")) $("lnAdd").onclick = () => { const x = g(); x.lines.push({ tableNo: "", miles: "", from: "", to: "" }); put(x, true); };
   const ends = t => { const rows = (t.rows || []).filter(q => !q.divider && q.stationId); const nm = q => q ? stName(q.stationId) : ""; const mi = Math.max(0, ...rows.map(q => parseFloat(String(q.miles || "").replace(/,/g, "")) || 0)); return { from: nm(rows[0]), to: nm(rows[rows.length - 1]), miles: mi ? String(mi) : "" }; };
   if ($("lnFill")) $("lnFill").onclick = () => {
