@@ -4017,7 +4017,7 @@ async function renderFreightSheet(el, src0, onDate) {
   const cell = (id, k, v, ph, w, ro) => ro ? `<span title="Used on tables or trains, so the code can't change">${esc(v || "")}</span>` : `<input data-fr="${esc(id)}" data-frk="${k}"${k === "rrType" ? ` list="rrTypeList"` : ""} value="${esc(v || "")}" placeholder="${esc(id ? "" : ph)}" autocomplete="off" style="width:${w}">`;
   const row = (r, x) => `<tr data-frrow="${esc(r ? r.id : "")}">
       <td>${cell(r ? r.id : "", "pages", x.pages, "Page", "5em")}</td><td>${cell(r ? r.id : "", "name", x.name, r ? "" : "Type a railroad to add it", "22em")}</td>
-      <td>${cell(r ? r.id : "", "abbrev", x.abbrev, r ? "" : "auto", "5.5em", r && usedSet.has(r.abbrev))}</td><td>${cell(r ? r.id : "", "rrType", x.rrType, "Terminal…", "8em")}</td><td>${cell(r ? r.id : "", "geography", x.geography, "e.g. Aberdeen–Star", "18em")}</td>
+      <td>${cell(r ? r.id : "", "abbrev", x.abbrev, r ? "" : "auto", "5.5em", r && usedSet.has(r.abbrev))}${r?.mark ? ` <span class="muted small" title="Reporting mark (another railroad has it as its code)">${esc(r.mark)}</span>` : ""}</td><td>${cell(r ? r.id : "", "rrType", x.rrType, "Terminal…", "8em")}</td><td>${cell(r ? r.id : "", "geography", x.geography, "e.g. Aberdeen–Star", "18em")}</td>
       <td>${cell(r ? r.id : "", "states", x.states, "N.C.", "7em")}</td><td>${cell(r ? r.id : "", "miles", x.miles, "Mi.", "5em")}</td>
       <td class="rowbtns" style="white-space:nowrap">${r ? `<button class="ghost" tabindex="-1" data-fropen="${esc(r.id)}" title="Open its record" aria-label="Open its record">↗</button>${G(r).freightOnly ? `<button class="ghost danger" tabindex="-1" data-frdel="${esc(r.id)}" title="${usedSet.has(r.abbrev) ? "Take it off this sheet (the railroad stays)" : "Take it off this sheet; a railroad with nothing else entered is deleted (Undo brings it back)"}" aria-label="Remove">✕</button>` : ""}` : ""}</td></tr>`;
   const vals = r0 => { const r = { ...r0, ...(frPend.get(r0.id) || {}) }; return { pages: G(r).pages || "", name: r.name || r.common || "", abbrev: r.abbrev, rrType: r.rrType || "", geography: r.geography || "", states: r.states || "", miles: G(r).miles || "" }; };
@@ -4058,10 +4058,12 @@ async function renderFreightSheet(el, src0, onDate) {
       frNew.splice(frNew.indexOf(same.id) >>> 0, frNew.includes(same.id) ? 1 : 0); frNew.push(same.id);
       frBlank = { pages: frBlank.pages, name: "", abbrev: "", rrType: "", geography: "", states: "", miles: "" }; redraw(thenKey ? same.id : "", thenKey || "name"); return;
     }
-    let ab = frBlank.abbrev.trim() || rrCodeFor(name);
-    if (S.railroads.some(x => x.abbrev.toLowerCase() === ab.toLowerCase())) { msg(`The code ${ab} is already used; give it another.`); focusCell("", "abbrev"); return; }
+    let ab = frBlank.abbrev.trim() || rrCodeFor(name), mark = "";
+    // a reporting mark another railroad already has (marks were reused over the years): keep it as this railroad's mark, with its own Desk code
+    const taken = c => S.railroads.some(x => x.abbrev.toLowerCase() === c.toLowerCase());
+    if (taken(ab)) { const other = S.railroads.find(x => x.abbrev.toLowerCase() === ab.toLowerCase()); mark = ab; let n = 2; while (taken(ab + n)) n++; ab = ab + n; notice(`${mark} is also ${rrLabel(other)}'s code, so this one is ${ab} in the Desk, with reporting mark ${mark}.`); }
     let id = ab.replace(/[^A-Za-z0-9]/g, "") || uid(); if (S.railroads.some(x => x.id === id)) id += "-" + uid().slice(0, 4);
-    const body = { abbrev: ab, name, ...(frBlank.rrType ? { rrType: frBlank.rrType } : {}), ...(frBlank.geography ? { geography: frBlank.geography } : {}), ...(frBlank.states ? { states: frBlank.states } : {}) };
+    const body = { abbrev: ab, name, ...(mark ? { mark } : {}), ...(frBlank.rrType ? { rrType: frBlank.rrType } : {}), ...(frBlank.geography ? { geography: frBlank.geography } : {}), ...(frBlank.states ? { states: frBlank.states } : {}) };
     const g = { freightOnly: true, ...(frBlank.pages ? { pages: frBlank.pages } : {}), ...(frBlank.miles ? { miles: frBlank.miles } : {}) };
     remember(`railroads/${id}`, null); remember(`sources/${src.id}/rrpages/${id}`, null);
     // shown at once (so typing carries on into its next box); saved behind
@@ -4085,8 +4087,10 @@ async function renderFreightSheet(el, src0, onDate) {
     });
     if (k === "abbrev" && id) inp.addEventListener("change", () => {
       const r = S.railroads.find(x => x.id === id), v = inp.value.trim(); if (!r || !v || v === r.abbrev) return;
-      if (S.railroads.some(x => x.id !== id && x.abbrev.toLowerCase() === v.toLowerCase())) { msg(`Another railroad already uses ${v}.`); inp.value = r.abbrev; return; }
-      remember(`railroads/${id}`, { ...r }); r.abbrev = v; frPend.set(id, { ...(frPend.get(id) || {}), abbrev: v }); S.rrByAbbrev = new Map(S.railroads.map(x => [x.abbrev, x])); saveOne(r, true);
+      let code = v, mark = r.mark || "";
+      if (S.railroads.some(x => x.id !== id && x.abbrev.toLowerCase() === v.toLowerCase())) { let n = 2; while (S.railroads.some(x => x.id !== id && x.abbrev.toLowerCase() === (v + n).toLowerCase())) n++; code = v + n; mark = v; msg(`${v} is also another railroad's code, so this one is ${code} in the Desk, with reporting mark ${v}.`); }
+      else if (mark && mark.toLowerCase() !== v.toLowerCase()) mark = "";
+      remember(`railroads/${id}`, { ...r }); r.abbrev = code; if (mark) r.mark = mark; else delete r.mark; inp.value = code; frPend.set(id, { ...(frPend.get(id) || {}), abbrev: code, ...(mark ? { mark } : {}) }); S.rrByAbbrev = new Map(S.railroads.map(x => [x.abbrev, x])); saveOne(r, true);
     });
     if (!id && k === "name") inp.addEventListener("keydown", e => { if (e.key === "Tab" && !e.shiftKey && frBlank.name.trim()) { e.preventDefault(); create("abbrev"); } });
     if (!id && k === "name") inp.addEventListener("blur", () => setTimeout(() => { if (frBlank.name.trim() && !el.querySelector('tr[data-frrow=""]')?.contains(document.activeElement)) create(null); }, 0));
