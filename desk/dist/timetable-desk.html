@@ -1096,7 +1096,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   quiet(document);
   new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.("input")) quiet(n.parentNode || n); else quiet(n); } }).observe(document.documentElement, { childList: true, subtree: true });
 })();
-window.__deskHook = () => ({ carrySource, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ carrySource, milesSumDialog, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -4488,8 +4488,9 @@ function milesSumDialog(title, parts0, onDone) {
   const val = v => { const x = milesExpr(v); return x ? parseFloat(x.total) : (parseFloat(v) || 0); };   // a row can be "168.6-148.9" (a branch counted in main-line mileposts)
   const total = () => milesFmt(parts.reduce((a, p) => a + val(p.miles), 0));
   dialog(`<h2>Route miles: ${esc(title)}</h2>
-    <p class="small muted" style="margin:0 0 6px">One line per main line, branch or spur, as the Guide lists them. A branch whose first station isn't at 0 is usually counted from its junction: use its last figure. One counted in main-line mileposts can be typed as a subtraction (168.6-148.9). Enter in a miles box moves to the next line (and starts a new one at the end).</p>
+    <p class="small muted" style="margin:0 0 6px">One line per main line, branch or spur, as the Guide lists them. A branch whose first station isn't at 0 is usually counted from its junction: use its last figure. One counted in main-line mileposts can be typed as a subtraction (168.6-148.9). ＋ Add a line (or Tab or Enter past the last miles box) adds another; Enter on an empty last line uses the total.</p>
     <table class="sheet small"><thead><tr><th>Line (optional)</th><th>Miles</th><th></th></tr></thead><tbody id="msRows"></tbody></table>
+    <div class="row" style="gap:6px;margin-top:6px"><button class="small-btn" id="msAdd">＋ Add a line</button><span class="small muted">or Tab past the last miles box</span></div>
     <p style="margin:8px 0 0"><b>Total: <span id="msTot"></span> miles</b></p>`, "Use total", () => { onDone(total(), parts.filter(p => String(p.miles).trim() || p.line.trim())); });
   const draw = focus => {
     $("msRows").innerHTML = parts.map((p, i) => `<tr><td><input data-msl="${i}" value="${esc(p.line)}" placeholder="e.g. Conneaut branch" autocomplete="off" style="width:18em"></td><td><input data-msm="${i}" value="${esc(p.miles)}" inputmode="decimal" autocomplete="off" style="width:6em"></td><td class="rowbtns"><button class="ghost danger" tabindex="-1" data-msx="${i}" aria-label="Remove line">✕</button></td></tr>`).join("");
@@ -4498,12 +4499,15 @@ function milesSumDialog(title, parts0, onDone) {
     $("msRows").querySelectorAll("[data-msm]").forEach(x => {
       x.oninput = () => { parts[+x.dataset.msm].miles = x.value.trim(); $("msTot").textContent = total(); };
       x.onchange = () => { const e = milesExpr(x.value); if (e) { const i = +x.dataset.msm; if (!parts[i].line.trim()) parts[i].line = x.value.trim(); else if (!parts[i].line.includes("(")) parts[i].line += ` (${x.value.trim()})`; parts[i].miles = e.total; x.value = e.total; const l = $("msRows").querySelector(`[data-msl="${i}"]`); if (l) l.value = parts[i].line; } };
-      x.onkeydown = e => { if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); const i = +x.dataset.msm;
+      x.onkeydown = e => { const i0 = +x.dataset.msm;
+        if (e.key === "Tab" && !e.shiftKey && i0 === parts.length - 1 && x.value.trim()) { e.preventDefault(); parts.push({ line: "", miles: "" }); draw(["msl", i0 + 1]); return; }
+        if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); const i = +x.dataset.msm;
         if (i === parts.length - 1) { if (!x.value.trim()) { $("dOk").click(); return; } parts.push({ line: "", miles: "" }); draw(["msm", i + 1]); } else $("msRows").querySelector(`[data-msm="${i + 1}"]`)?.focus(); };
     });
     $("msRows").querySelectorAll("[data-msx]").forEach(b => b.onclick = () => { parts.splice(+b.dataset.msx, 1); if (!parts.length) parts.push({ line: "", miles: "" }); draw(); });
     if (focus) $("msRows").querySelector(`[data-${focus[0]}="${focus[1]}"]`)?.focus();
   };
+  $("msAdd").onclick = () => { parts.push({ line: "", miles: "" }); draw(["msl", parts.length - 1]); };
   draw(["msm", 0]);
 }
 async function renderFreightSheet(el, src0, onDate) {
