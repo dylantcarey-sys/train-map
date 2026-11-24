@@ -648,7 +648,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   document.addEventListener("focusin", e => { const el = e.target;
     if (!(el instanceof HTMLInputElement) || !/^(text|search|)$/.test(el.type) || el.readOnly || Date.now() - lastPointer < 400) return;
     if (!el.closest("#entry, .sheet, .rrlines, #tlRows, #bkRows, #msRows")) return;
-    setTimeout(() => { if (document.activeElement === el && el.value) { try { el.select(); } catch {} } }, 0); }, true); }
+    const v0 = el.value; setTimeout(() => { if (document.activeElement === el && el.value && el.value === v0) { try { el.select(); } catch {} } }, 0); }, true); }
 window.__deskHook = () => ({ carrySource, milesSumDialog, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
@@ -2997,6 +2997,35 @@ function sheetKeys(root, sel, { enter = true } = {}) {
     e.preventDefault(); e.stopPropagation(); target.focus(); target.select?.();
   }));
 }
+// every timetable of this railroad in the open guide, with its page and date to fill in at once (copied tables keep the
+// first page of the railroad's section and, when started from another guide, no date)
+function tablePagesDialog(r) {
+  const src = curSource(); if (!src || !S.db) return;
+  const mine = S.tables.filter(t => t.rr === r.abbrev).sort(guideOrder);
+  if (!mine.length) { notice(`${rrLabel(r)} has no timetables in ${src.name} yet.`); return; }
+  const rows = mine.map(t => ({ id: t.id, page: t.page || "", date: t.tableDateText || "" }));
+  dialog(`<h2>${esc(rrLabel(r))}: pages and dates in ${esc(src.name)}</h2>
+    <p class="small muted" style="margin:0 0 6px">Type each table's page and date as printed in this guide. Enter or ↓ moves down a column, Tab moves across; a box you move into is selected, so typing replaces it. A page typed with a dash (66-67) is kept as typed.</p>
+    <div style="max-height:60vh;overflow:auto"><table class="sheet small" id="tpTable"><thead><tr><th>Table</th><th>Name</th><th>Trains</th><th>Page</th><th>Table date</th></tr></thead><tbody id="tpRows">${mine.map((t, i) => `<tr><td style="white-space:nowrap">${String(t.tableNo || "").trim() ? `Table ${esc(t.tableNo)}` : "(no number)"}</td><td>${esc(tTitle(t) || "")}</td><td class="muted" style="text-align:right">${trainsInTableOf(t.id).length}</td><td><input data-tp="${i}" data-tpk="page" value="${esc(rows[i].page)}" placeholder="page" autocomplete="off" style="width:70px"></td><td><input data-tp="${i}" data-tpk="date" value="${esc(rows[i].date)}" placeholder="e.g. October 25, 1970" autocomplete="off" style="width:170px"></td></tr>`).join("")}</tbody></table></div>`, "Save", async () => {
+    document.querySelectorAll("#tpRows [data-tp]").forEach(el => { rows[+el.dataset.tp][el.dataset.tpk] = el.value.trim(); });
+    for (const x of rows) if (x.date && !Core.parseMonthDate(x.date)) { const t = S.tables.find(q => q.id === x.id); return `${tlab(t)}: type the date like October 25, 1970 (or leave it blank).`; }
+    let n = 0;
+    for (const [i, x] of rows.entries()) {
+      const t = S.tables.find(q => q.id === x.id); if (!t) continue;
+      const pd = x.date ? Core.parseMonthDate(x.date) : null;
+      if ((t.page || "") === x.page && (t.tableDateText || "") === x.date) continue;
+      remember(`${tablesPath()}/${t.id}`, t);
+      const tb = structuredClone(t); tb.page = x.page;
+      if (x.date) Object.assign(tb, { tableDateText: x.date, tableDate: pd.iso, tableDatePrecision: pd.precision || "" });
+      else for (const k of ["tableDate", "tableDatePrecision", "tableDateText"]) delete tb[k];
+      const j = S.tables.findIndex(q => q.id === tb.id); if (j >= 0) S.tables[j] = tb;
+      await saveTable(tb); n++;
+    }
+    notice(n ? `Updated ${n} table${n === 1 ? "" : "s"}.` : "Nothing changed.");
+    setTimeout(() => { rrStats = null; if (S.page === "railroads") renderRailroads(); renderContext(); }, 300);
+  });
+  const root = $("tpTable"); if (root) { sheetKeys(root, "[data-tp]"); root.querySelector("[data-tp]")?.focus(); }
+}
 function tablesLinesDialog(r) {
   const src = curSource(); if (!src || !S.db) return;
   const key = `${src.id}|${r.id}`, g0 = rrGuide.get(key) || {};
@@ -4516,7 +4545,7 @@ function rrLinesHTML(r, g) {
       <td class="rowbtns"><button class="ghost" data-lnsub="${i}" title="Add another line or branch under ${l.tableNo ? "Table " + esc(l.tableNo) : "this table"}" aria-label="Add a line under the same table">＋</button><button class="ghost" data-lnmove="${i}" data-by="-1" aria-label="Move up" ${i ? "" : "disabled"}>↑</button><button class="ghost" data-lnmove="${i}" data-by="1" aria-label="Move down" ${i < lines.length - 1 ? "" : "disabled"}>↓</button><button class="ghost danger" data-lndel="${i}" aria-label="Remove line">✕</button></td></tr>
       ${open ? `<tr class="lnst"><td colspan="7">${rrStationsHTML(l, i, t)}</td></tr>` : ""}`; }).join("")}</tbody></table>` : ""}
     ${lines.length ? `<label class="row small" style="gap:6px;margin:6px 0 0"><input type="checkbox" id="lnSum" ${g.milesFromLines ? "checked" : ""}> Route miles = the sum of these lines <span class="muted">(${esc(linesMiles(g))} mi.${g.milesFromLines ? "" : g.miles ? `; route miles typed now: ${esc(g.miles)}` : ""})</span></label>` : ""}
-    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn primary" id="lnSheet" title="One sheet for this railroad's tables and lines in this guide: page, table, line name, from, to and miles; freight-only railroads get lines without timetables">＋ Tables and lines…</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${lines.some(l => !l.name || !l.from || !l.to) ? `<button class="small-btn" id="lnGuess" title="Best guess from each line's table name: “Main Line - Searsport to St. Leonard” gives Main Line, Searsport, St. Leonard. Only empty boxes are filled">Fill blanks from table names</button>` : ""}${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="small-btn primary" id="lnNewTable" title="Start a new timetable for this railroad in this guide">＋ New ${esc(rrLabel(r))} table</button><button class="small-btn primary" id="lnSheet" title="One sheet for this railroad's tables and lines in this guide: page, table, line name, from, to and miles; freight-only railroads get lines without timetables">＋ Tables and lines…</button><button class="small-btn" id="lnPages" title="Every timetable of this railroad in this guide in one sheet: type each one's page and date (copied tables keep the section's first page)">Pages and dates…</button><button class="small-btn" id="lnBulk" title="List all of this railroad's tables in this guide at once: number, page, name, date and time zone. Marks and trains are added when you get to each table">＋ Add several tables…</button><button class="small-btn" id="lnAdd">＋ Add a line</button>${lines.some(l => !l.name || !l.from || !l.to) ? `<button class="small-btn" id="lnGuess" title="Best guess from each line's table name: “Main Line - Searsport to St. Leonard” gives Main Line, Searsport, St. Leonard. Only empty boxes are filled">Fill blanks from table names</button>` : ""}${missing.length ? `<button class="small-btn" id="lnFill" title="Add a line for each table of this railroad you've entered that isn't listed yet: its number, its ends and its longest mileage">＋ Add the ${missing.length} table${missing.length === 1 ? "" : "s"} you've entered</button>` : ""}</div>`}`;
 }
 function rrStationsHTML(l, i, t) {
   const st = l.stations || [];
@@ -4561,6 +4590,7 @@ function wireRRGuide(r) {
   if ($("lnNewTable")) $("lnNewTable").onclick = () => { LS.set("rr", r.abbrev); goTo({ then: () => tableDialog(null) }); };
   if ($("lnBulk")) $("lnBulk").onclick = () => bulkTablesDialog(r);
   if ($("lnSheet")) $("lnSheet").onclick = () => tablesLinesDialog(r);
+  if ($("lnPages")) $("lnPages").onclick = () => tablePagesDialog(r);
   if ($("lnAdd")) $("lnAdd").onclick = () => { const x = g(); x.lines.push({ tableNo: "", miles: "", from: "", to: "" }); put(x, true); };
   const ends = t => { const rows = (t.rows || []).filter(q => !q.divider && q.stationId); const nm = q => q ? stName(q.stationId) : ""; const mi = Math.max(0, ...rows.map(q => parseFloat(String(q.miles || "").replace(/,/g, "")) || 0)); return { from: nm(rows[0]), to: nm(rows[rows.length - 1]), miles: mi ? String(mi) : "" }; };
   if ($("lnFill")) $("lnFill").onclick = () => {
