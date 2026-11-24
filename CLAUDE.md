@@ -69,6 +69,7 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - Trains of railroads with no tables yet are "Future railroad" placeholders and aren't flagged as problems.
 - Mixed trains (passengers and freight) get the "Mixed service" tag. They carry no equipment unless the Guide prints some (no "Coaches" default).
 - Condensed tables often print no date; a missing date on a condensed table isn't a problem.
+- A column headed "Arrive" (PC Table 15: Baltimore, Capital Beltway, Washington southbound; Newark, New York northbound) is entered as arrival times; "– –" in a column means no stop (Dylan, Nov 23).
 - A stop printed with a mark but no time ("f –", a flag stop) is entered with the mark only (type "f" in the cell); it isn't flagged as missing a time.
 - Equipment with a blank From/To runs the whole train: the Desk fills in the train's first and last stations when you move to another table.
 - Short name (`common`, Dylan, Nov 22) keeps "Railroad"/"Railway" but not the business form: "Bangor and Aroostook Railroad" (business name `name`: "Bangor and Aroostook Railroad Company", as Dylan enters it, with "Company", "Inc." etc.). The name without "Railroad"/"Railway" goes in `nickname` only where there's evidence it was widely used. Use that form for any railroad Claude adds. There's no separate Service field: the kind of railroad is `rrType` (Passenger, Commuter, Freight, Terminal…), and freight only in a guide is that guide's `freightOnly` (old `kind` values are still read).
