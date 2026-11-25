@@ -1548,8 +1548,9 @@ function subscribeSource() {
       if (!S.dirty.has(id) && !S.saving.has(id)) S.work.delete(id);
     }
     S.loaded.trains = true;
-    renderTrainList(); if (!document.activeElement || !$("entry").contains(document.activeElement)) renderEntry();
-    trainsPageAgain();
+    // many saves in a row (Mark trains done, Finish this guide) each come back as a snapshot: redraw once they settle, not once per train
+    clearTimeout(S.snapTimer);
+    S.snapTimer = setTimeout(() => { renderTrainList(); if (!document.activeElement || !$("entry").contains(document.activeElement)) renderEntry(); trainsPageAgain(); }, S.saving.size ? 250 : 60);
   }, e => dbError(e));
 }
 function dbError(e) { console.warn(e); if (e?.code === "revoked") notice("This page can no longer read or save data. Reload the page."); }
@@ -1653,6 +1654,13 @@ async function flush(id) {
   S.saving.delete(id); showSave();
   if (S.dirty.has(id) && !saveErr) flush(id);
 }
+// save many trains: a few at a time (still one write per train), so a whole table or guide doesn't wait on each save in turn
+async function flushMany(ids, onEach, at = 6) {
+  const queue = [...ids];
+  await Promise.all(Array.from({ length: Math.min(at, queue.length) }, async () => {
+    while (queue.length) { const id = queue.shift(); clearTimeout(timers.get(id)); await flush(id); onEach?.(); }
+  }));
+}
 addEventListener("beforeunload", e => { if (S.dirty.size || S.saving.size) { e.preventDefault(); e.returnValue = ""; } });
 
 function mutateTable(fn) {
@@ -1751,9 +1759,9 @@ function markTableTrainsDone(t) {
       const w = edit(x.id); clearTimeout(timers.get(x.id));
       if (w.tables?.[t.id]) w.tables[t.id].status = "complete";
       if (!Object.keys(w.tables || {}).some(k => tableById(k) && w.tables[k].status !== "complete")) w.progress = "done";
-      await flush(x.id); n++;
-      if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${open.length}`;
     }
+    // save several at once (one write per train, as always), not one after another
+    await flushMany(open.map(x => x.id), () => { n++; if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${open.length}`; });
     if (alsoTable && t.status !== "done") setTableStatus(t.id, "done");
     notice(`${n} train${n === 1 ? "" : "s"} marked Done on ${esc(tableName(t))}.`); render();
   });
@@ -4941,7 +4949,7 @@ async function carryTable(src, t, mode) {
     }
     ids.push(o.id);
   }
-  for (const id of ids) { clearTimeout(timers.get(id)); await flush(id); }
+  await flushMany(ids);
   return ids.length;
 }
 async function carrySection(src, r) {
@@ -5236,7 +5244,7 @@ async function runFinish(plan) {
   for (const t of plan.done) { const w = edit(t.id); clearTimeout(timers.get(t.id)); w.progress = "done"; for (const k of Object.keys(w.tables || {})) if (tableById(k)) w.tables[k].status = "complete"; }
   const ids = new Set([...fixIds, ...plan.done.map(t => t.id)]);
   let n = 0; const total = ids.size + plan.tables.length;
-  for (const id of ids) { await flush(id); if (++n % 5 === 0) { const msg = `Finishing the guide… ${n} of ${total} saved`; notice(msg); if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${total}`; await new Promise(r => setTimeout(r, 150)); } }
+  await flushMany(ids, () => { if (++n % 5 === 0) { const msg = `Finishing the guide… ${n} of ${total} saved`; notice(msg); if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${total}`; } });
   for (const t of plan.tables) { const tb = { ...t, status: "done" }; const i = S.tables.findIndex(x => x.id === t.id); if (i >= 0) S.tables[i] = tb; await saveTable(tb); if (++n % 5 === 0) { const msg = `Finishing the guide… ${n} of ${total} saved`; notice(msg); if ($("dOk")) $("dOk").textContent = `Saving… ${n} of ${total}`; await new Promise(r => setTimeout(r, 150)); } }
   return n;
 }
