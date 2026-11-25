@@ -1239,7 +1239,7 @@ function renderContext() {
   const byRR = new Map(); for (const x of S.tables.slice().sort(guideOrder)) { const k = x.rr || ""; if (!byRR.has(k)) byRR.set(k, []); byRR.get(k).push(x); }
   $("selTable").innerHTML = S.tables.length ? [...byRR].map(([k, ts]) => `<optgroup label="${esc(rrLabel(S.railroads.find(r => r.abbrev === k) || { abbrev: k || "No railroad" }))}">${ts.map(t => `<option value="${esc(t.id)}" ${t.id === S.tableId ? "selected" : ""}>${esc(tableName(t))}</option>`).join("")}</optgroup>`).join("") : `<option value="">${S.sourceId ? "No tables yet: start one" : "Pick a source first"}</option>`;
   const t = curTable();
-  $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table", t.marksTodo && `<button class="linkish" id="tsMarks" style="color:var(--warn,#b45309)" title="Added with several tables at once: enter this table's explanation of signs">Reference marks not entered yet</button>`].filter(Boolean).join(" · ") : "";
+  $("tableSummary").innerHTML = t ? [S.railroads.some(r => r.abbrev === t.rr) && `<button class="linkish" id="tsRR" title="This railroad's section in the guide: offices, lines and all its tables">${esc(rrLabel(S.railroads.find(r => r.abbrev === t.rr)))} in this guide</button>`, t.title && esc(t.title), t.tableDateText && `Table dated ${esc(t.tableDateText)}`, t.page && `page ${esc(t.page)}`, `times ${esc(t.tz || "?")}, ${esc(t.basis || "Not stated")}`, t.condensed && "condensed table", stationsOnly(t) && `<b>${esc(tServiceLabel(t))}</b>`, t.marksTodo && `<button class="linkish" id="tsMarks" style="color:var(--warn,#b45309)" title="Added with several tables at once: enter this table's explanation of signs">Reference marks not entered yet</button>`].filter(Boolean).join(" · ") : "";
   if ($("tsMarks")) $("tsMarks").onclick = () => tableDialog(curTable());
   if ($("tsRR")) $("tsRR").onclick = () => { const r = S.railroads.find(x => x.abbrev === t.rr); if (!r) return; rrSel = r.id; LS.set("rrSel", r.id); LS.set("rrTab", "g:" + S.sourceId); showPage("railroads"); };
   $("tStatusBox").innerHTML = t ? tStatusSelect(t, trainsInTable().length, 'id="selTStatus"') + (S.db && trainsInTable().length ? ` <button class="small-btn" id="btnTblDone" title="Mark every train on this table Done at once (a table copied as printed from another guide, say)">✓ Mark trains done…</button>` : "") : "";
@@ -1267,7 +1267,12 @@ const tnum = t => t && String(t.tableNo || "").trim() ? `Table ${t.tableNo}` : (
 const tableName = t => `${t.rr || "?"} · ${tlab(t)}`;
 // overall status of a whole table (separate from each train's own status)
 const TSTATUS = [["todo", "Not started"], ["working", "In progress"], ["done", "Completed"]];
-const tStatusOf = (t, nTrains) => t.status || (nTrains ? "working" : "todo");
+// a table's kind of service (Dylan, Nov 24): passenger trains (the default), suburban/commuter or freight only. The last two list stations only
+// (rows from the station layer), with no trains entered, so a table with no trains isn't waiting on anything.
+const T_SERVICE = [["", "Passenger trains"], ["commuter", "Suburban / commuter: stations only, no train detail"], ["freight", "Freight only: stations only"]];
+const stationsOnly = t => t?.service === "commuter" || t?.service === "freight";
+const tServiceLabel = t => t?.service === "commuter" ? "suburban/commuter service (stations only)" : t?.service === "freight" ? "freight only (stations only)" : "";
+const tStatusOf = (t, nTrains) => t.status || (nTrains || (stationsOnly(t) && (t.rows || []).length) ? "working" : "todo");
 const tStatusSelect = (t, nTrains, attrs) => `<select ${attrs} class="tstat ts-${tStatusOf(t, nTrains)}" aria-label="Status of this table">${TSTATUS.map(([k, l]) => `<option value="${k}" ${k === tStatusOf(t, nTrains) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
 // mark every train on a table Done at once (Dylan, Nov 22: LIRR Tables 2–3 copied as printed from April). This table's entry is marked complete
 // for each train; the train itself becomes Done when all its tables in this guide are complete (a train still open on another table says so).
@@ -1318,6 +1323,7 @@ function renderTrainList() {
   $("trainCount").textContent = t ? String(trainsInTable().length) : "";
   if (!t) { list.innerHTML = `<li class="empty">${S.sourceId ? "Start a table for the railroad you're transcribing, then add its trains." : "Pick a source to begin."}</li>`; return; }
   const trs = trainsInTable();
+  if (!trs.length && stationsOnly(t)) { list.innerHTML = `<li class="empty">This table is ${esc(tServiceLabel(t))}: it takes no trains. Add or edit its stations in the <b>Timetable grid</b>; Edit table changes the service.</li>`; return; }
   if (!trs.length) { list.innerHTML = `<li class="empty">No trains in this table yet. Use <b>New train</b>, or switch to <b>Timetable grid</b> and add train columns.</li>`; return; }
   list.innerHTML = trs.map(tr => `<li><button data-id="${esc(tr.id)}" aria-current="${tr.id === S.trainId}"><span class="no">${esc(trLabel(tr))}</span><span class="nm">${esc(nameAfter(tr) || "")} ${tagChips(tr)} <span class="muted small">${tStops(tr).filter(s => !s.pass && s.stationId).length} stops</span></span><span class="chip st-${tStatus(tr)}">${stShort(tr)}</span></button></li>`).join("");
 }
@@ -2872,6 +2878,8 @@ function tableDialog(existing) {
         ${symbolBar()}
       </fieldset>
       ${existing ? "" : `<fieldset id="dRosterBox" style="grid-column:1/-1" hidden><legend>Trains of this railroad not yet on a table</legend><p class="small muted" style="margin:0 0 4px">Trains of this railroad that aren't on a table yet. Tick the ones this table prints; they become its columns.</p><div id="dRosterList" style="max-height:180px;overflow:auto"></div></fieldset>`}
+      <label class="f" style="grid-column:1/-1"><span>Service</span><select id="dService">${T_SERVICE.map(([k, l]) => `<option value="${k}" ${(t.service || "") === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <p class="small muted" style="grid-column:1/-1;margin:-4px 0 0">Suburban/commuter and freight-only tables list their stations (add them in the Timetable grid, matched to the station layer) and take no trains, so an empty train list isn't flagged.</p>
       <label class="row small" style="grid-column:1/-1;gap:6px;align-items:flex-start"><input type="checkbox" id="dCondensed" ${t.condensed ? "checked" : ""}> <span><b>Condensed table</b> <span class="muted">(a summary box, like the Condensed Schedule of Florida Train). Not every leg shows an arrival or departure time or a train number, so missing times aren't flagged on this table.</span></span></label>
       <label class="f" style="grid-column:1/-1"><span>Table notes</span><textarea id="dTNotes" rows="2" placeholder="Other footnotes for this table">${esc(t.notes || "")}</textarea></label>
       <label class="f" style="grid-column:1/-1"><span>Follow-up</span><textarea id="dTFollow" rows="2" placeholder="Something still to do on this table, e.g. connecting trains printed on it aren't entered yet (shows on the table and in Home's Needs a look until cleared)">${esc(t.followUp || "")}</textarea></label>
@@ -2895,6 +2903,7 @@ function tableDialog(existing) {
     LS.set("lastMarks", cleanMarks);
     const body = { ...(existing || { rows: [] }), hosted: $("dHosted").checked, condensed: $("dCondensed").checked, marks: cleanMarks, rr, tableNo: no, page: $("dPage").value.trim(), title: $("dTitle").value.trim(), tableDateText: dt, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: $("dTz").value, basis: $("dBasis").value, notes: $("dTNotes").value, followUp: $("dTFollow").value.trim() };
     if (!body.followUp) delete body.followUp;
+    if ($("dService").value) body.service = $("dService").value; else delete body.service;
     const id = existing?.id || `${rr.replace(/[^A-Za-z0-9]/g, "")}-${no.replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`;
     delete body.id; delete body.part; delete body.marksTodo; LS.set("rr", rr);
     if (!existing) { body.createdAt = new Date().toISOString(); LS.set("lastTz", body.tz); }
@@ -5524,7 +5533,7 @@ async function renderHome() {
       const nSt = trs.reduce((a, tr) => a + (tr.stops || []).filter(s => s.tableId === t.id && s.stationId && !s.pass).length, 0);
       const go = m => esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: m }));
       const gk = d.src.id + "|" + (t.rr || "");
-      return `<tr data-rrg="${esc(gk)}" ${opened.has(gk) ? "" : "hidden"}><td><button class="linkish" data-go='${go("grid")}'><b>${tLabel(t)}</b></button>${t.page ? ` <span class="small muted">p. ${esc(t.page)}</span>` : ` <span class="small" style="color:var(--warn)" title="No page number entered, so it can't be placed in Guide order">⚠ no page</span>`} ${tStatusSelect(t, trs.length, `data-tstat="${esc(t.id)}"`)}
+      return `<tr data-rrg="${esc(gk)}" ${opened.has(gk) ? "" : "hidden"}><td><button class="linkish" data-go='${go("grid")}'><b>${tLabel(t)}</b></button>${stationsOnly(t) ? ` <span class="small muted" title="${esc(tServiceLabel(t))}">${t.service === "freight" ? "freight only" : "commuter"}</span>` : ""}${t.page ? ` <span class="small muted">p. ${esc(t.page)}</span>` : ` <span class="small" style="color:var(--warn)" title="No page number entered, so it can't be placed in Guide order">⚠ no page</span>`} ${tStatusSelect(t, trs.length, `data-tstat="${esc(t.id)}"`)}
           ${trs.length ? `<details><summary class="small muted">${trs.length} train${trs.length > 1 ? "s" : ""}</summary><div class="trs">${trs.map(tr => `<button class="chip st-${tStatus(tr)}" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: tr.id, mode: "train" }))}' title="${esc(tr.trainName || "")} · ${esc(trStLabel(tr))}">${esc(tr.trainNo || "?")}</button>`).join("")}</div></details>` : `<div class="small muted">No trains yet</div>`}</td>
         <td class="n-tr">${trs.length}<span class="mlab"> train${trs.length === 1 ? "" : "s"}</span></td><td class="n-st">${nSt}<span class="mlab"> stops</span></td><td class="prog">${bar(sts)}<div class="small muted">${done} of ${trs.length} done</div></td><td class="small muted ago">${esc(ago(lastEd))}</td>
         <td class="act"><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="small-btn" data-go='${go("grid")}'>Grid</button><button class="small-btn" data-go='${go("train")}'>One train</button></div></td></tr>`;
@@ -5695,7 +5704,7 @@ function renderTableView(el, t) {
   const rows = (t.rows || []).slice();
   for (const tr of allTrs) if (!rowsDeferred(tr)) for (const s of tStops(tr)) if (s.stationId && !rows.some(r => r.rid === s.rid)) rows.push({ rid: s.rid || "", stationId: s.stationId });
   const cellFor = (tr, r) => tStops(tr).find(s => s.rid && s.rid === r.rid) || (!r.rid ? tStops(tr).find(s => s.stationId === r.stationId) : null);
-  if (!allTrs.length) { el.innerHTML = `<div class="empty">No trains on this table yet.</div>`; return; }
+  if (!allTrs.length) { el.innerHTML = stationsOnly(t) && rows.length ? `<div class="card"><p class="small muted" style="margin:0 0 6px">${esc(tServiceLabel(t)[0].toUpperCase() + tServiceLabel(t).slice(1))}: ${rows.filter(r => !r.divider).length} stations.</p><ol class="small" style="margin:0;padding-left:1.6em">${rows.map(r => r.divider ? `<li style="list-style:none;margin-left:-1.6em" class="muted">${esc(r.label || "—")}</li>` : `<li>${esc(stLabel(r.stationId))}</li>`).join("")}</ol></div>` : `<div class="empty">${stationsOnly(t) ? `This table is ${esc(tServiceLabel(t))}; no stations entered yet.` : "No trains on this table yet."}</div>`; return; }
   const used = new Set();
   const cell = (col, r) => {
     const hits = col.map(tr => cellFor(tr, r) || (isRefIn(tr, t.id, allTrs) ? refCell(tr, t.id, r, rows, refCache) : null)).filter(Boolean);

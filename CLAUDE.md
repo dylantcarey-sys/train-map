@@ -68,6 +68,7 @@ Stored in the artifact's database (edit with the ArtifactData tool, same URL). O
 - A mark that changes a time on certain days ("On Sundays operates 7 minutes earlier") means a separate run on those days, entered as its own train, not a change to this one.
 - Trains of railroads with no tables yet are "Future railroad" placeholders and aren't flagged as problems.
 - Mixed trains (passengers and freight) get the "Mixed service" tag. They carry no equipment unless the Guide prints some (no "Coaches" default).
+- A table's **Service** (Edit table; `service`, Dylan, Nov 24): passenger trains (default), `commuter` (suburban/commuter: stations only, no train detail, e.g. PC Tables 17–21 and 35–40 in Nov 1970) or `freight` (freight only: stations only). Stations-only tables take their stations as grid rows from the station layer and no trains, so an empty train list isn't flagged; Home tags them.
 - Condensed tables often print no date; a missing date on a condensed table isn't a problem.
 - A column headed "Arrive" (PC Table 15: Baltimore, Capital Beltway, Washington southbound; Newark, New York northbound) is entered as arrival times; "– –" in a column means no stop (Dylan, Nov 23).
 - A stop printed with a mark but no time ("f –", a flag stop) is entered with the mark only (type "f" in the cell); it isn't flagged as missing a time.
