@@ -649,7 +649,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
     if (!(el instanceof HTMLInputElement) || !/^(text|search|)$/.test(el.type) || el.readOnly || Date.now() - lastPointer < 400) return;
     if (!el.closest("#entry, .sheet, .rrlines, #tlRows, #bkRows, #msRows")) return;
     const v0 = el.value; setTimeout(() => { if (document.activeElement === el && el.value && el.value === v0) { try { el.select(); } catch {} } }, 0); }, true); }
-window.__deskHook = () => ({ carrySource, milesSumDialog, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
+window.__deskHook = () => ({ tablesLinesDialog, bulkTablesDialog, carrySource, milesSumDialog, carryData, carryTable, carryHTML, finishPlan, runFinish, allTrainDocs, trainRun, masterProblems, trRR, tStatus, trainIssues, S, lkSplitRR, addSeveralDialog, setMode, render, joinLegStops, tableColumns, trainsInTable, timeOrder, setTableStops, tStops, edit, trainDoc, compactTrain, buildCSV, rrList: () => S.railroads.map(r => ({ abbrev: r.abbrev, name: r.common || r.name, fullName: r.name || "", other: r.otherNames || "", color: r.color || "" })) });
 // weekday-only service reads "Monday through Friday" (older entries said "Daily except Saturday and Sunday")
 // one wording for day lists ("Mondays, Wednesdays, and Fridays" -> "Monday, Wednesday and Friday only"); other text is left as typed
 const canonDays = v => Core.normDays(v || "");
@@ -1279,6 +1279,7 @@ const TSTATUS = [["todo", "Not started"], ["working", "In progress"], ["done", "
 // (rows from the station layer), with no trains entered, so a table with no trains isn't waiting on anything.
 const T_SERVICE = [["", "Passenger trains"], ["commuter", "Suburban / commuter: stations only, no train detail"], ["freight", "Freight only: stations only"]];
 const stationsOnly = t => t?.service === "commuter" || t?.service === "freight";
+const T_SERVICE_SHORT = { "": "Passenger", commuter: "Commuter", freight: "Freight" };
 const tServiceLabel = t => t?.service === "commuter" ? "suburban/commuter service (stations only)" : t?.service === "freight" ? "freight only (stations only)" : "";
 const tStatusOf = (t, nTrains) => t.status || (nTrains || (stationsOnly(t) && (t.rows || []).length) ? "working" : "todo");
 const tStatusSelect = (t, nTrains, attrs) => `<select ${attrs} class="tstat ts-${tStatusOf(t, nTrains)}" aria-label="Status of this table">${TSTATUS.map(([k, l]) => `<option value="${k}" ${k === tStatusOf(t, nTrains) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
@@ -3052,16 +3053,17 @@ function tablesLinesDialog(r) {
   const lastTz = mine[mine.length - 1]?.tz || LS.get("lastTz", "") || "ET";
   const pr = rrPageRange(src.id, r);
   let fr = !!g0.freightOnly || rrFreightOn(r, src.date || "", src.id);
-  let rows = (g0.lines || []).map((l, i) => { const t = tblFor(l.tableNo, l.tableTitle); return { page: l.page || t?.page || "", no: l.tableNo || "", title: l.tableTitle || t?.title || "", line: l.name || "", from: l.from || "", to: l.to || "", miles: l.miles || "", date: "", tz: t?.tz || lastTz, _i: i }; });
-  for (const t of mine) if (!(g0.lines || []).some(l => tblFor(l.tableNo, l.tableTitle) === t)) rows.push({ page: t.page || "", no: t.tableNo || "", title: t.title || "", line: "", from: "", to: "", miles: "", date: "", tz: t.tz || lastTz });
-  const blank = prev => ({ page: prev?.page || (pr ? String(pr[0]) : ""), no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", title: "", line: "", from: "", to: "", miles: "", date: "", tz: prev?.tz || lastTz });
+  let rows = (g0.lines || []).map((l, i) => { const t = tblFor(l.tableNo, l.tableTitle); return { page: l.page || t?.page || "", no: l.tableNo || "", title: l.tableTitle || t?.title || "", service: t?.service || "", line: l.name || "", from: l.from || "", to: l.to || "", miles: l.miles || "", date: "", tz: t?.tz || lastTz, _i: i }; });
+  for (const t of mine) if (!(g0.lines || []).some(l => tblFor(l.tableNo, l.tableTitle) === t)) rows.push({ page: t.page || "", no: t.tableNo || "", title: t.title || "", service: t.service || "", line: "", from: "", to: "", miles: "", date: "", tz: t.tz || lastTz });
+  // a new row carries the page, service and zone of the row above (Dylan, Nov 27)
+  const blank = prev => ({ page: prev?.page || (pr ? String(pr[0]) : ""), no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", title: "", service: prev?.service || "", line: "", from: "", to: "", miles: "", date: "", tz: prev?.tz || lastTz });
   if (!rows.length) rows.push(blank(null));
   const used = () => rows.filter(x => ["page", "no", "title", "line", "from", "to", "miles"].some(k => String(x[k] || "").trim()));
   const emptyTbls = () => mine.filter(t => !(t.rows || []).length && !trainsInTableOf(t.id).length && used().some(x => sameNo(x.no, t.tableNo)));
   dialog(`<h2>${esc(rrLabel(r))}: tables and lines in ${esc(src.name)}</h2>
     <label class="row" style="gap:6px;margin:0 0 6px"><input type="checkbox" id="tlFr" ${fr ? "checked" : ""}> <b>Freight only in this guide</b> <span class="small muted">: the tables are station lists, so they're kept as lines (no timetables, no dates)</span></label>
-    <p class="small muted" style="margin:0 0 6px">One row per line or branch. A table with several lines gets a row for each: ＋ on a row adds another line under the same table. Enter moves down a row; Tab moves across. Miles can be a sum or subtraction (168.6-148.9). Stations can be added later from the railroad's page.</p>
-    <div style="max-height:56vh;overflow:auto"><table class="sheet small" id="tlTable"><thead><tr><th>Page</th><th>Table</th><th>Table name</th><th>Line or branch</th><th>From</th><th>To</th><th>Miles</th><th class="tl-tt">Table date</th><th class="tl-tt">Zone</th><th></th></tr></thead><tbody id="tlRows"></tbody></table></div>
+    <p class="small muted" style="margin:0 0 6px">One row per line or branch. A table with several lines gets a row for each: ＋ on a row adds another line under the same table. Enter moves down a row; Tab moves across, and Tab out of a row's last box goes to the next row (adding one at the end). Service (passenger, commuter or freight) is the table's: a new row takes the one above. Miles can be a sum or subtraction (168.6-148.9). Stations can be added later from the railroad's page.</p>
+    <div style="max-height:56vh;overflow:auto"><table class="sheet small" id="tlTable"><thead><tr><th>Page</th><th>Table</th><th>Table name</th><th class="tl-tt">Service</th><th>Line or branch</th><th>From</th><th>To</th><th>Miles</th><th class="tl-tt">Table date</th><th class="tl-tt">Zone</th><th></th></tr></thead><tbody id="tlRows"></tbody></table></div>
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><button type="button" class="small-btn" id="tlAddT">＋ Add a table</button><button type="button" class="small-btn" id="tlFill" title="Best guess from each table's name: “Main Line - Searsport to St. Leonard” gives Main Line, Searsport, St. Leonard. Only empty boxes are filled">Fill blanks from table names</button><span class="small muted" id="tlCount"></span></div>
     <label class="row small" id="tlDelBox" style="gap:6px;margin:6px 0 0" hidden><input type="checkbox" id="tlDel" checked> <span id="tlDelTxt"></span></label>`, "Save", async () => {
     read(); fr = $("tlFr").checked; const delEmpty = fr && $("tlDel")?.checked;
@@ -3073,7 +3075,7 @@ function tablesLinesDialog(r) {
       const seen = new Set();
       for (const x of u) { if (!x.no && !x.title) continue; const k = `${x.no}|${x.title}`.toLowerCase(); if (seen.has(k) || tblFor(x.no, x.title)) continue; seen.add(k);
         const pd = x.date ? Core.parseMonthDate(x.date) : null; if (x.date && !pd) return `Table ${x.no || x.title}: type the date like September 24, 1944 (or leave it blank).`;
-        made.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: false, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz || lastTz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + made.length).toISOString() }); }
+        made.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: false, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, ...(x.service ? { service: x.service } : {}), tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz || lastTz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + made.length).toISOString() }); }
     }
     const old = g0.lines || [];
     const lines = u.map(x => { const e = milesExpr(x.miles); const l = { ...(x._i != null && old[x._i] ? old[x._i] : {}), tableNo: x.no, page: x.page, tableTitle: x.title, name: x.line, from: x.from, to: x.to, miles: e ? e.total : x.miles };
@@ -3082,12 +3084,17 @@ function tablesLinesDialog(r) {
     if (fr) { g.freightOnly = true; delete g.noTimes; } else delete g.freightOnly;
     if (lines.some(l => String(l.miles || "").trim())) { g.milesFromLines = true; g.miles = linesMiles(g); }
     delete g.milesParts;
+    let nSvc = 0;
     try {
       remember(`sources/${src.id}/rrpages/${r.id}`, rrGuide.get(key) || null);
       await S.db.doc(`sources/${src.id}/rrpages/${r.id}`).set(g); rrGuide.set(key, g);
       for (const body of made) { const id = `${r.abbrev.replace(/[^A-Za-z0-9]/g, "")}-${String(body.tableNo).replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`; await S.db.doc(`${tablesPath()}/${id}`).set(body); }
+      // service changed on tables already entered (not for a freight-only railroad: its tables are lines)
+      if (!fr) { const done = new Set(); for (const x of u) { const t = tblFor(x.no, x.title); if (!t || done.has(t.id)) continue; done.add(t.id); if ((t.service || "") === (x.service || "")) continue;
+        remember(`${tablesPath()}/${t.id}`, t); const tb = structuredClone(t); if (x.service) tb.service = x.service; else delete tb.service;
+        const j = S.tables.findIndex(q => q.id === tb.id); if (j >= 0) S.tables[j] = tb; await saveTable(tb); nSvc++; } }
       let nDel = 0; if (delEmpty) for (const t of emptyTbls()) { await S.db.doc(`${tablesPath()}/${t.id}`).delete(); nDel++; }
-      notice(`Saved ${lines.length} line${lines.length === 1 ? "" : "s"}${made.length ? `, ${made.length} new timetable${made.length === 1 ? "" : "s"}` : ""}${nDel ? `; removed ${nDel} empty timetable${nDel === 1 ? "" : "s"} (now lines)` : ""}.`);
+      notice(`Saved ${lines.length} line${lines.length === 1 ? "" : "s"}${made.length ? `, ${made.length} new timetable${made.length === 1 ? "" : "s"}` : ""}${nDel ? `; removed ${nDel} empty timetable${nDel === 1 ? "" : "s"} (now lines)` : ""}${nSvc ? `; service changed on ${nSvc} table${nSvc === 1 ? "" : "s"}` : ""}.`);
     } catch { return "Couldn't save. Nothing may have changed: close this and try again."; }
     if (made.length) LS.set("lastTz", made[made.length - 1].tz);
     setTimeout(() => { rrStats = null; if (S.page === "railroads") renderRailroads(); renderContext(); }, 400);
@@ -3104,11 +3111,22 @@ function tablesLinesDialog(r) {
   }
   function draw(focus) {
     $("tlRows").innerHTML = rows.map((x, i) => { const same = i > 0 && rows[i - 1].no === x.no && rows[i - 1].title === x.title && (x.no || x.title);
-      return `<tr ${same ? `style="background:var(--accent-soft)"` : ""}><td>${cell(i, "page", "3.5em", "Page")}</td><td>${cell(i, "no", "3.5em", "No.")}</td><td>${cell(i, "title", "13em", "e.g. Main Line")}</td><td>${cell(i, "line", "12em", "e.g. Conneaut Branch")}</td><td>${cell(i, "from", "9em", "From")}</td><td>${cell(i, "to", "9em", "To")}</td><td>${cell(i, "miles", "5em", "Mi.")}</td>
+      return `<tr ${same ? `style="background:var(--accent-soft)"` : ""}><td>${cell(i, "page", "3.5em", "Page")}</td><td>${cell(i, "no", "3.5em", "No.")}</td><td>${cell(i, "title", "13em", "e.g. Main Line")}</td><td class="tl-tt"><select data-tl="${i}" data-tlk="service" aria-label="Service" title="The table's service: passenger trains, suburban/commuter (stations only) or freight only (stations only)">${T_SERVICE.map(([v]) => `<option value="${v}" ${v === (x.service || "") ? "selected" : ""}>${T_SERVICE_SHORT[v]}</option>`).join("")}</select></td><td>${cell(i, "line", "12em", "e.g. Conneaut Branch")}</td><td>${cell(i, "from", "9em", "From")}</td><td>${cell(i, "to", "9em", "To")}</td><td>${cell(i, "miles", "5em", "Mi.")}</td>
       <td class="tl-tt">${tblFor(x.no, x.title) ? `<span class="muted">entered</span>` : cell(i, "date", "8em", "e.g. October, 1970")}</td><td class="tl-tt">${tblFor(x.no, x.title) ? "" : `<select data-tl="${i}" data-tlk="tz" aria-label="Time zone">${TZS.map(z => `<option ${z === x.tz ? "selected" : ""}>${z}</option>`).join("")}</select>`}</td>
       <td class="rowbtns"><button type="button" class="ghost" data-tlsub="${i}" title="Another line under the same table" aria-label="Add a line under this table">＋</button><button type="button" class="ghost danger" data-tldel="${i}" aria-label="Remove row" ${rows.length === 1 ? "disabled" : ""}>✕</button></td></tr>`; }).join("");
     status();
     document.querySelectorAll("#tlRows [data-tl]").forEach(el => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => { read(); status(); }));
+    // a table's service is one setting: changing it on one of its rows changes its other rows too
+    document.querySelectorAll('#tlRows [data-tlk="service"]').forEach(el => el.addEventListener("change", () => { const x = rows[+el.dataset.tl]; if (!(x.no || x.title)) return;
+      rows.forEach((y, j) => { if (y !== x && y.no === x.no && y.title === x.title) { y.service = x.service; const f = document.querySelector(`#tlRows [data-tl="${j}"][data-tlk="service"]`); if (f) f.value = x.service; } }); }));
+    // Tab out of a row's last box goes to the next row's first box, adding a row at the end (Dylan, Nov 27)
+    document.querySelectorAll("#tlRows [data-tl]").forEach(el => el.addEventListener("keydown", e => {
+      if (e.key !== "Tab" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      const boxes = [...el.closest("tr").querySelectorAll("[data-tl]")].filter(b => !b.closest("[hidden]"));
+      if (boxes[boxes.length - 1] !== el) return;
+      e.preventDefault(); e.stopPropagation(); read(); const i = +el.dataset.tl;
+      if (i === rows.length - 1) rows.push(blank(rows[i])); draw({ i: i + 1, k: "page" });
+    }));
     document.querySelectorAll("#tlRows input[data-tlk]").forEach(el => el.addEventListener("keydown", e => {
       if (e.key !== "Enter") return; e.preventDefault(); e.stopPropagation(); read(); const i = +el.dataset.tl;
       if (i === rows.length - 1) rows.push(blank(rows[i])); draw({ i: i + 1, k: el.dataset.tlk });
@@ -3116,7 +3134,7 @@ function tablesLinesDialog(r) {
     sheetKeys($("tlRows"), "input[data-tlk]", { enter: false });
     document.querySelectorAll('#tlRows input[data-tlk="title"]').forEach(el => el.addEventListener("change", () => { read(); const i = +el.dataset.tl, gss = guessLine(rows[i].title);
       for (let j = i; j < rows.length && (j === i || (rows[j].no === rows[i].no && rows[j].title === rows[i].title)); j++) { const x = rows[j]; if (j === i || !x.line) for (const k of ["line", "from", "to"]) { const v = k === "line" ? gss.name : gss[k]; if (v && !x[k]) { x[k] = v; const f = document.querySelector(`#tlRows [data-tl="${j}"][data-tlk="${k}"]`); if (f) f.value = v; } } } }));
-    document.querySelectorAll("[data-tlsub]").forEach(b => b.onclick = () => { read(); const i = +b.dataset.tlsub, x = rows[i]; rows.splice(i + 1, 0, { ...blank(x), page: x.page, no: x.no, title: x.title, tz: x.tz }); draw({ i: i + 1, k: "line" }); });
+    document.querySelectorAll("[data-tlsub]").forEach(b => b.onclick = () => { read(); const i = +b.dataset.tlsub, x = rows[i]; rows.splice(i + 1, 0, { ...blank(x), page: x.page, no: x.no, title: x.title, service: x.service, tz: x.tz }); draw({ i: i + 1, k: "line" }); });
     document.querySelectorAll("[data-tldel]").forEach(b => b.onclick = () => { read(); rows.splice(+b.dataset.tldel, 1); draw(); });
     if (focus) { const f = document.querySelector(`#tlRows [data-tl="${focus.i}"][data-tlk="${focus.k}"]`); f?.focus(); f?.select?.(); }
   }
@@ -3132,13 +3150,13 @@ function bulkTablesDialog(r) {
   const pr = rrPageRange(S.sourceId, r);
   const lastNo = mine.map(t => parseInt(t.tableNo, 10)).filter(n => !isNaN(n)).sort((a, b) => b - a)[0];
   let rows = [];
-  const blank = prev => ({ no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", page: prev?.page || "", title: "", date: prev?.date || "", tz: prev?.tz || lastTz, condensed: false });
+  const blank = prev => ({ no: prev && /^\d+$/.test(prev.no) ? String(+prev.no + 1) : "", page: prev?.page || "", title: "", date: prev?.date || "", tz: prev?.tz || lastTz, service: prev?.service || "", condensed: false });
   rows.push({ ...blank(null), no: lastNo ? String(lastNo + 1) : "", page: mine.length ? (mine[mine.length - 1].page || "") : pr ? String(pr[0]) : "" });
   const pageNote = pr ? ` Its pages in this guide: ${esc(pr[0] === pr[1] ? String(pr[0]) : pr[0] + "–" + pr[1])}.` : "";
   dialog(`<h2>Add ${esc(rrLabel(r))} tables</h2>
-    <p class="small muted" style="margin:0 0 6px">One row per table in ${esc(src.name)}.${pageNote} Reference marks and trains are added when you get to each table; until then its summary line says the marks aren't entered yet. A new row copies the page, date and time zone of the row above.</p>
+    <p class="small muted" style="margin:0 0 6px">One row per table in ${esc(src.name)}.${pageNote} Reference marks and trains are added when you get to each table; until then its summary line says the marks aren't entered yet. A new row copies the page, date, time zone and service of the row above.</p>
     ${mine.length ? `<details class="small" style="margin:0 0 8px"><summary>Already entered: ${mine.length} table${mine.length === 1 ? "" : "s"}</summary><div class="muted" style="margin:4px 0 0 12px">${mine.map(t => `${esc(tableName(t))}${t.page ? " · p. " + esc(t.page) : ""}${t.tableDateText ? " · " + esc(t.tableDateText) : ""} · ${esc(t.tz || "")}`).join("<br>")}</div></details>` : ""}
-    <div style="max-height:52vh;overflow:auto"><table class="sheet small" id="bkTable"><thead><tr><th>No.</th><th>Page</th><th>Table name</th><th>Table date</th><th>Zone</th><th title="Condensed table">Cond.</th><th></th></tr></thead><tbody id="bkRows"></tbody></table></div>
+    <div style="max-height:52vh;overflow:auto"><table class="sheet small" id="bkTable"><thead><tr><th>No.</th><th>Page</th><th>Table name</th><th>Table date</th><th>Zone</th><th>Service</th><th title="Condensed table">Cond.</th><th></th></tr></thead><tbody id="bkRows"></tbody></table></div>
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button type="button" class="small-btn" id="bkAdd">＋ Add a row</button><button type="button" class="small-btn" id="bkPaste" title="Paste rows from a spreadsheet: number, page, name, date, zone">Paste rows…</button><span class="small muted" id="bkCount"></span></div>`, "Add tables", async () => {
     read();
     const used = rows.filter(x => x.no || x.title || x.page || x.date);
@@ -3149,7 +3167,7 @@ function bulkTablesDialog(r) {
       const pd = x.date ? Core.parseMonthDate(x.date) : null;
       if (x.date && !pd) return `${lab}: type the date like September 24, 1944 (or leave it blank).`;
       if (x.no && !x.title && (mine.some(t => String(t.tableNo).trim() === x.no) || used.filter(y => y.no === x.no).length > 1)) return `${lab} is already listed. Give each part its own name so they can be told apart.`;
-      out.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: !!x.condensed, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + i).toISOString() });
+      out.push({ rows: [], marks: [], marksTodo: true, hosted: false, condensed: !!x.condensed, rr: r.abbrev, tableNo: x.no, page: x.page, title: x.title, ...(x.service ? { service: x.service } : {}), tableDateText: x.date, tableDate: pd?.iso || "", tableDatePrecision: pd?.precision || "", tz: x.tz, basis: src.basis || "Standard time", notes: "", createdAt: new Date(Date.now() + i).toISOString() });
     }
     const ids = [];
     try { for (const body of out) { const id = `${r.abbrev.replace(/[^A-Za-z0-9]/g, "")}-${body.tableNo.replace(/[^A-Za-z0-9]/g, "") || "x"}-${uid().slice(0, 4)}`; await S.db.doc(`${tablesPath()}/${id}`).set(body); ids.push(id); } }
@@ -3162,6 +3180,7 @@ function bulkTablesDialog(r) {
   function draw(focus) {
     $("bkRows").innerHTML = rows.map((x, i) => `<tr><td>${cell(i, "no", "4em", "No.")}</td><td>${cell(i, "page", "4em", "Page")}</td><td>${cell(i, "title", "20em", "e.g. Chicago and Los Angeles")}</td><td>${cell(i, "date", "10em", "e.g. January, 1971")}</td>
       <td><select data-bk="${i}" data-bkk="tz" aria-label="Time zone" style="min-width:4.5em">${TZS.map(z => `<option ${z === x.tz ? "selected" : ""}>${z}</option>`).join("")}</select></td>
+      <td><select data-bk="${i}" data-bkk="service" aria-label="Service" title="Passenger trains, suburban/commuter (stations only) or freight only (stations only)">${T_SERVICE.map(([v]) => `<option value="${v}" ${v === (x.service || "") ? "selected" : ""}>${T_SERVICE_SHORT[v]}</option>`).join("")}</select></td>
       <td style="text-align:center"><input type="checkbox" data-bk="${i}" data-bkk="condensed" aria-label="Condensed table" ${x.condensed ? "checked" : ""}></td>
       <td class="rowbtns"><button type="button" class="ghost danger" data-bkdel="${i}" aria-label="Remove row" ${rows.length === 1 ? "disabled" : ""}>✕</button></td></tr>`).join("");
     const n = rows.filter(x => x.no || x.title || x.page || x.date).length;
@@ -3186,7 +3205,7 @@ function bulkTablesDialog(r) {
       for (const ln of $("bkPasteTxt").value.split(/\r?\n/).map(q => q.trim()).filter(Boolean)) {
         const c = (ln.includes("\t") ? ln.split("\t") : ln.split(/\s*\|\s*/)).map(q => q.trim());
         const prev = rows[rows.length - 1], z = (c[4] || "").toUpperCase().replace(/[^A-Z]/g, "").replace(/^([AECMP])S?T$/, "$1T");
-        rows.push({ no: c[0] || "", page: c[1] || prev?.page || "", title: c[2] || "", date: c[3] || prev?.date || "", tz: TZS.includes(z) ? z : prev?.tz || lastTz, condensed: false });
+        rows.push({ no: c[0] || "", page: c[1] || prev?.page || "", title: c[2] || "", date: c[3] || prev?.date || "", tz: TZS.includes(z) ? z : prev?.tz || lastTz, service: prev?.service || "", condensed: false });
       }
       if (!rows.length) rows.push(blank(null));
       box.remove(); $("bkPaste").disabled = false; draw();
