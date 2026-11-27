@@ -490,6 +490,11 @@ table.tv tr.tv-lab td { padding: 6px 8px 3px; font-weight: 700; font-size: 12px;
 .rrtabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); margin: 4px 0 12px; }
 .rrtabs button { border: 1px solid var(--rule); border-bottom: 0; background: none; padding: 5px 12px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit; }
 .rrtabs button[aria-selected="true"] { background: var(--accent-soft); font-weight: 600; }
+.rrmaps { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0; }
+.rrmaps figure { margin: 0; display: flex; flex-direction: column; gap: 4px; max-width: 320px; }
+.rrmaps img { display: block; max-width: 100%; max-height: 220px; border: 1px solid var(--rule); border-radius: 4px; background: #fff; }
+.rrmaps figcaption { display: flex; gap: 4px; align-items: center; }
+.rrown td select { min-width: 14em; }
 dl.rrview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 8px 0 0; }
 dl.rrview dt { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
 dl.rrview dd { margin: 0; white-space: pre-line; }
@@ -4045,7 +4050,7 @@ const RR_FIELDS = [
   ["colorNote", "Color based on", "e.g. Tuscan red passenger cars", 1],
   ["formedFrom", "Formed from / predecessors", "e.g. Pennsylvania Railroad; New York Central System", 2],
   ["became", "Became / successors", "e.g. Conrail (freight); Amtrak took over intercity passenger trains May 1, 1971", 2],
-  ["parent", "Owned or controlled by", "e.g. Southern Pacific (subsidiary); jointly by PRR and CNJ", 1],
+  ["parent", "Ownership notes", "How it was held, e.g. leased 1901; controlled through stock (the owners themselves go under Ownership below)", 1],
   ["passenger", "Passenger service notes", "e.g. Main routes, named trains, how passenger service ended", 3],
   ["lines", "Lines served", "One line or route per line, e.g. Chicago–Omaha main line; Savanna–Dubuque branch. Worth filling in for freight railroads, and for lines that lost passenger service", 4],
   ["notes", "Other notes", "Nicknames, slogans, anything else that isn't tied to one guide", 3],
@@ -4073,6 +4078,12 @@ const rrActiveOn = (r, iso) => { if (!iso) return true; const { a, b } = rrSpan(
 const rrNameOn = (r, iso) => { if (!r) return ""; if (iso) for (const p of r.periods || []) { const a = rrDate(p.from, false) || rrDate(p.chartered, false), b = rrDate(p.to, true); if (p.name && (!a || a <= iso) && (!b || b >= iso)) return p.name; } return r.name || ""; };
 const rrBizName = ab => rrNameOn(S.rrByAbbrev?.get(ab) || S.railroads.find(x => x.abbrev === ab), S.sources.find(x => x.id === S.sourceId)?.date || "");
 const rrLabel = r => r.common || r.name || r.abbrev;
+// ownership (Dylan, Nov 27): a railroad's owners over time, owners: [{rr: <railroad id>, from, to, note}]; several at once for joint ownership
+// (PRSL: PRR and Reading until 1968, then Penn Central and Reading). Subsidiaries are worked out from the other railroads' owners.
+const ownCovers = (o, iso) => { if (!iso) return true; const a = rrDate(o.from, false), b = rrDate(o.to, true); return (!a || a <= iso) && (!b || b >= iso); };
+const rrOwnersOn = (r, iso) => (r?.owners || []).filter(o => o.rr && ownCovers(o, iso));
+const rrSubsOf = (r, iso) => S.railroads.filter(x => x.id !== r.id && (x.owners || []).some(o => o.rr === r.id && ownCovers(o, iso))).sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+const ownSpan = o => [o.from, o.to].some(Boolean) ? `${o.from || "…"}–${o.to || ""}`.replace(/–$/, " on") : "";
 // freight only on a date: marked freight only, or every kind of passenger service had ended before it
 const rrFreightOn = (r, iso, srcId = S.sourceId) => r.kind === "freight" || !!rrGuide.get(`${srcId}|${r?.id}`)?.freightOnly || (!!iso && !!rrDate(r.passengerEnd, true) && rrDate(r.passengerEnd, true) < iso);
 // kinds of railroad to flag (Terminal, Switching...): suggestions, plus any typed before
@@ -4142,6 +4153,7 @@ async function renderRailroads() {
           : `<div class="row small" style="gap:6px;align-items:center;margin:2px 0 10px"><span class="muted">Code on tables</span><input id="rrAbbrev" value="${esc(r.abbrev)}" autocomplete="off" style="width:110px"><button class="small-btn" id="rrAbbrevSave">Change</button><span class="muted">Not used on any table or train yet, so it can still be changed.</span></div>`}
         ${S.viewOnly ? `<dl class="rrview">${RR_FIELDS.filter(([k]) => k !== "name" && r[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd>${k === "color" ? `<span class="rrsw" style="background:${esc(r.color)}"></span>` : ""}${esc(k === "kind" ? kindLabel(r[k]) : r[k])}</dd>`).join("") || `<dd class="muted">No details entered yet.</dd>`}</dl>` : ""}<div class="fields edit-only">${RR_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 || k === "name" || k === "common" || k === "nickname" ? "1/-1" : "auto"}"><span>${esc(label)}</span>${k === "kind" ? `<select data-rrf="kind">${RR_KINDS.map(([v, l]) => `<option value="${v}" ${(r.kind || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : k === "color" ? `<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="color" data-rrcolor value="${esc(/^#[0-9a-f]{6}$/i.test(r.color || "") ? r.color : "#888888")}" aria-label="Pick the map color" style="width:44px;height:32px;padding:2px"><input data-rrf="color" value="${esc(r.color || "")}" placeholder="${esc(ph)}" autocomplete="off" style="flex:1" title="The color this railroad's trains and routes get on the map"></span>` : rows > 1 ? `<textarea data-rrf="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(r[k] || "")}</textarea>` : `<input data-rrf="${k}" value="${esc(r[k] || "")}" placeholder="${esc(ph)}" autocomplete="off"${k === "rrType" ? ` list="rrTypeList" title="Flag the kind of railroad. Pick one or type your own; separate more than one with commas."` : ""}>`}</label>`).join("")}${rrTypeList()}</div>
         ${rrPeriodsHTML(r, onDate)}
+        ${rrOwnersHTML(r, onDate)}
         ${r.offices || r.miles ? `<p class="small muted">Older entries kept on the railroad itself (they belong to a guide now): ${esc([r.offices && "offices: " + r.offices.replace(/\n/g, "; "), r.miles && "route miles: " + r.miles].filter(Boolean).join(" · "))}</p>` : ""}
         <h2 style="margin-top:16px">In your timetables (all guides)</h2>
         ${u.length ? `<ul class="attn">${u.map(x => `<li><b>${esc(x.src.name)}</b>: ${x.ts.map(t => `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: x.src.id, table: t.id, train: "", mode: "grid" }))}'>${esc(tlab(t))}</button>`).join(", ") || "no tables of its own"} · ${x.trs.length} train${x.trs.length === 1 ? "" : "s"}</li>`).join("")}</ul>` : `<p class="small muted">Not used on any table or train yet.</p>`}
@@ -4196,6 +4208,12 @@ async function renderRailroads() {
   el.querySelectorAll("[data-pd]").forEach(inp => inp.addEventListener("input", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.periods[+inp.dataset.pd][inp.dataset.pk] = inp.value; saveRR(rr); }));
   if ($("pdAdd")) $("pdAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.periods ||= []).push({ name: "", chartered: "", from: "", to: "" }); saveRR(rr, true); renderRailroads(); };
   el.querySelectorAll("[data-pddel]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.periods.splice(+b.dataset.pddel, 1); if (!rr.periods.length) delete rr.periods; saveRR(rr, true); renderRailroads(); });
+  // ownership rows
+  el.querySelectorAll("input[data-ow]").forEach(inp => inp.addEventListener("input", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners[+inp.dataset.ow][inp.dataset.ok] = inp.value; saveRR(rr); }));
+  el.querySelectorAll("input[data-ow]").forEach(inp => inp.addEventListener("change", () => setTimeout(() => { if (!document.activeElement?.dataset?.ow) renderRailroads(); }, 0)));
+  el.querySelectorAll("select[data-ow]").forEach(sel => sel.addEventListener("change", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners[+sel.dataset.ow].rr = sel.value; saveRR(rr, true); renderRailroads(); }));
+  if ($("owAdd")) $("owAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.owners ||= []).push({ rr: "", from: "", to: "", note: "" }); renderRailroads(); setTimeout(() => $("rrPage")?.querySelector(`select[data-ow="${rr.owners.length - 1}"]`)?.focus(), 0); };
+  el.querySelectorAll("[data-owdel]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners.splice(+b.dataset.owdel, 1); if (!rr.owners.length) delete rr.owners; saveRR(rr, true); renderRailroads(); });
   el.querySelectorAll("[data-pdmove]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; const i = +b.dataset.pdmove, j = i + +b.dataset.by; if (j < 0 || j >= rr.periods.length) return; [rr.periods[i], rr.periods[j]] = [rr.periods[j], rr.periods[i]]; saveRR(rr, true); renderRailroads(); });
 }
 // ---------- freight-only railroads: one quick sheet per guide ----------
@@ -4431,6 +4449,19 @@ async function renderFreightSheet(el, src0, onDate) {
     renderRailroads();
   });
 }
+function rrOwnersHTML(r, onDate) {
+  const os = r.owners || [], others = S.railroads.filter(x => x.id !== r.id).sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+  const nm = id => { const x = S.railroads.find(q => q.id === id); return x ? rrLabel(x) : "(railroad removed)"; };
+  const subs = S.railroads.filter(x => x.id !== r.id && (x.owners || []).some(o => o.rr === r.id)).sort((a, b) => rrLabel(a).localeCompare(rrLabel(b)));
+  const subLine = x => `<li><button class="linkish" data-rr="${esc(x.id)}">${esc(rrLabel(x))}</button>${(x.owners || []).filter(o => o.rr === r.id).map(o => { const co = (x.owners || []).filter(q => q.rr !== r.id && q.rr && (!o.from || !q.to || (rrDate(q.to, true) || "") >= (rrDate(o.from, false) || "")) && (!o.to || !q.from || (rrDate(q.from, false) || "") <= (rrDate(o.to, true) || ""))); return `<span class="small muted"> ${[ownSpan(o), co.length ? "jointly with " + co.map(q => nm(q.rr)).join(" and ") : "", o.note].filter(Boolean).map(esc).join(" · ")}</span>`; }).join("")}${onDate && !rrOwnersOn(x, onDate).some(o => o.rr === r.id) ? `<span class="small muted"> (not on this guide's date)</span>` : ""}</li>`;
+  const cell = (i, k, v, ph, w) => `<input data-ow="${i}" data-ok="${k}" value="${esc(v || "")}" placeholder="${esc(ph)}" autocomplete="off" style="width:${w}">`;
+  return `<h2 style="margin-top:16px">Ownership</h2>
+    <p class="small muted" style="margin:0 0 6px">The railroads that owned or controlled it, with dates. Jointly owned: one row for each owner (PRSL: PRR and Reading to 1968, then Penn Central and Reading). It's listed as a subsidiary on each owner's page, and on the guide tabs for the guide's date.</p>
+    ${S.viewOnly ? (os.length ? `<ul class="attn">${os.map(o => `<li>${esc(nm(o.rr))}${[ownSpan(o), o.note].filter(Boolean).map(t => ` <span class="small muted">${esc(t)}</span>`).join("")}</li>`).join("")}</ul>` : `<p class="small muted">No owner entered.</p>`) : `
+    ${os.length ? `<table class="sheet small rrown"><thead><tr><th>Owned or controlled by</th><th>From</th><th>To</th><th>Note</th><th></th></tr></thead><tbody>${os.map((o, i) => `<tr${onDate && o.rr && ownCovers(o, onDate) ? ' style="background:var(--accent-soft)" title="In effect on this guide\'s date"' : ""}><td><select data-ow="${i}" data-ok="rr" aria-label="Owner"><option value="">Pick a railroad…</option>${others.map(x => `<option value="${esc(x.id)}" ${x.id === o.rr ? "selected" : ""}>${esc(rrLabel(x))} (${esc(x.abbrev)})</option>`).join("")}</select></td><td>${cell(i, "from", o.from, "e.g. 1887", "7em")}</td><td>${cell(i, "to", o.to, "e.g. 1968", "7em")}</td><td>${cell(i, "note", o.note, "e.g. leased; half interest", "14em")}</td><td class="rowbtns"><button class="ghost danger" data-owdel="${i}" aria-label="Remove this owner">✕</button></td></tr>`).join("")}</tbody></table>` : ""}
+    <button class="small-btn" id="owAdd" style="margin-top:6px">＋ Add an owner</button>`}
+    ${subs.length ? `<h3 style="margin:12px 0 4px">Its subsidiaries</h3><ul class="attn">${subs.map(subLine).join("")}</ul>` : ""}`;
+}
 // one railroad (one short name) can carry several formal names over time, e.g. the D&H's canal company, the D&H Company, Railroad Corporation and Railway
 function rrPeriodsHTML(r, onDate) {
   const ps = r.periods || [];
@@ -4553,17 +4584,32 @@ function rrGuideHTML(r) {
   const trs = [...new Set([...S.trains.keys(), ...S.work.keys()])].map(trainDoc).filter(t => t && !t._deleted && !t.copyOf && !t.setupOf && trRR(t) === r.abbrev).sort((a, b) => Core.trainNoSort(a.trainNo, b.trainNo));
   const eqLine = e => [e.type, e.desc].filter(Boolean).join(" — ") + (e.from || e.to ? ` (${[e.from, e.to].filter(Boolean).map(stName).join("–")})` : "") + (e.days ? ` [${e.days}]` : "");
   const firstTable = t => Object.keys(t.tables || {}).find(k => tableById(k)) || "";
+  const owns = rrOwnersOn(r, src.date), subs = rrSubsOf(r, src.date);
+  const rrBtn = id => { const x = S.railroads.find(q => q.id === id); return x ? `<button class="linkish" data-rrnav="${esc(x.id)}">${esc(rrLabel(x))}</button>` : ""; };
   return `<h2 style="margin-top:8px">${esc(rrNameOn(r, src.date) || rrLabel(r))} in ${esc(src.name)}</h2>
+    ${owns.length || subs.length ? `<p class="small" style="margin:0 0 6px">${owns.length ? `Owned or controlled by ${owns.map(o => rrBtn(o.rr)).join(" and ")}${owns.length > 1 ? " jointly" : ""}. ` : ""}${subs.length ? `Subsidiaries: ${subs.map(x => rrBtn(x.id)).join(", ")}.` : ""}</p>` : ""}
     ${rrGuideNav(r, src)}
     ${carryHTML(r)}
     ${g === null ? `<p class="small muted">Loading…</p>` : S.viewOnly ? `<dl class="rrview">${RRG_FIELDS.filter(([k]) => g[k]).map(([k, label]) => `<dt>${esc(label)}</dt><dd style="white-space:pre-line">${esc(g[k])}</dd>`).join("") || `<dd class="muted">Nothing entered for this guide yet.</dd>`}</dl>`
       : `<div class="fields">${RRG_FIELDS.map(([k, label, ph, rows]) => `<label class="f" style="grid-column:${rows > 1 ? "1/-1" : "auto"}"><span>${esc(label)}</span>${rows > 1 ? `<textarea data-rrg="${k}" rows="${rows}" placeholder="${esc(ph)}">${esc(g[k] || "")}</textarea>` : k === "miles" && g.milesFromLines ? `<input value="${esc(g.miles || "")}" readonly title="The sum of the lines below (untick “Route miles = the sum of the lines” to type it)" style="background:var(--accent-soft)">` : `<input data-rrg="${k}" value="${esc(g[k] || "")}" placeholder="${esc(ph)}" autocomplete="off">`}</label>`).join("")}</div>`}
     ${g === null || S.viewOnly ? "" : `<label class="row small" style="gap:6px;margin:8px 0 0"><input type="checkbox" id="rrNoTimes" ${g.noTimes ? "checked" : ""}> Has passenger service, but prints no timetables in this guide <span class="muted">(its trains won't show as waiting to be entered)</span></label>
       <label class="row small" style="gap:6px;margin:4px 0 0"><input type="checkbox" id="rrFrOnly" ${g.freightOnly ? "checked" : ""}> Freight only in this guide <span class="muted">(listed on the Freight-only sheet)</span></label>`}
+    ${g === null ? "" : rrMapsHTML(r, g)}
     ${g === null ? "" : rrLinesHTML(r, g)}
     ${r.kind === "freight" && !trs.length ? "" : `<details class="rrconsist" ${trs.length && trs.length <= 40 ? "open" : ""}><summary><b>Consist by train</b> <span class="small muted">${trs.length} train${trs.length === 1 ? "" : "s"} in this guide, whichever table they were entered from. Edit a train's cars on its own page.</span></summary>
       ${trs.length ? `<table class="sheet small rrcons"><thead><tr><th>Train</th><th>Days</th><th>Cars and services</th></tr></thead><tbody>${trs.map(t => `<tr><td><button class="linkish" data-gotbl='${esc(JSON.stringify({ source: src.id, table: firstTable(t), train: t.id, mode: "train" }))}'>${esc(trLabel(t))}</button>${nameAfter(t) ? `<div class="muted">${esc(nameAfter(t))}</div>` : ""}</td><td>${esc(t.frequency || "Daily")}</td><td>${(t.equipment || []).filter(e => e.type || e.desc).map(e => `<div>${esc(eqLine(e))}</div>`).join("") || `<span class="muted">none entered</span>`}</td></tr>`).join("")}</tbody></table>` : `<p class="small muted">No trains of this railroad in ${esc(src.name)}.</p>`}
     </details>`}`;
+}
+// system maps printed at the head of a railroad's section (Dylan, Nov 27): pictures uploaded as assets, kept on its section for the guide
+// as maps: [{asset, url, type, name, caption, page}]. Removing one deletes the picture unless another guide's section still uses it.
+const mapSrc = m => m.url || "/_blob/" + m.asset;
+function rrMapsHTML(r, g) {
+  const ms = g.maps || [], canAdd = !S.viewOnly && !!S.assets;
+  if (!ms.length && S.viewOnly) return "";
+  return `<h3 style="margin:14px 0 4px">System map${ms.length > 1 ? "s" : ""}</h3>
+    ${ms.length ? `<div class="rrmaps">${ms.map((m, i) => `<figure>${/^image\//.test(m.type || "image/") ? `<button type="button" class="ghost" data-mapview="${i}" title="Open full size" style="padding:0"><img src="${esc(mapSrc(m))}" alt="${esc(m.caption || "System map")}" loading="lazy"></button>` : `<a href="${esc(mapSrc(m))}" target="_blank" rel="noopener">${esc(m.name || "Map (PDF)")}</a>`}
+      <figcaption>${S.viewOnly ? `<span class="small">${esc([m.caption, m.page && "p. " + m.page].filter(Boolean).join(" · "))}</span>` : `<input data-mp="${i}" data-mk="caption" value="${esc(m.caption || "")}" placeholder="Caption, e.g. System map" autocomplete="off" style="flex:1"><input data-mp="${i}" data-mk="page" value="${esc(m.page || "")}" placeholder="Page" autocomplete="off" style="width:4.5em"><button type="button" class="ghost danger" data-mapdel="${i}" aria-label="Remove this map">✕</button>`}</figcaption></figure>`).join("")}</div>` : `<p class="small muted" style="margin:0 0 4px">No map added for this guide. Many larger railroads print a system map at the head of their section.</p>`}
+    ${canAdd ? `<button type="button" class="small-btn" id="mapAdd">＋ Add a map picture</button> <span class="small muted" id="mapMsg">A photo or scan (JPEG, PNG) or a PDF, up to 20 MB.</span><input type="file" id="mapFile" accept="image/*,application/pdf" multiple hidden>` : S.viewOnly ? "" : `<p class="small muted">Adding pictures isn't available in this view.</p>`}`;
 }
 // the railroad's lines as the Guide's section lists them: table number, miles, from/to; each can carry its stations (miles, station, city, state)
 const rrOpenLines = new Set();
@@ -4627,6 +4673,30 @@ function wireRRGuide(r) {
   if ($("lnBulk")) $("lnBulk").onclick = () => bulkTablesDialog(r);
   if ($("lnSheet")) $("lnSheet").onclick = () => tablesLinesDialog(r);
   if ($("lnPages")) $("lnPages").onclick = () => tablePagesDialog(r);
+  // system maps
+  if ($("mapAdd")) $("mapAdd").onclick = () => $("mapFile").click();
+  if ($("mapFile")) $("mapFile").onchange = async e => {
+    const files = [...e.target.files]; e.target.value = ""; if (!files.length || !S.assets) return;
+    let n = 0;
+    for (const f of files) {
+      if (f.size > 20 * 1024 * 1024) { notice(`${esc(f.name)} is over 20 MB, so it can't be added.`); continue; }
+      $("mapMsg").textContent = `Uploading ${f.name}…`;
+      try { const a = await S.assets.upload(f); const x = g(); (x.maps ||= []).push({ asset: a.id, url: a.url, type: a.contentType || f.type, name: f.name, caption: "", page: "" }); rrGuide.set(key, x); n++; }
+      catch (err) { notice(`Couldn't upload ${esc(f.name)}${err?.message ? ": " + esc(err.message) : ""}.`); }
+    }
+    if (n) put(g(), true); else if ($("mapMsg")) $("mapMsg").textContent = "";
+  };
+  el.querySelectorAll("[data-mp]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.maps = structuredClone(x.maps || []); x.maps[+inp.dataset.mp][inp.dataset.mk] = inp.value; put(x); }));
+  el.querySelectorAll("[data-mapview]").forEach(b => b.onclick = () => { const m = (rrGuide.get(key)?.maps || [])[+b.dataset.mapview]; if (!m) return;
+    dialog(`<h2>${esc(m.caption || "System map")}${m.page ? ` <span class="small muted">p. ${esc(m.page)}</span>` : ""}</h2><div style="max-height:75vh;overflow:auto"><img src="${esc(mapSrc(m))}" alt="${esc(m.caption || "System map")}" style="max-width:none;width:100%;cursor:zoom-in" id="mapBig"></div>`, "Close", () => {});
+    const d = document.querySelector("#overlay .dialog"); if (d) { d.style.width = "min(1400px, 96vw)"; d.style.maxWidth = "96vw"; } $("dCancel")?.remove();
+    const im = $("mapBig"); if (im) im.onclick = () => { const big = im.style.width === "100%"; im.style.width = big ? "auto" : "100%"; im.style.cursor = big ? "zoom-out" : "zoom-in"; }; });
+  el.querySelectorAll("[data-mapdel]").forEach(b => b.onclick = () => { const i = +b.dataset.mapdel, m = (rrGuide.get(key)?.maps || [])[i]; if (!m) return;
+    dialog(`<h2>Remove this map?</h2><p>${esc(m.caption || m.name || "The map")} comes off ${esc(rrLabel(r))}'s section for this guide, and the picture is deleted unless another guide uses it.</p>`, "Remove", async () => {
+      const x = g(); x.maps = (x.maps || []).filter((_, j) => j !== i); if (!x.maps.length) delete x.maps; put(x, true);
+      const elsewhere = [...rrGuide.entries()].some(([k, v]) => k !== key && (v?.maps || []).some(q => q.asset === m.asset));
+      if (!elsewhere && S.assets) S.assets.delete(m.asset).catch(() => {});
+    }); });
   if ($("lnAdd")) $("lnAdd").onclick = () => { const x = g(); x.lines.push({ tableNo: "", miles: "", from: "", to: "" }); put(x, true); };
   const ends = t => { const rows = (t.rows || []).filter(q => !q.divider && q.stationId); const nm = q => q ? stName(q.stationId) : ""; const mi = Math.max(0, ...rows.map(q => parseFloat(String(q.miles || "").replace(/,/g, "")) || 0)); return { from: nm(rows[0]), to: nm(rows[rows.length - 1]), miles: mi ? String(mi) : "" }; };
   if ($("lnFill")) $("lnFill").onclick = () => {
@@ -5630,6 +5700,8 @@ async function start() {
   render();
   const [db, dl] = await Promise.all([window.claude?.use?.("db") ?? null, window.claude?.use?.("downloads") ?? null]);
   S.db = db; S.dl = dl;
+  // pictures (system maps): resolves later, or null where uploads aren't available
+  Promise.resolve(window.claude?.use?.("assets") ?? null).then(a => { S.assets = a; if (a && S.page === "railroads") renderRailroads(); }).catch(() => {});
   $("btnExport").disabled = $("btnBackup").disabled = !dl;
   if (!db) { notice("Saving isn't available in this view. Open this page on claude.ai while signed in."); await loadStations(); return; }
   let picking = false;

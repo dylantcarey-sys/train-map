@@ -8,5 +8,7 @@
     collection: coll => ({ limit() { return this; }, onSnapshot(cb) { const s = { coll, cb }; subs.push(s); setTimeout(() => cb(snapOf(coll)), (window.__DELAY || 0) * (coll.endsWith("tables") ? 3 : 1)); return () => subs.splice(subs.indexOf(s), 1); }, get: async () => snapOf(coll) }),
     doc: path => ({ get: async () => ({ exists: docs.has(path), data: () => structuredClone(docs.get(path)) }), set: async v => { docs.set(path, structuredClone(v)); notify(path); }, delete: async () => { docs.delete(path); notify(path); } }),
   };
-  window.claude = { use: async n => n === "db" ? db : n === "downloads" ? { save: async () => {} } : null };
+  const assets = { n: 0, upload: async b => ({ id: "asset" + (++assets.n), url: URL.createObjectURL(b), contentType: b.type, sizeBytes: b.size }), delete: async id => { assets.deleted = (assets.deleted || []).concat(id); }, list: async () => ({ assets: [], usage: {} }) };
+  window.__assets = assets;
+  window.claude = { use: async n => n === "db" ? db : n === "downloads" ? { save: async () => {} } : n === "assets" ? assets : null };
 })();
