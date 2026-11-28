@@ -1532,7 +1532,7 @@ const withCopy = t => { if (!t.copyOf) return t; const o = trainDoc(t.copyOf); r
 
 function subscribeSource() {
   if (S.sourceId) loadRRPages(S.sourceId).then(() => { if (S.page === "trains") renderTrainsPage(); else if (S.page === "desk") renderTrainList(); });
-  S.unsubTables?.(); S.unsubTrains?.();
+  S.unsubTables?.(); S.unsubTrains?.(); S.unsubRR?.(); S.unsubRR = null;
   S.tables = []; S.trains = new Map(); S.work = new Map(); S.dirty.clear(); S.loaded = { tables: false, trains: false };
   if (!S.db || !S.sourceId) { render(); return; }
   const trainsPageAgain = () => { if (S.page === "trains" && !$("trPage").contains(document.activeElement)) { clearTimeout(S.mtTimer); S.mtTimer = setTimeout(renderTrainsPage, 200); } };
@@ -1556,6 +1556,20 @@ function subscribeSource() {
     // many saves in a row (Mark trains done, Finish this guide) each come back as a snapshot: redraw once they settle, not once per train
     clearTimeout(S.snapTimer);
     S.snapTimer = setTimeout(() => { renderTrainList(); if (!document.activeElement || !$("entry").contains(document.activeElement)) renderEntry(); trainsPageAgain(); }, S.saving.size ? 250 : 60);
+  }, e => dbError(e));
+  // railroads' sections for this guide stay live (Dylan, Nov 27: a map added on the phone was lost when the computer, still holding the
+  // section as first read, saved over it). A section with a save on its way keeps its local copy until that save lands.
+  const rrSrc = S.sourceId;
+  S.unsubRR = S.db.collection(`sources/${rrSrc}/rrpages`).onSnapshot(snap => {
+    let changed = false;
+    for (const ch of snap.docChanges()) {
+      const key = `${rrSrc}|${ch.doc.id}`, data = ch.type === "removed" ? {} : ch.doc.data();
+      rrServer.set(key, data); if (rrPending.has(key)) continue;
+      rrGuide.set(key, data);
+      changed = true;
+    }
+    rrPagesRead.add(rrSrc);
+    if (changed && S.page === "railroads" && !$("rrPage")?.contains(document.activeElement) && !document.querySelector("#overlay:not([hidden]) .dialog")) renderRailroads();
   }, e => dbError(e));
 }
 function dbError(e) { console.warn(e); if (e?.code === "revoked") notice("This page can no longer read or save data. Reload the page."); }
@@ -4564,6 +4578,9 @@ const RRG_FIELDS = [
   ["notes", "Other notes for this guide", "", 3],
 ];
 const rrGuide = new Map();   // "<source>|<railroad id>" -> its doc for that guide ({} once read and empty)
+const rrPending = new Set();   // "<source>|<railroad id>" sections with a save on its way (a live snapshot doesn't replace them meanwhile)
+const rrServer = new Map();   // the latest copy the database sent for each section, taken up once the save has landed
+const rrSettle = key => setTimeout(() => { rrPending.delete(key); if (rrServer.has(key)) rrGuide.set(key, rrServer.get(key)); }, 800);
 // every railroad's section for a guide, read in one go (for page numbers); fills rrGuide
 const rrPagesRead = new Set();
 async function loadRRPages(srcId) {
@@ -5107,10 +5124,13 @@ function wireRRGuide(r) {
   wireCarry(r);
   const key = `${S.sourceId}|${r.id}`;
   const save = (now) => {
-    $("rrSaved").textContent = "Saving…"; clearTimeout(rrgTimer);
+    const msg = t => { if ($("rrSaved")) $("rrSaved").textContent = t; };
+    msg("Saving…"); clearTimeout(rrgTimer); rrPending.add(key);
+    const src = S.sourceId;
     rrgTimer = setTimeout(async () => {
       const body = Object.fromEntries(Object.entries(rrGuide.get(key) || {}).filter(([, v]) => v === true || (Array.isArray(v) ? v.length : String(v || "").trim())));
-      try { await S.db.doc(`sources/${S.sourceId}/rrpages/${r.id}`).set(body); $("rrSaved").textContent = "Saved"; } catch { $("rrSaved").textContent = "Couldn't save"; }
+      try { await S.db.doc(`sources/${src}/rrpages/${r.id}`).set(body); msg("Saved"); } catch { msg("Couldn't save"); }
+      finally { rrSettle(key); }
     }, now ? 0 : 600);
   };
   const g = () => { const x = { ...(rrGuide.get(key) || {}) }; x.lines = structuredClone(x.lines || []); return x; };
@@ -5145,11 +5165,11 @@ function wireRRGuide(r) {
     let n = 0;
     for (const f of files) {
       if (f.size > 20 * 1024 * 1024) { notice(`${esc(f.name)} is over 20 MB, so it can't be added.`); continue; }
-      $("mapMsg").textContent = `Uploading ${f.name}…`;
+      if ($("mapMsg")) $("mapMsg").textContent = `Uploading ${f.name}…`; rrPending.add(key);
       try { const a = await S.assets.upload(f); const x = g(); (x.maps ||= []).push({ asset: a.id, url: a.url, type: a.contentType || f.type, name: f.name, caption: "", page: "" }); rrGuide.set(key, x); n++; }
       catch (err) { notice(`Couldn't upload ${esc(f.name)}${err?.message ? ": " + esc(err.message) : ""}.`); }
     }
-    if (n) put(g(), true); else if ($("mapMsg")) $("mapMsg").textContent = "";
+    if (n) put(g(), true); else { rrSettle(key); if ($("mapMsg")) $("mapMsg").textContent = ""; }
   };
   el.querySelectorAll("[data-mp]").forEach(inp => inp.addEventListener("input", () => { const x = g(); x.maps = structuredClone(x.maps || []); x.maps[+inp.dataset.mp][inp.dataset.mk] = inp.value; put(x); }));
   el.querySelectorAll("[data-mapview]").forEach(b => b.onclick = () => { const m = (rrGuide.get(key)?.maps || [])[+b.dataset.mapview]; if (!m) return;
