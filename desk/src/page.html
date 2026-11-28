@@ -840,7 +840,13 @@ function placeholderDialog(id, dir, i) {
 }
 // through-service links: lists of {rr, trainNo, stationId}; older single-link fields are read too
 const links = (tr, dir) => tr[dir === "from" ? "throughFrom" : "throughTo"] || (tr[dir === "from" ? "continuesFrom" : "continuesAs"]?.rr || tr[dir === "from" ? "continuesFrom" : "continuesAs"]?.trainNo ? [tr[dir === "from" ? "continuesFrom" : "continuesAs"]] : []);
-const LS = { get(k, d) { try { const v = localStorage.getItem("ttdesk:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem("ttdesk:" + k, JSON.stringify(v)); } catch {} } };
+// where you were (guide, table, train, railroad) is also kept in the database (prefs/desk), because the phone app doesn't always keep
+// this device's storage between visits (Dylan, Nov 27: the phone kept opening the April 1971 guide); it's used when this device has nothing
+const LS_SHARED = ["source", "table", "train", "mode", "rrSel", "rrTab"], lsShared = {};
+let lsSharedTimer = null;
+const LS = { get(k, d) { try { const v = localStorage.getItem("ttdesk:" + k); if (v != null) return JSON.parse(v); } catch {} return k in lsShared ? lsShared[k] : d; },
+  set(k, v) { try { localStorage.setItem("ttdesk:" + k, JSON.stringify(v)); } catch {}
+    if (LS_SHARED.includes(k) && lsShared[k] !== v) { lsShared[k] = v; clearTimeout(lsSharedTimer); lsSharedTimer = setTimeout(() => S.db?.doc("prefs/desk").set({ ...lsShared, at: new Date().toISOString() }).catch(() => {}), 1500); } } };
 
 const S = {
   wholeRun: true,   // the Trains page opens a train on its whole run; a table tab switches to that table's stops
@@ -5727,6 +5733,9 @@ async function start() {
   Promise.resolve(window.claude?.use?.("assets") ?? null).then(a => { S.assets = a; if (a && S.page === "railroads") renderRailroads(); }).catch(() => {});
   $("btnExport").disabled = $("btnBackup").disabled = !dl;
   if (!db) { notice("Saving isn't available in this view. Open this page on claude.ai while signed in."); await loadStations(); return; }
+  // this device remembers nothing (the phone app): pick up where the last device left off
+  try { const pd = (await db.doc("prefs/desk").get())?.data?.() || {}; for (const k of LS_SHARED) if (pd[k] != null) lsShared[k] = pd[k];
+    if (!S.sourceId && lsShared.source) { S.sourceId = lsShared.source; S.tableId = LS.get("table", ""); } } catch {}
   let picking = false;
   db.collection("sources").onSnapshot(async snap => {
     S.sources = snap.docs.map(d => ({ id: d.id, ...d.data() }));
