@@ -4999,13 +4999,14 @@ function carryHTML(r) {
       <td style="white-space:nowrap">${h ? `<button class="linkish" data-gotbl='${esc(JSON.stringify({ source: S.sourceId, table: h.id, train: "", mode: "grid" }))}'>${h.carriedFrom?.mode === "start" ? "Started from it: open to update" : "Copied: open to check"}</button>` : `<button class="small-btn" data-carry="${esc(t.id)}" data-cm="same" title="The table is the same in this guide: copy it and its trains as they are">Same table</button> <button class="small-btn" data-carry="${esc(t.id)}" data-cm="start" title="The table changed: copy it and its trains as a starting point, with its date cleared">Start from it</button>`}</td></tr>`; }).join("")}</tbody></table>
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${likely.length > 1 ? `<button class="small-btn" id="carryLikely">Copy the ${likely.length} “likely the same” tables</button>` : ""}<button class="small-btn" id="carrySec" title="Offices, route miles, equipment, notes and lines from ${esc(short)}; what you've typed here stays, and pages aren't copied">Copy the railroad's section details from ${esc(short)}</button></div></details>`;
 }
-async function carryTable(src, t, mode) {
+async function carryTable(src, t, mode, page) {
   if (S.tables.some(x => x.id === t.id)) return 0;
   const d = carryCache.get(src.id); if (!d) return 0;
   const { id: _i, ...tb } = structuredClone(t);
   delete tb.status; delete tb.page; delete tb.updatedAt; delete tb.followUp;
   if (mode === "start") for (const k of ["tableDate", "tableDatePrecision", "tableDateText"]) delete tb[k];
-  const r = S.railroads.find(x => x.abbrev === t.rr), pr = r && rrPageRange(S.sourceId, r); if (pr) tb.page = String(pr[0]);
+  const r = S.railroads.find(x => x.abbrev === t.rr), pr = r && rrPageRange(S.sourceId, r);
+  if (String(page || "").trim()) tb.page = String(page).trim(); else if (pr) tb.page = String(pr[0]);
   tb.carriedFrom = { source: src.id, mode }; tb.createdAt = new Date().toISOString();
   await S.db.doc(`${tablesPath()}/${t.id}`).set(tb);
   const ids = [];
@@ -5040,10 +5041,26 @@ async function carrySection(src, r) {
 }
 function wireCarry(r) {
   const el = $("rrPage"), src = carrySource(); if (!el || !src) return;
-  const go = async (ts, mode, btn) => {
+  const run = async (ts, mode, btn, pages) => {
     if (btn) btn.disabled = true; let n = 0, k = 0;
-    for (const t of ts) { notice(`Copying ${tlab(t)}${ts.length > 1 ? ` (${++k} of ${ts.length})` : ""}…`); n += await carryTable(src, t, mode); }
+    for (const t of ts) { notice(`Copying ${tlab(t)}${ts.length > 1 ? ` (${++k} of ${ts.length})` : ""}…`); n += await carryTable(src, t, mode, pages?.[t.id]); }
     notice(`Copied ${ts.length} table${ts.length === 1 ? "" : "s"} and ${n} train column${n === 1 ? "" : "s"} from ${src.name}.`); renderRailroads();
+  };
+  // the page always changes from one guide to the next (Dylan, Nov 27): ask for each table's page in this guide before copying
+  const go = (ts, mode, btn) => {
+    const pr = rrPageRange(S.sourceId, r), range = pr ? `${pr[0]}${pr[1] !== pr[0] ? "–" + pr[1] : ""}` : "";
+    const short = src.name.replace(/^Official Guide,?\s*/i, ""), here = curSource()?.name || "this guide";
+    dialog(`<h2>${mode === "same" ? "Copy" : "Start from"} ${ts.length === 1 ? esc(tlab(ts[0])) : ts.length + " tables"}</h2>
+      <p class="small muted" style="margin:0 0 8px">Page${ts.length === 1 ? "" : "s"} in ${esc(here)}${range ? ` (${esc(rrLabel(r))}'s section: pp. ${esc(range)})` : ""}. Left blank, a table takes the section's first page.</p>
+      <table class="sheet small"><thead><tr><th>Table</th><th>Page in ${esc(short)}</th><th>Page here</th></tr></thead><tbody>${ts.map(t => `<tr><td>${esc(tlab(t))}</td><td>${esc(t.page || "")}</td><td><input data-cpage="${esc(t.id)}" inputmode="numeric" autocomplete="off" style="width:6em" placeholder="${esc(pr ? String(pr[0]) : "")}"></td></tr>`).join("")}</tbody></table>
+      <p class="small" id="cpWarn" style="margin:6px 0 0;color:var(--warn, #a15c00)"></p>`, mode === "same" ? "Copy" : "Start from it", async () => {
+      const pages = {}; document.querySelectorAll("[data-cpage]").forEach(i => { if (i.value.trim()) pages[i.dataset.cpage] = i.value.trim(); });
+      const out = pr ? Object.entries(pages).filter(([, v]) => { const m = String(v).match(/\d+/); return m && (+m[0] < pr[0] || +m[0] > pr[1]); }) : [];
+      if (out.length && !document.getElementById("cpWarn").dataset.ok) { const w = document.getElementById("cpWarn"); w.dataset.ok = "1"; w.textContent = `${out.map(([id, v]) => `p. ${v}`).join(", ")} ${out.length === 1 ? "is" : "are"} outside the section's pages (${range}). Press ${mode === "same" ? "Copy" : "Start from it"} again to use ${out.length === 1 ? "it" : "them"} anyway.`; return ""; }
+      setTimeout(() => run(ts, mode, btn, pages), 0);
+    });
+    const ins = [...document.querySelectorAll("[data-cpage]")];
+    ins.forEach((i, j) => i.addEventListener("keydown", e => { if (e.key !== "Enter") return; e.preventDefault(); if (ins[j + 1]) ins[j + 1].focus(); else $("dOk")?.click(); }));
   };
   el.querySelectorAll("[data-carry]").forEach(b => b.onclick = () => { const t = carryCache.get(src.id)?.tables.find(x => x.id === b.dataset.carry); if (t) go([t], b.dataset.cm, b); });
   if ($("carryLikely")) $("carryLikely").onclick = e => { const cur = curSource(), d = carryCache.get(src.id); go(d.tables.filter(t => t.rr === r.abbrev && !S.tables.some(x => x.id === t.id) && carryLikelySame(t, cur, src)).sort(guideOrder), "same", e.target); };
@@ -6100,6 +6117,11 @@ async function renderHome() {
   const attn = [];
   for (const d of data) { const tm = new Map(d.tables.map(t => [t.id, t]));
     for (const tr of d.trains.filter(t => !t.copyOf && !futureRR(t, d.tables))) for (const is of trainIssues(tr, tm).filter(is => !(tr.knownIssues || {})[`check|${is.table}|${is.text}`])) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id, mode: "train" }))}'>${trL(tr)}</button> <span class="small muted">${esc(tm.get(is.table) ? `${tm.get(is.table).rr} ${tlab(tm.get(is.table))}` : "")}${data.filter(x => x.tables.length).length > 1 ? " · " + esc(d.src.name) : ""}</span> — ${esc(is.text)}${is.fix === "reverse" ? ` <button class="small-btn" data-rev='${esc(JSON.stringify({ source: d.src.id, table: is.table, train: tr.id }))}'>Put stops in time order</button>` : ""}</li>`); }
+  // a table whose page isn't among its railroad's pages in that guide (Dylan, Nov 27: copied tables keep landing on the wrong page)
+  for (const d of data) for (const t of d.tables) { const r = S.rrByAbbrev?.get(t.rr), pr = r && rrPageRange(d.src.id, r), pg = String(t.page || "").match(/\d+/);
+    if (!pr) continue;
+    if (!pg) { attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}'>${tLabel(t)}</button> <span class="small muted">${esc(d.src.name)}</span> — no page entered (${esc(rrLabel(r))}: pp. ${pr[0]}${pr[1] !== pr[0] ? "–" + pr[1] : ""})</li>`); continue; }
+    if (+pg[0] < pr[0] || +pg[0] > pr[1]) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}'>${tLabel(t)}</button> <span class="small muted">${esc(d.src.name)}</span> — page ${esc(t.page)} is outside ${esc(rrLabel(r))}'s pages (${pr[0]}${pr[1] !== pr[0] ? "–" + pr[1] : ""})</li>`); }
   for (const d of data) for (const t of d.tables.filter(t => String(t.followUp || "").trim())) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}'>${tLabel(t)}</button> <span class="small muted">${esc(d.src.name)}</span> — ⚑ ${esc(t.followUp)}</li>`);
   for (const d of data) for (const t of d.tables.filter(t => !String(t.page || "").trim())) attn.push(`<li><button class="linkish" data-go='${esc(JSON.stringify({ source: d.src.id, table: t.id, train: "", mode: "grid", then: null }))}' data-editpage="1">${tLabel(t)}</button> — no Guide page number entered, so it can't be put in Guide order. Open it and use Edit table to add the page.</li>`);
   for (const d of data) { const rrs = new Set(d.trains.map(t => trRR(t))), nos = new Set(d.trains.map(t => `${trRR(t)}|${t.trainNo}`));
