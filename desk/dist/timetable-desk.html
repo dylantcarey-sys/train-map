@@ -4596,6 +4596,7 @@ async function loadRRPages(srcId) {
 // a railroad's pages in a guide, "140–143" -> [140, 143]
 const rrPageRange = (srcId, r) => { const m = String(rrGuide.get(`${srcId}|${r?.id}`)?.pages || "").match(/(\d+)(?:\s*[-–—]\s*(\d+))?/); return m ? [+m[1], +(m[2] || m[1])] : null; };
 let rrSel = "", rrTimer = null, rrStats = null, rrgTimer = null;
+const rrSaving = new Set();   // railroad ids with a save on its way (the live list keeps their local copy meanwhile)
 let rrListTop = 0, rrListFind = "";
 async function renderRailroads() {
   const el = $("rrPage"); if (!S.db) { el.innerHTML = `<div class="card">Saving isn't available in this view.</div>`; return; }
@@ -4679,10 +4680,12 @@ async function renderRailroads() {
   const pickC = el.querySelector("[data-rrcolor]"), textC = el.querySelector('[data-rrf="color"]');
   if (pickC && textC) { pickC.addEventListener("input", () => { textC.value = pickC.value; textC.dispatchEvent(new Event("input")); }); textC.addEventListener("input", () => { if (/^#[0-9a-f]{6}$/i.test(textC.value.trim())) pickC.value = textC.value.trim(); }); }
   const saveRR = (rr, now) => {
-    $("rrSaved").textContent = "Saving…"; clearTimeout(rrTimer);
+    const msg = t => { if ($("rrSaved")) $("rrSaved").textContent = t; };
+    msg("Saving…"); clearTimeout(rrTimer); rrSaving.add(rr.id);
     rrTimer = setTimeout(async () => {
-      const { id, ...body } = rr; remember(`railroads/${id}`, S.railroads.find(x => x.id === id));
-      try { await S.db.doc(`railroads/${id}`).set(body); $("rrSaved").textContent = "Saved"; } catch { $("rrSaved").textContent = "Couldn't save"; }
+      const cur = S.railroads.find(x => x.id === rr.id) || rr, { id, ...body } = cur; remember(`railroads/${id}`, cur);
+      try { await S.db.doc(`railroads/${id}`).set(body); msg("Saved"); } catch { msg("Couldn't save"); }
+      finally { setTimeout(() => rrSaving.delete(id), 1500); }
     }, now ? 0 : 600);
   };
   el.querySelectorAll("[data-rrf]").forEach(inp => inp.addEventListener("input", () => {
@@ -6230,7 +6233,10 @@ async function start() {
   db.collection("stationfixes").onSnapshot(snap => { S.stationFixes = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (S.baseRows) { rebuildStations(); render(); } }, dbError);
   db.collection("newstations").onSnapshot(snap => { S.newStations = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (S.baseRows) { rebuildStations(); renderTrainList(); } }, dbError);
   db.collection("railroads").onSnapshot(snap => {
-    S.railroads = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.abbrev.localeCompare(b.abbrev));
+    // a railroad with a save on its way keeps its local copy: an echo of an earlier save would otherwise undo what's been typed since
+    // (Dylan, Nov 27: an ownership row's From/To/Note emptied while typing across the row)
+    const local = new Map((S.railroads || []).map(r => [r.id, r]));
+    S.railroads = snap.docs.map(d => rrSaving.has(d.id) && local.has(d.id) ? local.get(d.id) : ({ ...d.data(), id: d.id })).sort((a, b) => a.abbrev.localeCompare(b.abbrev));
     if (S.page === "railroads" && !$("rrPage").contains(document.activeElement)) renderRailroads();
     S.rrByAbbrev = new Map(S.railroads.map(r => [r.abbrev, r]));
   }, dbError);
