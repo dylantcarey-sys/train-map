@@ -4209,10 +4209,13 @@ async function renderRailroads() {
   if ($("pdAdd")) $("pdAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.periods ||= []).push({ name: "", chartered: "", from: "", to: "" }); saveRR(rr, true); renderRailroads(); };
   el.querySelectorAll("[data-pddel]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.periods.splice(+b.dataset.pddel, 1); if (!rr.periods.length) delete rr.periods; saveRR(rr, true); renderRailroads(); });
   // ownership rows
-  el.querySelectorAll("input[data-ow]").forEach(inp => inp.addEventListener("input", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners[+inp.dataset.ow][inp.dataset.ok] = inp.value; saveRR(rr); }));
+  el.querySelectorAll("input[data-ow]").forEach(inp => inp.addEventListener("input", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; if (!rr?.owners?.[+inp.dataset.ow]) return; rr.owners[+inp.dataset.ow][inp.dataset.ok] = inp.value; saveRR(rr); }));
   el.querySelectorAll("input[data-ow]").forEach(inp => inp.addEventListener("change", () => setTimeout(() => { if (!document.activeElement?.dataset?.ow) renderRailroads(); }, 0)));
-  el.querySelectorAll("select[data-ow]").forEach(sel => sel.addEventListener("change", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners[+sel.dataset.ow].rr = sel.value; saveRR(rr, true); renderRailroads(); }));
-  if ($("owAdd")) $("owAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.owners ||= []).push({ rr: "", from: "", to: "", note: "" }); renderRailroads(); setTimeout(() => $("rrPage")?.querySelector(`select[data-ow="${rr.owners.length - 1}"]`)?.focus(), 0); };
+  // picking an owner saves without redrawing: typing a name in the closed list fires change on every letter ("D" picked Delaware and Hudson
+  // before "Detroit" was typed), so the page redraws only once the list loses focus
+  el.querySelectorAll("select[data-ow]").forEach(sel => { sel.addEventListener("change", () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr?.owners?.[+sel.dataset.ow]) return; rr.owners[+sel.dataset.ow].rr = sel.value; saveRR(rr); });
+    sel.addEventListener("blur", () => setTimeout(() => { if (!document.activeElement?.dataset?.ow) renderRailroads(); }, 0)); });
+  if ($("owAdd")) $("owAdd").onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; (rr.owners ||= []).push({ rr: "", from: "", to: "", note: "" }); saveRR(rr, true); renderRailroads(); setTimeout(() => $("rrPage")?.querySelector(`select[data-ow="${rr.owners.length - 1}"]`)?.focus(), 0); };
   el.querySelectorAll("[data-owdel]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; rr.owners.splice(+b.dataset.owdel, 1); if (!rr.owners.length) delete rr.owners; saveRR(rr, true); renderRailroads(); });
   el.querySelectorAll("[data-pdmove]").forEach(b => b.onclick = () => { const rr = S.railroads.find(x => x.id === rrSel); if (!rr) return; const i = +b.dataset.pdmove, j = i + +b.dataset.by; if (j < 0 || j >= rr.periods.length) return; [rr.periods[i], rr.periods[j]] = [rr.periods[j], rr.periods[i]]; saveRR(rr, true); renderRailroads(); });
 }
